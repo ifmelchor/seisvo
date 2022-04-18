@@ -9,25 +9,57 @@ import os
 import numpy as np
 
 from seisvo import __seisvo__
+from seisvo.core import get_respfile
 from seisvo.signal import freq_bins
 from seisvo.file.lte import LTE
+from seisvo.database import SDE
 from seisvo.utils.obspyext import read2, Stream2
-from seisvo.utils.imports import get_respfile
 
 class Station(object):
-    def __init__(self, StaInfo):
-        self.info = StaInfo
+    def __init__(self, StaFile):
+        self.info = StaFile
         self.set_dates()
+
 
     def __str__(self):
         return self.info.__str__()
 
+
+    def add_event(self, sde, label, starttime, duration, **kwargs):
+        """
+        Add a new event in SDE database, for adding a row visit database/__init__ info
+        Check database atributes por kwargs
+        """
+
+        if isinstance(sde, str):
+            sde = SDE(sde)
+
+        event_to_save = {}
+        event_to_save['network'] = self.info.net
+        event_to_save['station'] = self.info.code
+        event_to_save['location'] = self.info.loc
+
+        if self.is_infrasound():
+            event_to_save['event_type'] = 'P'
+        else:
+            event_to_save['event_type'] = 'S'
+        
+        event_to_save['label'] = label
+        event_to_save['starttime'] = starttime #datetime
+        event_to_save['duration'] = duration
+        event_to_save['event_id'] = sde.last_eid() + 1
+
+        id = sde.add_row(event_to_save)
+        sde.update_row(id, kwargs)
+
+
     def is_infrasound(self):
-        # Check if the station has an infrasound channel
+        # Check if the station is an infrasound channel
         if len(self.info.chan) == 1:
             if self.info.chan[0][-1] == 'P':
                 return True
         return False
+
 
     def is_response(self):
         # Check if the instrumental response can be removed
@@ -35,6 +67,7 @@ class Station(object):
             return True
         else:
             return False
+
 
     def is_component(self, component):
         # Check if the component exist
@@ -412,6 +445,7 @@ class Station(object):
         info['threshold'] = kwargs.get("threshold", 0.0)
         info['time_bandwidth'] = kwargs.get('time_bandwidth', 3.5)
         info['remove_response'] = int(kwargs.get("remove_response", False))
+        info['th_outlier'] = kwargs.get("th_outlier", 3.2)
         info['polargram'] = polargram
         info['matrix_return'] = polarization_attr
 
@@ -421,7 +455,7 @@ class Station(object):
         return lte, file_name
 
 
-    def plot(self, channel, starttime, delta=15, return_fig=False, **kwargs):
+    def plot(self, starttime, sde, channel='all', delta=30, app=False, **kwargs):
         """ Plot seismogram of the station in a simple GUI. 
 
         Args:
@@ -431,14 +465,13 @@ class Station(object):
             return_fig (bool, optional): Return fig and axes objects. Defaults to False.
         """
 
-        from seisvo.gui.gstation import plot_station, get_fig
-        
-        if return_fig:
-            fig, axes = get_fig(self, starttime, channel, delta, **kwargs)
-            return fig, axes
+        from seisvo.gui.gstation import plot_station_gui
 
-        else:
-            plot_station(self, channel, starttime, delta, **kwargs)
+        window = plot_station_gui(self, starttime, sde, channel=channel, delta=delta, app=app, **kwargs)
+        
+        if app:
+            
+            return window
 
 
 
