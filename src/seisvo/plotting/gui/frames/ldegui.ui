@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1085</width>
+    <height>595</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>LDE Plot</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
+     <widget class="QWidget" name="widget" native="true">
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
+        <layout class="QVBoxLayout" name="verticalLayout_2"/>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1085</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menu_Database">
+    <property name="title">
+     <string>&amp;Database</string>
+    </property>
+    <addaction name="action_Open"/>
+    <addaction name="separator"/>
+    <addaction name="actionNext_2"/>
+    <addaction name="actionPrevious_2"/>
+    <addaction name="actionGo_to_ID"/>
+    <addaction name="actionGo_to_Code"/>
+    <addaction name="separator"/>
+    <addaction name="actionFilter"/>
+    <addaction name="actionReset"/>
+    <addaction name="separator"/>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menu_Event">
+    <property name="title">
+     <string>&amp;Event</string>
+    </property>
+    <addaction name="actionOpen_LTE"/>
+    <addaction name="separator"/>
+    <addaction name="actionRelabel"/>
+    <addaction name="actionSet_Starttime"/>
+    <addaction name="separator"/>
+    <addaction name="actionRemove"/>
+   </widget>
+   <widget class="QMenu" name="menu_Plots">
+    <property name="title">
+     <string>&amp;Plots</string>
+    </property>
+    <addaction name="actionPlot_Scatter"/>
+    <addaction name="actionActivity"/>
+    <addaction name="separator"/>
+    <addaction name="actionPlot_3D"/>
+   </widget>
+   <widget class="QMenu" name="menu_View">
+    <property name="title">
+     <string>&amp;View</string>
+    </property>
+    <addaction name="actionODP"/>
+    <addaction name="actionContinuous"/>
+    <addaction name="actionStep_Range"/>
+   </widget>
+   <addaction name="menu_Database"/>
+   <addaction name="menu_Event"/>
+   <addaction name="menu_Plots"/>
+   <addaction name="menu_View"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionRelabel">
+   <property name="text">
+    <string>Relabel</string>
+   </property>
+  </action>
+  <action name="actionRemove">
+   <property name="text">
+    <string>Remove</string>
+   </property>
+  </action>
+  <action name="actionSet_Starttime">
+   <property name="text">
+    <string>Set Starttime</string>
+   </property>
+  </action>
+  <action name="action_Open">
+   <property name="text">
+    <string>&amp;Open</string>
+   </property>
+  </action>
+  <action name="actionExit">
+   <property name="text">
+    <string>Exit</string>
+   </property>
+  </action>
+  <action name="actionGo_to_ID">
+   <property name="text">
+    <string>Go to ID...</string>
+   </property>
+  </action>
+  <action name="actionGo_to_Code">
+   <property name="text">
+    <string>Go to Code...</string>
+   </property>
+  </action>
+  <action name="actionReset">
+   <property name="text">
+    <string>Reset</string>
+   </property>
+  </action>
+  <action name="actionFilter">
+   <property name="text">
+    <string>Filter...</string>
+   </property>
+  </action>
+  <action name="actionPlot_Scatter">
+   <property name="text">
+    <string>Scatter...</string>
+   </property>
+  </action>
+  <action name="actionActivity">
+   <property name="text">
+    <string>Activity...</string>
+   </property>
+  </action>
+  <action name="actionOpen_LTE">
+   <property name="text">
+    <string>Open LTE...</string>
+   </property>
+  </action>
+  <action name="actionODP">
+   <property name="text">
+    <string>ODP...</string>
+   </property>
+  </action>
+  <action name="actionContinuous">
+   <property name="text">
+    <string>Full Range</string>
+   </property>
+  </action>
+  <action name="actionStep_Range">
+   <property name="text">
+    <string>Step Range...</string>
+   </property>
+  </action>
+  <action name="actionNext">
+   <property name="text">
+    <string>Next</string>
+   </property>
+  </action>
+  <action name="actionPrevious">
+   <property name="text">
+    <string>Previous</string>
+   </property>
+  </action>
+  <action name="actionNext_2">
+   <property name="text">
+    <string>Next</string>
+   </property>
+  </action>
+  <action name="actionPrevious_2">
+   <property name="text">
+    <string>Previous</string>
+   </property>
+  </action>
+  <action name="actionPSD">
+   <property name="text">
+    <string>PSD</string>
+   </property>
+  </action>
+  <action name="actionPlot_3D">
+   <property name="text">
+    <string>Plot 3D</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
