@@ -4,21 +4,13 @@
  This module extend the obspy modules
 '''
 
-import os
-import pickle
 import numpy as np
 from scipy import signal
-from datetime import timedelta, datetime
-
-# import matplotlib.pyplot as plt
-# import matplotlib.ticker as mtick
-# import matplotlib.dates as mdates
+from datetime import timedelta
 
 from obspy import Stream, Trace, read, UTCDateTime
-from obspy.core.util import create_empty_data_chunk
-from obspy.signal.invsim import cosine_taper
-from seisvo.signal.spectrum import spectrogram
-
+# from obspy.core.util import create_empty_data_chunk
+# from obspy.signal.invsim import cosine_taper
 
 def read2(*args, **kwargs):
     st = read(*args, **kwargs)
@@ -28,7 +20,7 @@ def read2(*args, **kwargs):
 class Trace2(Trace):
     def __init__(self, trace):
         super().__init__(data=trace.data, header=trace.stats)
-        
+    
 
     def get_data(self, starttime=None, endtime=None, detrend=True, fq_band=(), **kwargs):
         """
@@ -83,6 +75,7 @@ class Trace2(Trace):
 
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
+        from seisvo.signal.spectrum import spectrogram
 
         v_min = kwargs.get("v_min", None)
         v_max = kwargs.get("v_max", None)
@@ -208,10 +201,9 @@ class Trace2(Trace):
         :param opt_return: boolean. If True, function also return the centroid and dominant of the PSD
         """
 
-        from seisvo.signal.spectrum import power_density_spectrum
-
-        if opt_return:
-            from seisvo.signal.spectrum import get_centroid, get_dominant
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as mtick
+        from seisvo.signal.spectrum import power_density_spectrum, get_centroid, get_dominant
 
         if starttime:
             start_time = UTCDateTime(starttime)
@@ -222,7 +214,7 @@ class Trace2(Trace):
         else:
             end_time = self.stats.endtime
 
-        data = self.get_data(starttime=starttime, endtime=endtime, detrend=True, **kwargs)
+        data = self.get_data(starttime=start_time, endtime=end_time, detrend=True, **kwargs)
         psd, freq = power_density_spectrum(data, self.stats.sampling_rate, fq_band=fq_band,
             avg_step=avg_step, **kwargs)
 
@@ -300,8 +292,8 @@ class Trace2(Trace):
         else:
             end_time = self.stats.endtime
 
-        data = self.get_data(starttime=starttime, endtime=endtime, detrend=True, fq_band=fq_band)
-        psd, freq = power_density_spectrum(data, self.stats.sampling_rate, fq_band=fq_band,
+        data = self.get_data(starttime=start_time, endtime=end_time, detrend=True, fq_band=fq_band)
+        psd, _ = power_density_spectrum(data, self.stats.sampling_rate, fq_band=fq_band,
             avg_step=avg_step, **kwargs)
 
         return sum(psd), sum(np.power(data,2))*self.stats.delta
@@ -423,7 +415,7 @@ class Stream2(Stream):
     
 
     def get(self, *args, **kwargs):
-        st = self.select( *args, **kwargs)
+        st = self.select(*args, **kwargs)
         if st:
             return Trace2(st[0])
         else:
@@ -557,8 +549,7 @@ class Stream2(Stream):
         :return:
         """
 
-        from seisvo.signal.polarization import polarization_content, polar_degree
-        from seisvo.utils.plotting import plot_gram
+        from seisvo.signal.polarization import polar_degree
         from seisvo.signal import freq_bins, _nearest_pow_2
 
         Z = self.get_component('Z', station=station)

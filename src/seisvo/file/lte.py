@@ -7,29 +7,97 @@ Read write and operate .lte files
 
 '''
 
+import os
 import h5py
 import numpy as np
 import pandas as pd
-import os
-
 from scipy import signal
 from scipy.stats import gaussian_kde
 from antropy import perm_entropy
-
+from pytictoc import TicToc
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from obspy.core.util.attribdict import AttribDict
 from datetime import datetime, timedelta
 from itertools import chain
 
-from obspy.core.util.attribdict import AttribDict
-
-import seisvo.utils.plotting as sup
-from seisvo.utils.dates import tic, toc
-from seisvo.signal import peakdetect
+# import seisvo.utils.plotting as sup
+from seisvo.core.network import Network
 from seisvo.signal.pdf import get_PDF, get_KDE
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+SCALAR_PARAMS = [
+    'fq_dominant',
+    'fq_centroid',
+    'energy',
+    'pentropy',
+    'rsam',
+    'mf',
+    'hf',
+    'dsar',
+    'rsam_f',
+    'mf_f',
+    'hf_f',
+    'dsar_f'
+]
+
+SCALAR_OPT_PARAMS = [
+    'dsar',
+    'dsar_f',
+]
+
+VECTORAL_PARAMS = [
+    'specgram',
+    'degree'
+    ]
+
+VECTORAL_OPT_PARAMS = [
+    'dip',
+    'rect',
+    'azm'
+    ]
+
+AMP_PARAMS = [
+    'rsam',
+    'mf',
+    'hf',
+    'pentropy',
+    'dsar',
+    'rsam_f',
+    'mf_f',
+    'hf_f',
+    'dsar_f'
+]
+
+SPEC_PARAMS = [
+    'specgram',
+    'fq_dominant',
+    'fq_centroid',
+    'energy'
+]
+
+POLAR_PARAMS = [
+    'degree',
+    'dip',
+    'azm',
+    'rect',
+    'fq_polar',
+    'degree_max',
+    'degree_wavg'
+]
+
+
+def get_group(attr):
+        if attr in AMP_PARAMS:
+            return 'amplitude'
+
+        if attr in SPEC_PARAMS:
+            return 'spectral'
+
+        if attr in POLAR_PARAMS:
+            return 'polar'
+
 
 NoneType = type(None)
 
-LIST_ATTR = ['energy', 'pentropy', 'fq_dominant', 'fq_centroid', 'specgram', 'fq_polar', 'degree_max', 'degree_wavg', 'degree', 'rect']
 
 default_bandwidth = {
             'frec': 0.01,
@@ -49,6 +117,7 @@ default_peak_thresholds = {
     'azm_std':10,
     'dip_std':10
 }
+
 
 class LTEstats(AttribDict):
     def __init__(self, header):
@@ -105,22 +174,26 @@ class LTE(object):
         self.lte_file = lte_file
         self.__set_stats__()
 
-        self.__groups__ = ('amplitude', 'spectral', 'polar')
-        self.__attrs__ = [
-                        'energy',
-                        'rsam',
-                        'mf',
-                        'hf',
-                        'dsar',
-                        'pentropy',
-                        'specgram',
-                        'fq_dominant',
-                        'fq_centroid',
-                        'degree',
-                        'rect',
-                        'azm',
-                        'dip',
-                        ]
+        self.__groups__ = (
+            'amplitude', 
+            'spectral', 
+            'polar'
+            )
+
+        self.__attrs__ = SCALAR_PARAMS
+        
+        if self.stats.polargram:
+            self.__attrs__ += VECTORAL_PARAMS
+            
+            if self.stats.matrix_return:
+                self.__attrs__ += VECTORAL_OPT_PARAMS
+        
+        else:
+            self.__attrs__ += [VECTORAL_PARAMS[0]]
+        
+        if self.stats.remove_response:
+            self.__attrs__ += SCALAR_OPT_PARAMS
+        
         self.stats.add_atributtes(self.__attrs__)
 
 
@@ -129,19 +202,14 @@ class LTE(object):
 
 
     def is_matrix(self, attr):
-        if attr in ('fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam', 'mf', 'hf', 'dsar', 'rsam_f', 'mf_f', 'hf_f', 'dsar_f'):
+        if attr in SCALAR_PARAMS:
             return False
 
-        if attr in ('dip', 'rect', 'azm'):
-            return self.stats.matrix_return
-
-        if attr in ('specgram', 'degree'):
+        if attr in VECTORAL_PARAMS:
             return True
 
 
     def __set_stats__(self):
-        from seisvo import Network
-
         with h5py.File(self.lte_file, "r") as f:
             hdr = f['header']
             self.stats = LTEstats({
@@ -168,17 +236,6 @@ class LTE(object):
         loc = self.stats.id.split('.')[2]
 
         self.station = Network(net).get_sta(sta, loc=loc)
-
-
-    def get_group(self, attr):
-        if attr in ('rsam', 'mf', 'hf', 'pentropy', 'dsar', 'rsam_f', 'mf_f', 'hf_f', 'dsar_f'):
-            return 'amplitude'
-
-        if attr in ('specgram', 'fq_dominant', 'fq_centroid', 'energy'):
-            return 'spectral'
-
-        if attr in ('degree', 'dip', 'azm', 'rect', 'fq_polar', 'degree_max', 'degree_wavg'):
-            return 'polar'
 
 
     def get_dataset(self, group, attr, index):
@@ -252,7 +309,10 @@ class LTE(object):
         :return: numpy array
         """
 
-        gr = self.get_group(attr)
+        if attr not in self.__attrs__:
+            raise ValueError(' attribute nor in %s' %self.__attrs__)
+
+        gr = get_group(attr)
         (i, j) = self.get_index(starttime, endtime)
         dset = self.get_dataset(gr, attr, (i,j))
 
@@ -270,22 +330,7 @@ class LTE(object):
         Return (min,max,mean,mode)
         """
 
-        time_series_list = [
-            'energy', 
-            'pentropy', 
-            'fq_dominant', 
-            'fq_centroid', 
-            'rsam', 
-            'dsar', 
-            'mf',
-            'hf',
-            'rsam_f', 
-            'mf_f', 
-            'hf_f', 
-            'dsar_f'
-            ]
-
-        if attr not in time_series_list:
+        if attr not in SCALAR_PARAMS:
             raise ValueError ('attr must be a scalar parameter')
 
         data = self.get_attr(attr, starttime=starttime, endtime=endtime)
@@ -345,27 +390,12 @@ class LTE(object):
             nan_data = np.array([np.nan]).reshape(1,)
             nan_array = np.full((1, self.stats.freq_bins), np.nan)
 
-            dict_in = {
-                'energy':nan_data,
-                'pentropy':nan_data,
-                'fq_dominant':nan_data,
-                'fq_centroid':nan_data,
-                'rsam':nan_data,
-                'mf':nan_data,
-                'hf':nan_data,
-                'dsar':nan_data,
-                'rsam_f':nan_data,
-                'mf_f':nan_data,
-                'hf_f':nan_data,
-                'dsar_f':nan_data
-            }
-            dict_in['specgram'] = nan_array
-
-            if self.stats.polargram:
-                dict_in['degree'] = nan_array
-
-                if self.stats.matrix_return:
-                    dict_in['azm'] = dict_in['dip'] = dict_in['rect'] = nan_array
+            dict_in = {}
+            for attr in self.__attrs__:
+                if attr in SPEC_PARAMS:
+                    dict_in[attr] = nan_data
+                if attr in VECTORAL_PARAMS:
+                    dict_in[attr] = nan_array
 
         for attr in dict_in.keys():
             gr = self.get_group(attr)
@@ -379,6 +409,7 @@ class LTE(object):
 
         start_time = self.stats.starttime
         time_delta = timedelta(minutes=self.stats.time_step)
+        t = TicToc()
 
         if self.stats.avg_step == self.stats.time_step:
             avg_step = None
@@ -386,61 +417,69 @@ class LTE(object):
             avg_step = self.stats.avg_step
 
         for tbin in range(self.stats.time_bins):
-            tic()
+            t.tic()
             save_dict = {}
             step_pcent = int(100*tbin/self.stats.time_bins)
             str_time = start_time.strftime('%Y-%m-%d %H:%M:%S')
             status_text = None
             freq = None
 
+            # channel
+            chan = self.stats.id.split('.')[-1]
+            
             try:
-                chan = self.stats.id.split('.')[-1]
-                if self.stats.polargram:
-                    st3 = self.station.get_stream(start_time, start_time + time_delta, 
+                st3 = self.station.get_stream(start_time, start_time + time_delta, 
                         remove_response=self.stats.remove_response, sample_rate=self.stats.sampling_rate)
-                    start = max([tr.stats.starttime for tr in st3])
-                    end = min([tr.stats.endtime for tr in st3])
-                    trace = st3.get_component(chan[-1])
-                else:
-                    st = self.station.get_stream(start_time, start_time + time_delta, 
-                        remove_response=self.stats.remove_response,
-                        sample_rate=self.stats.sampling_rate,
-                        component=chan[-1])
-                    start = start_time
-                    end = start_time + time_delta
-                    trace = st[0]
-                stats = trace.stats
+                trace = st3.get(component=chan[-1])
+
+                # if self.stats.polargram:
+                #     st3 = self.station.get_stream(start_time, start_time + time_delta, 
+                #         remove_response=self.stats.remove_response, sample_rate=self.stats.sampling_rate)
+                #     trace = st3.get_component(chan[-1])
+                #     # start = max([tr.stats.starttime for tr in st3])
+                #     # end = min([tr.stats.endtime for tr in st3])
+                
+                # else:
+                #     st = self.station.get_stream(start_time, start_time + time_delta, 
+                #         remove_response=self.stats.remove_response, sample_rate=self.stats.sampling_rate,
+                #         component=chan[-1])
+                #     # start = start_time
+                #     # end = start_time + time_delta
+                #     trace = st[0]
+                # stats = trace.stats
 
             except:
                 status_text = '\x1b[0;31;40m' + 'Fail 1 (stream)' + '\x1b[0m'
                 self.__save_dict__(save_dict, tbin, nan=True)
-                toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
+                t.toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
                 start_time += time_delta
                 continue
 
             try:
                 spec = trace.psd(avg_step=avg_step, plot=False, return_fig=False, opt_return=True, **kwargs)
-                save_dict['fq_dominant'] = np.array([spec[2][0]]).reshape(1,) 
+                
+                save_dict['fq_dominant'] = np.array([spec[2][0]]).reshape(1,)
                 save_dict['fq_centroid'] = np.array([spec[2][1]]).reshape(1,)
                 save_dict['specgram'] = spec[0].reshape(1, self.stats.freq_bins)
 
+                rsam = np.abs(trace.get_data(detrend=True, fq_band=(2,4.5)))
+                mf = np.abs(trace.get_data(detrend=True, fq_band=(4,8)))
+                hf = np.abs(trace.get_data(detrend=True, fq_band=(8,16)))
+                seg_twindow = int(150*self.stats.sampling_rate)
+                
+                save_dict['rsam'] = rsam.mean().reshape(1,)
+                save_dict['rsam_f'] = np.array([remove_outlier(rsam, seg_twindow, self.stats.th_outlier)]).reshape(1,)
+
+                save_dict['mf'] = mf.mean().reshape(1,)
+                save_dict['mf_f'] = np.array([remove_outlier(mf, seg_twindow, self.stats.th_outlier)]).reshape(1,)
+
+                save_dict['hf'] = hf.mean().reshape(1,)
+                save_dict['hf_f'] = np.array([remove_outlier(hf, seg_twindow, self.stats.th_outlier)]).reshape(1,)
+
                 if self.stats.remove_response:
-                    rsam = np.abs(trace.get_data(detrend=True, fq_band=(2,4.5)))
-                    mf = np.abs(trace.get_data(detrend=True, fq_band=(4,8)))
-                    hf = np.abs(trace.get_data(detrend=True, fq_band=(8,16)))
-                    seg_twindow = int(150*self.stats.sampling_rate)
-                    
-                    save_dict['rsam'] = rsam.mean().reshape(1,)
-                    save_dict['rsam_f'] = np.array([remove_outlier(rsam, seg_twindow, self.stats.th_outlier)]).reshape(1,)
-
-                    save_dict['mf'] = mf.mean().reshape(1,)
-                    save_dict['mf_f'] = np.array([remove_outlier(mf, seg_twindow, self.stats.th_outlier)]).reshape(1,)
-
-                    save_dict['hf'] = hf.mean().reshape(1,)
-                    save_dict['hf_f'] = np.array([remove_outlier(hf, seg_twindow, self.stats.th_outlier)]).reshape(1,)
-
                     dst_mf = self.station.get_stream(start_time, start_time + time_delta, component='Z',
                         remove_response='DISP', sample_rate=self.stats.sampling_rate, prefilt=(4,8))
+                    
                     dst_hf = self.station.get_stream(start_time, start_time + time_delta, component='Z',
                         remove_response='DISP', sample_rate=self.stats.sampling_rate, prefilt=(8,16))
                     
@@ -458,14 +497,14 @@ class LTE(object):
             except:
                 status_text = '\x1b[0;31;40m' + 'Fail 2 (spec)' + '\x1b[0m'
                 self.__save_dict__(save_dict, tbin, nan=True)
-                toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
+                t.toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
                 start_time += time_delta
                 continue
 
-            if np.isnan([save_dict[attr] for attr in ('fq_dominant', 'fq_centroid', 'energy', 'pentropy')]).any():
+            if np.isnan([save_dict[attr] for attr in ('fq_dominant', 'energy', 'pentropy')]).any():
                 status_text = '\x1b[0;31;40m' + 'Fail 3 (spec)' + '\x1b[0m'
                 self.__save_dict__(save_dict, tbin, nan=True)
-                toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
+                t.toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
                 start_time += time_delta
                 continue
 
@@ -485,10 +524,9 @@ class LTE(object):
                 
                 except:
                     status_text = '\x1b[0;31;40m' + 'Fail 4 (polr)' + '\x1b[0m'
-                    nan_data = np.array([np.nan]).reshape(1,)
                     nan_array = np.full((1, self.stats.freq_bins), np.nan)
-                    save_dict['degree'] = nan_array
 
+                    save_dict['degree'] = nan_array
                     if self.stats.matrix_return:
                         save_dict['azm'] = save_dict['dip'] = save_dict['rect'] = nan_array
 
@@ -500,7 +538,7 @@ class LTE(object):
                 self.__save_data__("spectral", 'freq', freq, item=0)
 
             self.__save_dict__(save_dict, tbin)
-            toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
+            t.toc(' %d%% ... Time: %s --- Status: : %s' % (step_pcent, str_time, status_text))
             start_time += time_delta
 
         print('')
@@ -718,281 +756,8 @@ class LTE(object):
         return pdf
 
 
-    def __get_tremors__(self, time_window, overlap, r_min, pavg_min, pmax_min, **kwargs):
-
-        """Automatic detection of tremor based on the reduced parameters
-
-        Args:
-            lte : LTE file
-            time_window (int): hours
-            overlap (int): hours
-            r_min: threshold for correlation energy--entropy
-            pavg_min: threshold for polarization degree average
-            pmax_min: threshold for polarization degree dominant
-
-            return_value (bool, optional): If True return correlation value. Defaults to False.
-
-        Returns:
-            [list of tuple]: (Starttime, timedelta) of the tremor event
-        """
-
-        gaussian = kwargs.get('gaussian', False)
-
-        if gaussian:
-            from scipy.stats import gaussian_kde
-
-        nro_bins = self.stats.time_bins
-        step_bin = int(time_window/(self.stats.time_step/60))
-        overlap_bin = int(overlap/(self.stats.time_step/60))
-
-        time_interval = kwargs.get('time_interval', ())
-        return_value = kwargs.get('return_value', False)
-
-        if time_interval:
-            starttime = time_interval[0]
-            endtime = time_interval[1]
-        else:
-            starttime = self.stats.starttime
-            endtime = self.stats.endtime
-
-        time_series = self.get_time(starttime=starttime, endtime=endtime)
-        energy_data = self.get_attr('energy', starttime=starttime, endtime=endtime)
-        h_data = self.get_attr('pentropy', starttime=starttime, endtime=endtime)
-        pwavg_data = self.get_attr('degree_wavg', starttime=starttime, endtime=endtime)
-        pmax_data = self.get_attr('degree_max', starttime=starttime, endtime=endtime)
-    
-        if return_value:
-            out_dir = {'time': [], 
-                       'r_eh':[], 
-                       'r_eh_thr':r_min, 
-                       'pmax':[],
-                       'pmax_thr':pmax_min,
-                       'pavg':[],
-                       'pavg_thr':pavg_min,
-                       'e': [], 
-                       'h': []
-                       }
-
-        init_bin = 0
-        save_times = []
-        while init_bin+step_bin <= nro_bins:
-            cond_list = []
-            energy_bin = 10*np.log10(energy_data[init_bin:init_bin+step_bin])
-            h_bin = h_data[init_bin:init_bin+step_bin]
-            pwavg_bin = pwavg_data[init_bin:init_bin+step_bin]
-            pmax_bin = pmax_data[init_bin:init_bin+step_bin]
-
-            true_pwavg = pwavg_bin[np.isfinite(pwavg_bin)]
-            true_pmax = pmax_bin[np.isfinite(pmax_bin)]
-            true_energy = energy_bin[np.isfinite(energy_bin)]
-            true_pentropy = h_bin[np.isfinite(h_bin)]
-
-            if len(true_pwavg)>10:
-                if gaussian:
-                    v_min = true_pwavg.min()
-                    v_max = true_pwavg.max()
-                    x_range = np.linspace(v_min, v_max, 10)
-                    gkde = gaussian_kde(true_pwavg)
-                    kde = gkde(x_range)
-                    pwavg_mean = x_range[np.argmax(kde)]
-
-                    v_min = true_pmax.min()
-                    v_max = true_pmax.max()
-                    x_range = np.linspace(v_min, v_max, 10)
-                    gkde = gaussian_kde(true_pmax)
-                    kde = gkde(x_range)
-                    pmax_mean = x_range[np.argmax(kde)]
-                else:
-                    pwavg_mean = true_pwavg.mean()
-                    pmax_mean = true_pmax.mean()
-
-                cond_list += [pwavg_mean >= pavg_min]
-                cond_list += [pmax_mean >= pmax_min]
-            else:
-                cond_list += [False]
-                pwavg_mean = np.nan
-                pmax_mean = np.nan
-
-            if len(true_energy)>10:
-                if gaussian:
-                    v_min = true_energy.min()
-                    v_max = true_energy.max()
-                    x_range = np.linspace(v_min, v_max, 10)
-                    gkde = gaussian_kde(true_energy)
-                    kde = gkde(x_range)
-                    energy_mean = x_range[np.argmax(kde)]
-                else:
-                    energy_mean = true_energy.mean()
-            else:
-                cond_list += [False]
-                energy_mean = np.nan
-            
-            if len(true_pentropy)>10:
-                if gaussian:
-                    v_min = true_pentropy.min()
-                    v_max = true_pentropy.max()
-                    x_range = np.linspace(v_min, v_max, 10)
-                    gkde = gaussian_kde(true_pentropy)
-                    kde = gkde(x_range)
-                    h_mean = x_range[np.argmax(kde)]
-                else:
-                    h_mean = true_pentropy.mean()
-            else:
-                cond_list += [False]
-                h_mean = np.nan
-
-            # do correlation
-            if len(true_energy)>10 and len(true_pentropy)>10:
-                r_eh = np.corrcoef(energy_bin, h_bin)[0, 1]
-                cond_list += [r_eh <= r_min]
-            else:
-                r_eh = np.nan
-
-            if return_value:
-                out_dir['time'] += [time_series[init_bin+int(step_bin/2)]]
-                out_dir['pavg'] += [pwavg_mean]
-                out_dir['pmax'] += [pmax_mean]
-                out_dir['e'] += [energy_mean]
-                out_dir['h'] += [h_mean]
-                out_dir['r_eh'] += [r_eh]
-
-            if all(cond_list):
-                # If any of the attributes is not availabled, 
-                # the algortihm will not find tremors.
-                save_times += [time_series[init_bin]]
-
-            init_bin += step_bin - overlap_bin
-
-        tremors = []
-        true_tremors = []
-        
-        if save_times:
-            time_delta = timedelta(hours=time_window)
-            
-            for t0, t1 in zip(save_times[:-1], save_times[1:]):
-                if t0 < t1 and t0 + time_delta >= t1:
-                    duration = (t1-t0) + time_delta
-                
-                else:
-                    duration = time_delta
-                
-                tremors += [(t0, duration)]
-        
-            def check_tremors(tr_list):
-                ans = []
-                for tr0, tr1 in zip(tr_list[:-1], tr_list[1:]):
-                    if tr0[0] < tr1[0] and tr0[0] + tr0[1] >= tr1[0]:
-                        ans += [True]
-                    
-                    else:
-                        ans += [False]
-                
-                return any(ans)
-
-            while check_tremors(tremors):
-                for tr0, tr1 in zip(tremors[:-1], tremors[1:]):
-                    cond1 = tr0[0] < tr1[0]
-                    cond2 = tr0[0] + tr0[1] > tr1[0]
-
-                    if cond1 and cond2:
-                        tr01 = (tr0[0], (tr1[0] + tr1[1]) - tr0[0])
-                        tremors[tremors.index(tr0)] = tr01
-                        tremors.remove(tr1)
-                        break
-
-            # last filter:
-            for (st, duration) in tremors:
-                cond_list = []
-
-                energy_data = self.get_attr('energy', starttime=st, endtime=st+duration)
-                energy_data = 10*np.log10(energy_data)
-                h_data = self.get_attr('pentropy', starttime=st, endtime=st+duration)
-                r_eh = np.corrcoef(energy_data, h_data)[0, 1]
-                cond_list += [r_eh <= r_min]
-
-                pwavg_data = self.get_attr('degree_wavg', starttime=st, endtime=st+duration)
-                pmax_data = self.get_attr('degree_max', starttime=st, endtime=st+duration)
-                true_pwavg = pwavg_data[np.isfinite(pwavg_data)]
-                true_pmax = pmax_data[np.isfinite(pmax_data)]
-
-                if gaussian:
-                    v_min = true_pwavg.min()
-                    v_max = true_pwavg.max()
-                    x_range = np.linspace(v_min, v_max, 10)
-                    gkde = gaussian_kde(true_pwavg)
-                    kde = gkde(x_range)
-                    pwavg_mean = x_range[np.argmax(kde)]
-
-                    v_min = true_pmax.min()
-                    v_max = true_pmax.max()
-                    x_range = np.linspace(v_min, v_max, 10)
-                    gkde = gaussian_kde(true_pmax)
-                    kde = gkde(x_range)
-                    pmax_mean = x_range[np.argmax(kde)]
-                else:
-                    pwavg_mean = true_pwavg.mean()
-                    pmax_mean = true_pmax.mean()
-
-                cond_list += [pwavg_mean >= pavg_min]
-                cond_list += [pmax_mean >= pmax_min]
-
-                if all(cond_list):
-                    true_tremors += [(st, duration)]
-
-        if return_value:
-            return true_tremors, out_dir
-
-        return true_tremors
-
-
-    def detect_tremors(self, time_window, overlap, r_min=-0.35, pavg_min=0.35, pmax_min=0.7, **kwargs):
-        
-        plot = kwargs.get('plot', True)
-        figsize = kwargs.get('figsize', (17,5))
-        fill_white = kwargs.get('fill_white', ())
-        return_fig = kwargs.get('return_fig', False)
-        fine_detection = kwargs.get('fine_detection', True)
-
-        # huge deetection
-        huge_tremors, out_dir = self.__get_tremors__(time_window, 
-                                                   overlap, 
-                                                   r_min, 
-                                                   pavg_min, 
-                                                   pmax_min,
-                                                   return_value=True)
-
-        # fine detection
-        if fine_detection:
-            all_tremors = []
-            for tr in huge_tremors:
-                if float(tr[1].total_seconds()/3600) == time_window:
-                    start_time = tr[0]
-                    end_time = tr[0] + tr[1]
-                    reduced_tw = int(time_window/3)
-                    reduced_olap = int(overlap/3)
-
-                    if reduced_tw == 0:
-                        reduced_tw = 1
-
-                    fine_tremors = self.__get_tremors__(reduced_tw,
-                                                        reduced_olap,
-                                                        r_min=r_min,
-                                                        pavg_min=pavg_min,
-                                                        pmax_min=pmax_min,
-                                                        return_value=False,
-                                                        time_interval=(start_time, end_time))
-                    all_tremors += fine_tremors
-                
-                else:
-                    all_tremors += [tr]
-        else:
-            all_tremors = huge_tremors
-
-        if return_fig:
-            fig = plot_tr_detection(out_dir, tremors=all_tremors, figsize=figsize, plot=plot, fill_white=fill_white)
-            return all_tremors, out_dir, fig
-
-        return all_tremors, out_dir
+    def get_Peaks(self, fq_range=(), peak_thresholds={}):
+        return Peaks(self, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
 
     @staticmethod
@@ -1069,15 +834,15 @@ class LTE(object):
         # amplitude
         amp = f.create_group("amplitude")
         amp.create_dataset('pentropy', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+        amp.create_dataset('rsam', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+        amp.create_dataset('rsam_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+        amp.create_dataset('mf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+        amp.create_dataset('mf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+        amp.create_dataset('hf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+        amp.create_dataset('hf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
 
         if headers['remove_response']:
-            amp.create_dataset('rsam', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            amp.create_dataset('mf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            amp.create_dataset('hf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
             amp.create_dataset('dsar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            amp.create_dataset('rsam_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            amp.create_dataset('mf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            amp.create_dataset('hf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
             amp.create_dataset('dsar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
 
         f.flush()
@@ -1087,9 +852,6 @@ class LTE(object):
         lte.__compute__(**kwargs)
 
         return lte
-
-    def get_Peaks(self, fq_range=(), peak_thresholds={}):
-        return Peaks(self, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
 
 class Peaks(LTE):

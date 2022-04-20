@@ -1,19 +1,18 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-from obspy import UTCDateTime
+import os
 from datetime import datetime, timedelta
 from glob import glob
-
-import os
 import numpy as np
 
 from seisvo import __seisvo__
 from seisvo.core import get_respfile
+from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins
+
 from seisvo.file.lte import LTE
-from seisvo.database import SDE
-from seisvo.utils.obspyext import read2, Stream2
+from seisvo.database import SDE, LDE
 
 class Station(object):
     def __init__(self, StaFile):
@@ -51,6 +50,34 @@ class Station(object):
 
         id = sde.add_row(event_to_save)
         sde.update_row(id, kwargs)
+    
+
+    def add_episode(self, lde, label, starttime, duration, **kwargs):
+        """
+        Add a new episode in LDE database, for adding a row visit database/__init__ info
+        Check database atributes por kwargs
+        """
+
+        if isinstance(lde, str):
+            lde = LDE(lde)
+
+        event_to_save = {}
+        event_to_save['network'] = self.info.net
+        event_to_save['station'] = self.info.code
+        event_to_save['location'] = self.info.loc
+
+        if self.is_infrasound():
+            event_to_save['event_type'] = 'P'
+        else:
+            event_to_save['event_type'] = 'S'
+        
+        event_to_save['label'] = label
+        event_to_save['starttime'] = starttime #datetime
+        event_to_save['duration'] = duration
+        event_to_save['event_id'] = lde.last_eid() + 1
+
+        # id = lde.add_row(event_to_save)
+        # lde.update_row(id, kwargs)
 
 
     def is_infrasound(self):
@@ -61,12 +88,8 @@ class Station(object):
         return False
 
 
-    def is_response(self):
-        # Check if the instrumental response can be removed
-        if get_respfile(self.info.net, self.info.code, self.info.loc):
-            return True
-        else:
-            return False
+    def get_response(self):
+        return get_respfile(self.info.net, self.info.code, self.info.loc)
 
 
     def is_component(self, component):
@@ -122,17 +145,6 @@ class Station(object):
                 return (lat, lon, zn, zl)
             else:
                 return utm.from_latlon(lat, lon)
-
-
-    def get_sampling_rate(self, starttime=None):
-        # reed first file
-        one_min = timedelta(minutes=1)
-
-        if starttime is None:
-            starttime = self.info.starttime
-
-        st = self.get_stream(starttime, starttime + one_min)
-        return st[0].stats.sampling_rate
 
 
     def set_dates(self, chan=None):
@@ -251,7 +263,7 @@ class Station(object):
         :param endtime: datetime object. optinal
         """
 
-        from seisvo.utils.plotting import pplot_control
+        from seisvo.plotting import pplot_control
 
         if chan not in self.info.chan:
             raise TypeError('Channel not loaded')
@@ -353,32 +365,35 @@ class Station(object):
             return None
 
         else:
-            if pad_zeros:
-                for trace in st:
-                    true_starttime = trace.stats.starttime.datetime
-                    true_endtime = trace.stats.endtime.datetime
-                    fs = trace.stats.sampling_rate
+            # if pad_zeros:
+            #     for trace in st:
+            #         true_starttime = trace.stats.starttime.datetime
+            #         true_endtime = trace.stats.endtime.datetime
+            #         fs = trace.stats.sampling_rate
 
-                    if starttime != true_starttime:
-                        sec_diff = abs((starttime - true_starttime).total_seconds())
-                        zeros = np.zeros(int(fs*sec_diff))
-                        trace.data = np.concatenate((zeros, trace.data))
-                        trace.starttime = UTCDateTime(starttime)
+            #         if starttime != true_starttime:
+            #             sec_diff = abs((starttime - true_starttime).total_seconds())
+            #             zeros = np.zeros(int(fs*sec_diff))
+            #             trace.data = np.concatenate((zeros, trace.data))
+            #             trace.starttime = UTCDateTime(starttime)
 
-                    if endtime != true_endtime:
-                        sec_diff = abs((true_endtime - endtime).total_seconds())
-                        zeros = np.zeros(int(fs*sec_diff))
-                        trace.data = np.concatenate((trace.data, zeros))
-                        trace.stats.npts += int(fs*sec_diff)
-            else:
-                t1 = max([tr.stats.starttime for tr in st])
-                t2 = min([tr.stats.endtime for tr in st])
-                st = Stream2(st.slice(t1, t2))
+            #         if endtime != true_endtime:
+            #             sec_diff = abs((true_endtime - endtime).total_seconds())
+            #             zeros = np.zeros(int(fs*sec_diff))
+            #             trace.data = np.concatenate((trace.data, zeros))
+            #             trace.stats.npts += int(fs*sec_diff)
+
+            t1 = max([tr.stats.starttime for tr in st])
+            t2 = min([tr.stats.endtime for tr in st])
+            st = Stream2(st.slice(t1, t2))
 
             # removing instrument response
             if remove_response:
-                resp = get_respfile(self.info.net, self.info.code, self.info.loc)
-                st = st.remove_response2(resp_dict=resp, **kwargs)
+                resp_file = self.get_response()
+                if resp_file:
+                    st = st.remove_response2(resp_dict=resp_file, **kwargs)
+                else:
+                    print('warn: no response removed!')
 
             if sample_rate:
                 if sample_rate < st[0].stats.sampling_rate:
@@ -465,7 +480,7 @@ class Station(object):
             return_fig (bool, optional): Return fig and axes objects. Defaults to False.
         """
 
-        from seisvo.gui.gstation import plot_station_gui
+        from seisvo.plotting.gui.gstation import plot_station_gui
 
         window = plot_station_gui(self, starttime, sde, channel=channel, delta=delta, app=app, **kwargs)
         

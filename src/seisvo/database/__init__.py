@@ -95,17 +95,26 @@ class SDErow(SQLbase):
         return net.get_sta(self.station, self.location)
 
 
-class LDEvent(SQLbase):
+class LDErow(SQLbase):
     __tablename__ = 'LDE'
     id = sql.Column(sql.Integer, primary_key=True)
+
+    network = sql.Column(sql.String, nullable=False)
+    station = sql.Column(sql.String, nullable=False)
+    location = sql.Column(sql.String, nullable=True)
+    
     label = sql.Column(sql.String, nullable=False)
     starttime = sql.Column(sql.DateTime(timezone=False), nullable=False)
     duration = sql.Column(sql.Float, nullable=False)
     lte_file = sql.Column(sql.String, nullable=False) # lte file containing the event info
-    lte_file_sup = sql.Column(sql.String, nullable=True) # lte file supplementary
+    
+    # lte file supplementary
+    lte_file_sup = sql.Column(sql.String, nullable=True)
 
     def __str__(self):
-        text_info = " Event ID: %s (%s) \n" % (self.label, self.id)
+
+        sta_code = '%s.%s.%s' % (self.network, self.station, self.location)
+        text_info = " Event ID: %s ::%s (%s) \n" % (sta_code, self.label, self.id)
         text_info += "    LTE_file      : %s\n" % self.lte_file
         text_info += "    LTE_file_sup  : %s\n" % self.lte_file_sup
         text_info += "    Starttime     : %s\n" % self.starttime.strftime('%Y-%m-%d %H:%M')
@@ -114,12 +123,9 @@ class LDEvent(SQLbase):
         return text_info
 
 
-    def get_lte(self):
-        from seisvo import LTE
-        lte_file = os.path.join(__seisvo__, 'lte', self.lte_file)
-        
-        if os.path.isfile(lte_file):
-            return LTE(lte_file)
+    def get_lte(self):        
+        if os.path.isfile(self.lte_file):
+            return LTE(self.lte_file)
         
         else:
             print(' No LTE file found')
@@ -127,20 +133,13 @@ class LDEvent(SQLbase):
 
 
     def get_lte_sup(self):
-        from seisvo import LTE
-
-        if not self.lte_file_sup:
-            return
-
-        net = self.lte_file.split('/')[0]
-        lte_file = os.path.join(__seisvo__, 'database', net, 'sup', self.lte_file_sup)
-
-        if os.path.isfile(lte_file):
-            return LTE(lte_file)
+        if os.path.isfile(self.lte_file_sup):
+            return LTE(self.lte_file_sup)
         
         else:
             print(' No LTE file found')
             return
+
 
 class _DataBase(object):
     def __init__(self, sql_path, type):
@@ -191,6 +190,9 @@ class _DataBase(object):
         if self.type == 'SDE':
             event_list = session.query(SDErow).all()
         
+        if self.type == 'LDE':
+            event_list = session.query(LDErow).all()
+        
         id_list = [x.id for x in event_list]
         session.close()
 
@@ -215,6 +217,15 @@ class _DataBase(object):
                 else:
                     event = session.query(SDErow).all()
         
+        if self.type == 'LDE':
+            if id:
+                if self.is_id(id):
+                    event = session.query(LDErow).filter(LDErow.id == id).all()[0]
+                else:
+                    event = None
+            else:
+                event = session.query(LDErow).all()
+        
         session.close()
         return event
     
@@ -227,6 +238,9 @@ class _DataBase(object):
         
         if self.type == 'SDE':
             events = session.query(SDErow).all()
+        
+        if self.type == 'LDE':
+            events = session.query(LDErow).all()
         
         labels = [event.label for event in events if event.label]
         session.close()
@@ -256,6 +270,18 @@ class _DataBase(object):
                 event_id=dict_info.get('event_id')
                 )
         
+        if self.type == 'LDE':
+            new_evnt = SDErow(
+                network=dict_info.get('network'),
+                station=dict_info.get('station'),
+                location=dict_info.get('location'),
+                lte_file=dict_info.get('lte_file'),
+                lte_file_sup=dict_info.get('lte_file_sup', None),
+                label=dict_info.get('label'),
+                starttime=dict_info.get('starttime'),
+                duration=dict_info.get('duration') # in hours
+                )
+        
         session.add(new_evnt)
         session.commit()
         session.refresh(new_evnt)
@@ -274,6 +300,11 @@ class _DataBase(object):
             if self.type == 'SDE':
                 session.query(SDErow).filter(SDErow.id == id).delete()
                 session.commit()
+            
+            if self.type == 'LDE':
+                session.query(LDErow).filter(LDErow.id == id).delete()
+                session.commit()
+
             session.close()
             return True
 
@@ -290,6 +321,13 @@ class _DataBase(object):
                     session.query(SDErow).filter(SDErow.id == id).update(
                     {item : key}, synchronize_session=False)
                     session.commit()
+            
+            if self.type == 'LDE':
+                for item, key in info_dict.items():
+                    session.query(LDErow).filter(LDErow.id == id).update(
+                    {item : key}, synchronize_session=False)
+                    session.commit()
+
             session.close()
 
 
@@ -438,3 +476,87 @@ class SDE(_DataBase):
         
         else:
             print(' Empty EID list')
+
+
+class LDE(_DataBase):
+    def __init__(self, sql_path):
+        super().__init__(sql_path, 'LDE')
+        self.__check__()
+
+    
+    def __len__(self):
+        eid_len = len(self.get_eid_list())
+        return eid_len
+
+
+    def __getitem__(self, eid):
+        return ldeEvent(eid, self)
+
+
+    def relabel_row(self, id, new_label):
+        if self.is_id(id):
+            info = dict(label=new_label)
+            self.update_row(id, info)
+    
+
+    def get_episodes_id(self, label=None, time_interval=()):
+        row_list = self.get_id()
+
+        if label:
+            if isinstance(label, str):
+                row_list = list(filter(lambda e: e.label==label, row_list))
+            
+            elif isinstance(label, list):
+                row_list_copy = []
+                for lbl in label:
+                    row_list_copy += list(filter(lambda e: e.label==lbl, row_list))
+                
+                row_list = row_list_copy
+        
+        if time_interval:
+            row_list = list(filter(
+                lambda e: in_interval(
+                    e.starttime,
+                    e.starttime+dt.timedelta(seconds=e.duration),
+                    time_interval
+                    ),row_list))
+
+        row_list.sort(key=lambda x: x.starttime)
+        row_list = [e.id for e in row_list]
+
+        return row_list
+    
+
+    def __update_lte_sup__(self, id, lte_sup_path):
+        if self.is_id(id):
+            info = dict(lte_file_sup=lte_sup_path)
+            self.update_row(id, info)
+
+
+    def compute_polar(self, id, dir_out=None, time_step=1, sample_rate=None, avg_step=None, **ltekwargs):
+        event = self.get_event(id)
+        starttime = event.starttime
+        endtime = starttime + dt.timedelta(hours=event.duration)
+
+        # check that three component exist!
+
+        if not dir_out:
+            dir_out = os.path.join(__seisvo__, 'database', self.station.info.net, 'sup')
+        
+        if not os.path.isdir(dir_out):
+            os.makedirs(dir_out)
+            
+        file_name = '%s_%i.lte' % (self.dbid, event.id)
+        file_name_path = os.path.join(dir_out, file_name)
+
+        if os.path.isfile(file_name_path):
+            os.remove(file_name_path)
+            self.__update_lte_sup__(event.id, None)
+
+        ltekwargs['file_name'] = file_name
+        ltekwargs['out_dir'] = dir_out
+
+        self.station.lte(starttime, endtime, self.chan, time_step, polargram=True, sample_rate=sample_rate,
+            avg_step=avg_step, polarization_attr=True, **ltekwargs)
+
+        self.__update_lte_sup__(event.id, file_name_path)
