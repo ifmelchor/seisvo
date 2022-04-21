@@ -4,13 +4,11 @@
 import os
 from datetime import datetime, timedelta
 from glob import glob
-import numpy as np
 
 from seisvo import __seisvo__
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins
-from seisvo.file.lte import LTE
 
 
 class Station(object):
@@ -394,6 +392,8 @@ class Station(object):
 
     def lte(self, starttime, endtime, time_step, chan=None, polargram=False, sample_rate=None,
         avg_step=1, polarization_attr=False, **kwargs):
+
+        from seisvo.file.lte import LTE
 
         if not chan:
             # get vertical component as default

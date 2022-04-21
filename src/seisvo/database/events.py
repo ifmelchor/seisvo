@@ -2,10 +2,12 @@
 # coding=utf-8
 
 import os
+import numpy as np
 import datetime as dt
+from scipy.stats import gaussian_kde
+
 from seisvo import __seisvo__
-from seisvo.core.network import Network
-from seisvo.file.lte import LTE, Peaks
+import seisvo.file.lte as sfl
 
 class Event(object):
     def __init__(self, event_id, sde):
@@ -173,12 +175,10 @@ class Event(object):
         stream = None
         
         for sta in self.stations:
-            net_code = sta.split('.')[0]
-            sta_code = sta.split('.')[1]
-            loc = sta.split('.')[2]
-            net = Network(net_code)
-            sta = net.get_sta(sta_code, loc=loc)
+            row = self.get_row(sta)
+            sta = row.get_station()
             st1 = sta.get_stream(self.starttime, self.starttime+dt.timedelta(seconds=self.duration), remove_response=remove_response, **kwargs)
+            
             if not stream:
                 stream = st1
             else:
@@ -211,17 +211,12 @@ class Episode(object):
         self.endtime = self.row_.starttime + dt.timedelta(hours=self.row_.duration)
 
         if os.path.isfile(self.row_.lte_file):
-            self.main_lte = LTE(self.row_.lte_file)
+            self.main_lte = sfl.LTE(self.row_.lte_file)
         else:
             print('warn: main lte file not found!')
         
         if os.path.isfile(self.row_.lte_file_sup):
-            self.sup_lte = LTE(self.row_.lte_file_sup)
-    
-
-    def getPeaks(self, fq_range=(), peak_thresholds={}):
-        if self.sup_lte:
-            return Peaks(self.sup_lte, fq_range=fq_range, peak_thresholds=peak_thresholds)
+            self.sup_lte = sfl.LTE(self.row_.lte_file_sup)
 
 
     def compute_sup_lte(self, dir_out=None, time_step=1, sample_rate=None, avg_step=None, **ltekwargs):
@@ -253,3 +248,113 @@ class Episode(object):
             **ltekwargs)
 
         self.lde.__update_lte_sup__(self.id, file_name_path)
+
+
+    def get_stream(self, **kwargs):
+        return self.station_.get_stream(self.starttime, self.endtime, **kwargs)
+    
+
+    def get_values(self, which_lte='sup', attrs=[]):
+        """Return min, max, mean, mode of SCALARs parameters
+
+        Parameters
+        ----------
+        which_lte : str, optional
+            'main' or 'sup', by default 'sup'
+        attrs : list or str, optional
+            the attributes related to SCALAR parameters, by default []
+
+        Returns
+        -------
+        dict
+        """
+
+        if which_lte == 'sup':
+            lte = self.sup_lte
+        
+        elif which_lte == 'main':
+            lte = self.main_lte
+        
+        else:
+            print(' which_lte should be "main" or "sup"')
+            return
+        
+        if isinstance(attrs, (list, tuple, str)):
+
+            if isinstance(attrs, str):
+                if attrs not in lte.stats.attributes and sfl.SCALAR_PARAMS + sfl.SCALAR_OPT_PARAMS:
+                    print(' attr not found or is not scalar')
+                    return
+                else:
+                    attrs = [attrs]
+            
+            else:
+                checked_attrs = []
+                for atr in attrs:
+                    if atr in lte.stats.attributes and sfl.SCALAR_PARAMS + sfl.SCALAR_OPT_PARAMS:
+                        checked_attrs.append(atr)
+                    else:
+                        print('warn: %s not found or is not scalar' %atr)
+                attrs = checked_attrs
+        
+        else:
+            print(' attr should be string or list')
+            return
+        
+        if not attrs:
+            print(' attrs not found')
+            return
+
+        dict_out = {}
+
+        for attr in attrs:
+            data = lte.get_attr(attr)
+            data = data[np.isfinite(data)]
+
+            if attr == 'energy':
+                data = 10*np.log10(data)
+            
+            v_min = data.min()
+            v_max = data.max()     
+            x_range = np.linspace(v_min, v_max, 500)
+            gkde = gaussian_kde(data)
+            kde = gkde(x_range)
+            mode = x_range[np.argmax(kde)]
+
+            dict_out[attr] = [v_min, v_max, data.mean(), mode]
+        
+        return dict_out
+
+
+    def get_matrix(self, attr, which_lte='sup'):
+
+        if which_lte == 'sup':
+            lte = self.sup_lte
+        
+        elif which_lte == 'main':
+            lte = self.main_lte
+        
+        else:
+            print(' which_lte should be "main" or "sup"')
+            return
+        
+        if attr not in lte.stats.attributes and sfl.VECTORAL_PARAMS + sfl.VECTORAL_OPT_PARAMS:
+            print(' attr not found or is not vectorial')
+        
+        return lte.get_attr(attr)
+
+
+    def get_peaks(self, fq_range=(), peak_thresholds={}):
+        if self.sup_lte:
+            return sfl.Peaks(self.sup_lte, fq_range=fq_range, peak_thresholds=peak_thresholds)
+    
+
+    def plot(self, fig=None, return_fig=False, **kwargs):
+        from seisvo.gui.glde import plot_event
+        return plot_event(self, fig=fig, return_fig=True, **kwargs)
+
+
+    def plot_polar(self, **kwargs):
+        from seisvo.gui.glde import plot_event_polar
+        if self.lte_file_sup:
+            plot_event_polar(self, **kwargs)

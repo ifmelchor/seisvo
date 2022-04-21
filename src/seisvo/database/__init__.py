@@ -10,13 +10,13 @@
 
 from seisvo import __seisvo__
 from seisvo.core.network import Network
-from seisvo.database.events import Event, Episode
+from events import Event, Episode
 
 import sqlalchemy as sql
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import sessionmaker
 from subprocess import Popen, PIPE, STDOUT
-from collections import Counter
 import datetime as dt
 import os
 
@@ -126,6 +126,32 @@ class LDErow(SQLbase):
     def get_station(self):
         net = self.get_network()
         return net.get_sta(self.station, self.location)
+
+
+class iSDErow(SQLbase):
+    __tablename__ = 'SDE'
+
+    # base attributes
+    id = sql.Column(sql.Integer, primary_key=True)
+    network = sql.Column(sql.String, nullable=False)
+    station = sql.Column(sql.String, nullable=False)
+    
+    label = sql.Column(sql.String, nullable=False)
+    sublabel = sql.Column(sql.String, nullable=True)
+    
+    starttime = sql.Column(sql.DateTime(timezone=False), nullable=False)
+    duration = sql.Column(sql.Float, nullable=False)
+
+    pmax = sql.Column(sql.Float, nullable=False)
+    pavg = sql.Column(sql.Float, nullable=False)
+
+    azimuth = sql.Column(sql.Float, nullable=False)
+    correlation = sql.Column(sql.Float, nullable=False)
+
+    channels = sql.Column(MutableList.as_mutable(sql.PickleType), nullable=False)
+
+    air_file = sql.Column(sql.String, nullable=False)
+
 
 
 class _DataBase(object):
