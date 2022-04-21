@@ -9,8 +9,8 @@
 """
 
 from seisvo import __seisvo__
-from seisvo.database.events import sdeEvent, ldeEvent
-from seisvo.file.lte import LTE
+from seisvo.core.network import Network
+from seisvo.database.events import Event, Episode
 
 import sqlalchemy as sql
 from sqlalchemy.ext.declarative import declarative_base
@@ -86,7 +86,6 @@ class SDErow(SQLbase):
 
 
     def get_network(self):
-        from seisvo import Network
         return Network(self.network)
 
 
@@ -110,9 +109,7 @@ class LDErow(SQLbase):
     
     # lte file supplementary
     lte_file_sup = sql.Column(sql.String, nullable=True)
-
     def __str__(self):
-
         sta_code = '%s.%s.%s' % (self.network, self.station, self.location)
         text_info = " Event ID: %s ::%s (%s) \n" % (sta_code, self.label, self.id)
         text_info += "    LTE_file      : %s\n" % self.lte_file
@@ -121,24 +118,14 @@ class LDErow(SQLbase):
         text_info += "    Duration [hr] : %.2f\n" % self.duration
 
         return text_info
+    
+    def get_network(self):
+        return Network(self.network)
 
 
-    def get_lte(self):        
-        if os.path.isfile(self.lte_file):
-            return LTE(self.lte_file)
-        
-        else:
-            print(' No LTE file found')
-            return
-
-
-    def get_lte_sup(self):
-        if os.path.isfile(self.lte_file_sup):
-            return LTE(self.lte_file_sup)
-        
-        else:
-            print(' No LTE file found')
-            return
+    def get_station(self):
+        net = self.get_network()
+        return net.get_sta(self.station, self.location)
 
 
 class _DataBase(object):
@@ -263,9 +250,9 @@ class _DataBase(object):
                 network=dict_info.get('network'),
                 station=dict_info.get('station'),
                 location=dict_info.get('location'),
-                label=dict_info.get('label', None),
-                starttime=dict_info.get('starttime', None),
-                duration=dict_info.get('duration', None), # in seconds
+                label=dict_info.get('label'),
+                starttime=dict_info.get('starttime'),
+                duration=dict_info.get('duration'), # in seconds
                 event_type=dict_info.get('event_type'),
                 event_id=dict_info.get('event_id')
                 )
@@ -343,13 +330,13 @@ class SDE(_DataBase):
 
 
     def __getitem__(self, eid):
-        return sdeEvent(eid, self)
+        return Event(eid, self)
 
 
     def __check__(self):
         # this function checks the database is ready for operate
         for eid in self.get_eid_list():
-            stations = sdeEvent(eid, self).stations
+            stations = Event(eid, self).stations
             if len(stations) != len(set(stations)):
                 # it exist repeated items
                 raise ValueError(' Duplicate stations with same Event ID found.\n SDE database should be revised manually.')
@@ -481,7 +468,7 @@ class SDE(_DataBase):
 class LDE(_DataBase):
     def __init__(self, sql_path):
         super().__init__(sql_path, 'LDE')
-        self.__check__()
+        self.id = os.path.basename(sql_path).split('.db')[0]
 
     
     def __len__(self):
@@ -490,7 +477,7 @@ class LDE(_DataBase):
 
 
     def __getitem__(self, eid):
-        return ldeEvent(eid, self)
+        return Episode(eid, self)
 
 
     def relabel_row(self, id, new_label):
@@ -531,32 +518,4 @@ class LDE(_DataBase):
         if self.is_id(id):
             info = dict(lte_file_sup=lte_sup_path)
             self.update_row(id, info)
-
-
-    def compute_polar(self, id, dir_out=None, time_step=1, sample_rate=None, avg_step=None, **ltekwargs):
-        event = self.get_event(id)
-        starttime = event.starttime
-        endtime = starttime + dt.timedelta(hours=event.duration)
-
-        # check that three component exist!
-
-        if not dir_out:
-            dir_out = os.path.join(__seisvo__, 'database', self.station.info.net, 'sup')
         
-        if not os.path.isdir(dir_out):
-            os.makedirs(dir_out)
-            
-        file_name = '%s_%i.lte' % (self.dbid, event.id)
-        file_name_path = os.path.join(dir_out, file_name)
-
-        if os.path.isfile(file_name_path):
-            os.remove(file_name_path)
-            self.__update_lte_sup__(event.id, None)
-
-        ltekwargs['file_name'] = file_name
-        ltekwargs['out_dir'] = dir_out
-
-        self.station.lte(starttime, endtime, self.chan, time_step, polargram=True, sample_rate=sample_rate,
-            avg_step=avg_step, polarization_attr=True, **ltekwargs)
-
-        self.__update_lte_sup__(event.id, file_name_path)

@@ -10,9 +10,8 @@ from seisvo import __seisvo__
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins
-
 from seisvo.file.lte import LTE
-from seisvo.database import SDE, LDE
+
 
 class Station(object):
     def __init__(self, StaFile):
@@ -24,14 +23,11 @@ class Station(object):
         return self.info.__str__()
 
 
-    def add_event(self, sde, label, starttime, duration, **kwargs):
+    def __add_event__(self, sde, label, starttime, duration, **kwargs):
         """
         Add a new event in SDE database, for adding a row visit database/__init__ info
         Check database atributes por kwargs
         """
-
-        if isinstance(sde, str):
-            sde = SDE(sde)
 
         event_to_save = {}
         event_to_save['network'] = self.info.net
@@ -52,32 +48,23 @@ class Station(object):
         sde.update_row(id, kwargs)
     
 
-    def add_episode(self, lde, label, starttime, duration, **kwargs):
+    def __add_episode__(self, lde, label, starttime, duration, lte_file):
         """
         Add a new episode in LDE database, for adding a row visit database/__init__ info
         Check database atributes por kwargs
         """
 
-        if isinstance(lde, str):
-            lde = LDE(lde)
-
         event_to_save = {}
         event_to_save['network'] = self.info.net
         event_to_save['station'] = self.info.code
         event_to_save['location'] = self.info.loc
-
-        if self.is_infrasound():
-            event_to_save['event_type'] = 'P'
-        else:
-            event_to_save['event_type'] = 'S'
         
         event_to_save['label'] = label
         event_to_save['starttime'] = starttime #datetime
         event_to_save['duration'] = duration
-        event_to_save['event_id'] = lde.last_eid() + 1
+        event_to_save['lte_file'] = lte_file
 
-        # id = lde.add_row(event_to_save)
-        # lde.update_row(id, kwargs)
+        lde.add_row(event_to_save)
 
 
     def is_infrasound(self):
@@ -405,8 +392,12 @@ class Station(object):
             return st
 
 
-    def lte(self, starttime, endtime, chan, time_step, polargram=False, sample_rate=None,
+    def lte(self, starttime, endtime, time_step, chan=None, polargram=False, sample_rate=None,
         avg_step=1, polarization_attr=False, **kwargs):
+
+        if not chan:
+            # get vertical component as default
+            chan = [c for c in self.info.chan if c[-1]=='Z'][0]
 
         info = {'id': '%s.%s' % (self.info.id, chan)}
         info['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')

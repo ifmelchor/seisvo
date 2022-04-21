@@ -2,10 +2,12 @@
 # coding=utf-8
 
 import os
-from seisvo.core.network import Network
 import datetime as dt
+from seisvo import __seisvo__
+from seisvo.core.network import Network
+from seisvo.file.lte import LTE, Peaks
 
-class sdeEvent(object):
+class Event(object):
     def __init__(self, event_id, sde):
         self.id = event_id
         self.sde = sde
@@ -184,4 +186,70 @@ class sdeEvent(object):
 
         return stream
 
-# class ldeEvent(object):
+
+class Episode(object):
+    def __init__(self, event_id, lde):
+        self.id = event_id
+        self.lde = lde
+        self.main_lte = None
+        self.sup_lte = None
+        self.label = None
+        self.starttime = None
+        self.endtime = None
+        self.duration = None
+        self.station = []
+        self._setattr()
+    
+
+    def _setattr(self):
+        self.row_ = self.lde.get_id(self.id)
+        self.station_ = self.row_.get_station()
+
+        self.label = self.row_.label
+        self.starttime = self.row_.starttime
+        self.duration = self.row_.duration
+        self.endtime = self.row_.starttime + dt.timedelta(hours=self.row_.duration)
+
+        if os.path.isfile(self.row_.lte_file):
+            self.main_lte = LTE(self.row_.lte_file)
+        else:
+            print('warn: main lte file not found!')
+        
+        if os.path.isfile(self.row_.lte_file_sup):
+            self.sup_lte = LTE(self.row_.lte_file_sup)
+    
+
+    def getPeaks(self, fq_range=(), peak_thresholds={}):
+        if self.sup_lte:
+            return Peaks(self.sup_lte, fq_range=fq_range, peak_thresholds=peak_thresholds)
+
+
+    def compute_sup_lte(self, dir_out=None, time_step=1, sample_rate=None, avg_step=None, **ltekwargs):
+
+        if not dir_out:
+            dir_out = os.path.join(__seisvo__, 'database', self.row_.network, 'sup')
+
+        if not os.path.isdir(dir_out):
+            os.makedirs(dir_out)
+            
+        file_name = '%s_%i.lte' % (self.lde.id, self.id)
+        file_name_path = os.path.join(dir_out, file_name)
+
+        if os.path.isfile(file_name_path):
+            os.remove(file_name_path)
+            self.lde.__update_lte_sup__(self.id, None)
+
+        ltekwargs['file_name'] = file_name
+        ltekwargs['out_dir'] = dir_out
+
+        self.station_.lte(
+            self.starttime, 
+            self.endtime, 
+            time_step,
+            polargram=True, 
+            sample_rate=sample_rate, 
+            avg_step=avg_step,
+            polarization_attr=True, 
+            **ltekwargs)
+
+        self.lde.__update_lte_sup__(self.id, file_name_path)
