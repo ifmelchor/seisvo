@@ -9,8 +9,8 @@
 """
 
 from seisvo import __seisvo__
-from seisvo.core.network import Network
-from events import Event, Episode
+from seisvo.core.network import Network, iArray
+from events import Event, iEvent, Episode
 
 import sqlalchemy as sql
 from sqlalchemy.ext.declarative import declarative_base
@@ -109,19 +109,9 @@ class LDErow(SQLbase):
     
     # lte file supplementary
     lte_file_sup = sql.Column(sql.String, nullable=True)
-    def __str__(self):
-        sta_code = '%s.%s.%s' % (self.network, self.station, self.location)
-        text_info = " Event ID: %s ::%s (%s) \n" % (sta_code, self.label, self.id)
-        text_info += "    LTE_file      : %s\n" % self.lte_file
-        text_info += "    LTE_file_sup  : %s\n" % self.lte_file_sup
-        text_info += "    Starttime     : %s\n" % self.starttime.strftime('%Y-%m-%d %H:%M')
-        text_info += "    Duration [hr] : %.2f\n" % self.duration
-
-        return text_info
     
     def get_network(self):
         return Network(self.network)
-
 
     def get_station(self):
         net = self.get_network()
@@ -129,35 +119,48 @@ class LDErow(SQLbase):
 
 
 class iSDErow(SQLbase):
-    __tablename__ = 'SDE'
+    __tablename__ = 'iSDE'
 
-    # base attributes
     id = sql.Column(sql.Integer, primary_key=True)
     network = sql.Column(sql.String, nullable=False)
     station = sql.Column(sql.String, nullable=False)
     
     label = sql.Column(sql.String, nullable=False)
-    sublabel = sql.Column(sql.String, nullable=True)
+    label2 = sql.Column(sql.String, nullable=True)
     
     starttime = sql.Column(sql.DateTime(timezone=False), nullable=False)
     duration = sql.Column(sql.Float, nullable=False)
 
     pmax = sql.Column(sql.Float, nullable=False)
     pavg = sql.Column(sql.Float, nullable=False)
-
     azimuth = sql.Column(sql.Float, nullable=False)
-    correlation = sql.Column(sql.Float, nullable=False)
-
+    ccorr = sql.Column(sql.Float, nullable=False)
     channels = sql.Column(MutableList.as_mutable(sql.PickleType), nullable=False)
 
     air_file = sql.Column(sql.String, nullable=False)
 
+    # additional floats
+    value_1 = sql.Column(sql.Float, nullable=True)
+    value_2 = sql.Column(sql.Float, nullable=True)
+    value_3 = sql.Column(sql.Float, nullable=True)
+    value_4 = sql.Column(sql.Float, nullable=True)
+    value_5 = sql.Column(sql.Float, nullable=True)
+
+    # additional strings
+    string_1 = sql.Column(sql.String, nullable=True)
+    string_2 = sql.Column(sql.String, nullable=True)
+    string_3 = sql.Column(sql.String, nullable=True)
+    string_4 = sql.Column(sql.String, nullable=True)
+    string_5 = sql.Column(sql.String, nullable=True)
+
+    def get_array(self, **kwargs):
+        return iArray(self.network, self.station, **kwargs)
 
 
 class _DataBase(object):
     def __init__(self, sql_path, type):
 
-        if type in ('SDE', 'LDE'):
+        if type in ('SDE', 'LDE', 'iSDE'):
             self.type = type
         else:
             raise ValueError(' DataBase must be SDE or LDE')
@@ -206,6 +209,9 @@ class _DataBase(object):
         if self.type == 'LDE':
             event_list = session.query(LDErow).all()
         
+        if self.type == 'iSDE':
+            event_list = session.query(iSDErow).all()
+        
         id_list = [x.id for x in event_list]
         session.close()
 
@@ -239,6 +245,15 @@ class _DataBase(object):
             else:
                 event = session.query(LDErow).all()
         
+        if self.type == 'iSDE':
+            if id:
+                if self.is_id(id):
+                    event = session.query(iSDErow).filter(iSDErow.id == id).all()[0]
+                else:
+                    event = None
+            else:
+                event = session.query(iSDErow).all()
+        
         session.close()
         return event
     
@@ -254,6 +269,9 @@ class _DataBase(object):
         
         if self.type == 'LDE':
             events = session.query(LDErow).all()
+        
+        if self.type == 'iSDE':
+            events = session.query(iSDErow).all()
         
         labels = [event.label for event in events if event.label]
         session.close()
@@ -284,7 +302,7 @@ class _DataBase(object):
                 )
         
         if self.type == 'LDE':
-            new_evnt = SDErow(
+            new_evnt = LDErow(
                 network=dict_info.get('network'),
                 station=dict_info.get('station'),
                 location=dict_info.get('location'),
@@ -293,6 +311,22 @@ class _DataBase(object):
                 label=dict_info.get('label'),
                 starttime=dict_info.get('starttime'),
                 duration=dict_info.get('duration') # in hours
+                )
+
+        if self.type == 'iSDE':
+            new_evnt = iSDErow(
+                network=dict_info.get('network'),
+                station=dict_info.get('station'),
+                air_file=dict_info.get('air_file'),
+                channels=dict_info.get('channels'),
+                label=dict_info.get('label'),
+                label2=dict_info.get('label2'),
+                starttime=dict_info.get('starttime'),
+                duration=dict_info.get('duration'), # in seconds
+                pmax=dict_info.get('pmax'),
+                pavg=dict_info.get('pavg'),
+                azimuth=dict_info.get('azimuth'),
+                ccorr=dict_info.get('ccorr')
                 )
         
         session.add(new_evnt)
@@ -317,6 +351,10 @@ class _DataBase(object):
             if self.type == 'LDE':
                 session.query(LDErow).filter(LDErow.id == id).delete()
                 session.commit()
+            
+            if self.type == 'iSDE':
+                session.query(iSDErow).filter(iSDErow.id == id).delete()
+                session.commit()
 
             session.close()
             return True
@@ -338,6 +376,12 @@ class _DataBase(object):
             if self.type == 'LDE':
                 for item, key in info_dict.items():
                     session.query(LDErow).filter(LDErow.id == id).update(
+                    {item : key}, synchronize_session=False)
+                    session.commit()
+            
+            if self.type == 'iSDE':
+                for item, key in info_dict.items():
+                    session.query(iSDErow).filter(iSDErow.id == id).update(
                     {item : key}, synchronize_session=False)
                     session.commit()
 
@@ -498,8 +542,7 @@ class LDE(_DataBase):
 
     
     def __len__(self):
-        eid_len = len(self.get_eid_list())
-        return eid_len
+        return len(self.get_id_list())
 
 
     def __getitem__(self, eid):
@@ -530,7 +573,7 @@ class LDE(_DataBase):
             row_list = list(filter(
                 lambda e: in_interval(
                     e.starttime,
-                    e.starttime+dt.timedelta(seconds=e.duration),
+                    e.starttime+dt.timedelta(hours=e.duration),
                     time_interval
                     ),row_list))
 
@@ -545,3 +588,63 @@ class LDE(_DataBase):
             info = dict(lte_file_sup=lte_sup_path)
             self.update_row(id, info)
         
+
+class iSDE(_DataBase):
+    def __init__(self, sql_path):
+        super().__init__(sql_path, 'iSDE')
+    
+    def __add_event__(self, net_code, sta_code, label, starttime, duration, air_file, pmax, pavg, channels):
+        """
+        Add a new event in iSDE database
+        """
+
+        event_to_save = {}
+        event_to_save['network'] = net_code
+        event_to_save['station'] = sta_code
+        event_to_save['label'] = label
+        event_to_save['channels'] = channels
+        event_to_save['starttime'] = starttime #datetime
+        event_to_save['duration'] = duration
+        event_to_save['air_file'] = air_file
+        event_to_save['pmax'] = pmax
+        event_to_save['pavg'] = pavg
+
+        self.add_row(event_to_save)
+
+
+    def __getitem__(self, eid):
+        return iEvent(eid, self)
+    
+
+    def relabel_event(self, id, new_label):
+        if self.is_id(id):
+            info = dict(label=new_label)
+            self.update_row(id, info)
+    
+
+    def get_events_id(self, label=None, time_interval=()):
+        row_list = self.get_id()
+
+        if label:
+            if isinstance(label, str):
+                row_list = list(filter(lambda e: e.label==label, row_list))
+            
+            elif isinstance(label, list):
+                row_list_copy = []
+                for lbl in label:
+                    row_list_copy += list(filter(lambda e: e.label==lbl, row_list))
+                
+                row_list = row_list_copy
+        
+        if time_interval:
+            row_list = list(filter(
+                lambda e: in_interval(
+                    e.starttime,
+                    e.starttime+dt.timedelta(seconds=e.duration),
+                    time_interval
+                    ),row_list))
+
+        row_list.sort(key=lambda x: x.starttime)
+        row_list = [e.id for e in row_list]
+
+        return row_list

@@ -3,6 +3,7 @@
 
 from seisvo import __seisvo__
 from seisvo.core import get_network
+from seisvo.core.obspyext import Stream2
 from seisvo.core.station import Station
 
 from seisvo.signal import SSteps
@@ -18,14 +19,18 @@ class Network(object):
         self.info = get_network(net_code)
         self.station = [Station(x) for x in self.info.stations]
 
+
     def __str__(self):
         return self.info.__str__()
+
 
     def __len__(self):
         return len(self.station)
 
+
     def __getitem__(self, item):
         return self.station[item]
+
 
     def get_datebound(self, sta_code=None):
         """
@@ -196,9 +201,8 @@ class iArray(Network):
         self.central_sta = None
         self.chan = chan
         self.__setstacode__()
+        self.__check__()
         self.set_central(sta_code=kwargs.get('central_sta'))
-
-        self.sample_rate_ = kwargs.get('sample_rate', 100)
         self.set_model(model=kwargs.get('model', None))
 
 
@@ -221,6 +225,16 @@ class iArray(Network):
         
         self.stations_info = [sta.info.id for sta in self.station]
     
+
+    def __check__(self):
+        # check sample rate
+        sample_rate = list(set([sta.info.sampling_rate for sta in self.station]))
+        if len(sample_rate) == 1:
+            self.sample_rate = int(sample_rate[0])
+        else:
+            print('warn: different sampling rate in the array!')
+            self.sample_rate = int(min(sample_rate))
+
 
     def set_central(self, sta_code=None):
         """By default, the central station of the array is defined in the config file. But it can be stated manually specifying the sta_code.
@@ -247,7 +261,7 @@ class iArray(Network):
         if not self.lat0:
             print("warn: central station is not defined")
             self.central_sta = None
-    
+
 
     def set_model(self, model=None):
         """By default, the model is a dictionary with keys: radii, vel_air, h_src, src_dgr.
@@ -258,7 +272,6 @@ class iArray(Network):
         """
         self.model = infrasound_model_default
 
-        
         if model:
             if isinstance(model, dict):
                 for k in model.keys():
@@ -272,10 +285,10 @@ class iArray(Network):
 
         h_mean = np.array([sta.info.elev for sta in self.station]).mean()
         self.h_mean_ = h_mean
-
         h_diff = self.model['h_src'] - h_mean
 
-        th = np.arange(self.model['src_dgr'][0], self.model['src_dgr'][1]+1, 1) * np.pi / 180
+        self.model_azimuths = np.array(np.arange(self.model['src_dgr'][0], self.model['src_dgr'][1]+1, 1), dtype='int')
+        th = self.model_azimuths * np.pi / 180
         self.nro_srcs = len(th)
         x_src = self.lat0 + self.model['radii'] * np.sin(th)
         y_src = self.lon0 + self.model['radii'] * np.cos(th)
@@ -288,15 +301,57 @@ class iArray(Network):
             zz = sta.info.elev - h_diff
             dist_src = np.sqrt(xx ** 2 + yy ** 2 + zz ** 2)
             self.dt_times[sta.info.id] = dist_src / self.model['vel_air']
-        
-        # str_arg = 'zip(%s)' % (','.join(["self.dt_times['%s']" % (sta.info.id) for sta in self.station]))
-        # t_min = [min(xyz) for xyz in eval(str_arg)]
 
         dt_central = self.dt_times[self.central_sta]
         for sta in self:
-            self.dt_times[sta.info.id] = np.array(np.around((self.dt_times[sta.info.id] - dt_central) * self.sample_rate_), dtype='int')
+            self.dt_times[sta.info.id] = np.array(np.around((self.dt_times[sta.info.id] - dt_central) * self.sample_rate), dtype='int')
     
 
+    def __add_event__(self, isde, label, starttime, duration, air_file, pmax, pavg, channels):
+        """
+        Add a new episode in iSDE database, for adding a row visit database/__init__ info
+        Check database atributes por kwargs
+        """
+
+        event_to_save = {}
+        event_to_save['network'] = self.info.code
+        event_to_save['station'] = self.sta_code
+        event_to_save['label'] = label
+        event_to_save['channels'] = channels
+        event_to_save['starttime'] = starttime #datetime
+        event_to_save['duration'] = duration
+        event_to_save['air_file'] = air_file
+        event_to_save['pmax'] = pmax
+        event_to_save['pavg'] = pavg
+
+        isde.add_row(event_to_save)
+
+
+    def get_stream(self, starttime, endtime, azm=None, time_pad=30, model=None, **kwargs):
+        
+        pad_delta = dt.timedelta(seconds=time_pad)
+        delta = 1/self.sample_rate
+
+        if model:
+            self.set_model(model=model)
+        
+        if azm:
+            if azm not in list(self.model_azimuths):
+                raise ValueError('azm not found')
+            azm_idx = list(self.model_azimuths).index(azm)
+
+        stream = Stream2()
+        for sta in self:
+            if azm:
+                azm_delta = dt.timedelta(seconds=int(self.dt_times[sta.info.id][azm_idx]) * delta)
+            else:
+                azm_delta = dt.timedelta(seconds=0)
+
+            stream += sta.get_stream(starttime-pad_delta+azm_delta, endtime+pad_delta+azm_delta, component='P', remove_response=True, **kwargs)
+
+        return stream
+
+    
     def ripepe_ccorr(self, time_width, overlap, starttime, interval=None, endtime=None, **kwargs):
         """This code compute the cross correlation between infrasound stations following the Ripepe algorithm.
 

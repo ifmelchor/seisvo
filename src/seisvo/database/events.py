@@ -8,6 +8,8 @@ from scipy.stats import gaussian_kde
 
 from seisvo import __seisvo__
 import seisvo.file.lte as sfl
+from seisvo.file.air import AiR
+
 
 class Event(object):
     def __init__(self, event_id, sde):
@@ -200,6 +202,14 @@ class Episode(object):
         self.station = []
         self._setattr()
     
+    def __str__(self):
+        text_info = " Event ID: %s ::%s (%s) \n" % (self.lde.id, self.label, self.id)
+        text_info += "    LTE_file      : %s\n" % self.row_.lte_file
+        text_info += "    LTE_file_sup  : %s\n" % self.row_.lte_file_sup
+        text_info += "    Starttime     : %s\n" % self.starttime.strftime('%Y-%m-%d %H:%M')
+        text_info += "    Duration [hr] : %.2f\n" % self.duration
+        return text_info
+
 
     def _setattr(self):
         self.row_ = self.lde.get_id(self.id)
@@ -358,3 +368,46 @@ class Episode(object):
         from seisvo.gui.glde import plot_event_polar
         if self.lte_file_sup:
             plot_event_polar(self, **kwargs)
+
+
+class iEvent(object):
+    def __init__(self, event_id, isde):
+        self.id = event_id
+        self.isde = isde
+        self.label = None
+        self.starttime = None
+        self.endtime = None
+        self.duration = None
+        self.air = None
+        self.model_ = None
+        self.channels = []
+        self._setattr()
+    
+
+    def _setattr(self):
+        self.row_ = self.lde.get_id(self.id)
+        self.label = self.row_.label
+        self.starttime = self.row_.starttime
+        self.duration = self.row_.duration
+        self.endtime = self.row_.starttime + dt.timedelta(seconds=self.row_.duration)
+
+        if os.path.isfile(self.row_.air_file):
+            self.air = AiR(self.row_.lte_file)
+            self.model_ = dict(
+                radii=self.air.stats.radii,
+                vel_air=self.air.stats.vel_air,
+                h_src=self.air.h_src,
+                src_dgr=self.air.stats.src_dgr
+                )
+        else:
+            print('warn: air file not found!')
+    
+        self.array_ = self.row_.get_array(model=self.model_)
+    
+
+    def get_stream(self, azm, model=None, time_pad=0, **kwargs):
+        return self.array_.get_stream(self.starttime, self.endtime, azm, model=model, time_pad=time_pad, **kwargs)
+    
+
+    
+
