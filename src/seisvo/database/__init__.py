@@ -413,6 +413,31 @@ class SDE(_DataBase):
             # correct automatically
 
 
+    def __add_event__(self, net_code, sta_code, location, label, starttime, duration, **kwargs):
+        """
+        Add a new event in SDE database, for adding a row visit database/__init__ info
+        Check database atributes por kwargs
+        """
+
+        event_to_save = {}
+        event_to_save['network'] = net_code
+        event_to_save['station'] = sta_code
+        event_to_save['location'] = location
+
+        if self.is_infrasound():
+            event_to_save['event_type'] = 'P'
+        else:
+            event_to_save['event_type'] = 'S'
+        
+        event_to_save['label'] = label
+        event_to_save['starttime'] = starttime #datetime
+        event_to_save['duration'] = duration
+        event_to_save['event_id'] = self.last_eid() + 1
+
+        id = self.add_row(event_to_save)
+        self.update_row(id, kwargs)
+    
+
     def get_eid_list(self, label=None, time_interval=(), nro_station=None):
         row_list = self.get_id()
 
@@ -547,6 +572,25 @@ class LDE(_DataBase):
 
     def __getitem__(self, eid):
         return Episode(eid, self)
+
+
+    def __add_episode__(self, net_code, sta_code, location, label, starttime, duration, lte_file):
+        """
+        Add a new episode in LDE database, for adding a row visit database/__init__ info
+        Check database atributes por kwargs
+        """
+
+        event_to_save = {}
+        event_to_save['network'] = net_code
+        event_to_save['station'] = sta_code
+        event_to_save['location'] = location
+        
+        event_to_save['label'] = label
+        event_to_save['starttime'] = starttime #datetime
+        event_to_save['duration'] = duration
+        event_to_save['lte_file'] = lte_file
+
+        self.add_row(event_to_save)
 
 
     def relabel_row(self, id, new_label):

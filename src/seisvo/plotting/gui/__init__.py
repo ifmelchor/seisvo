@@ -3,7 +3,7 @@
 
 import os
 import inspect
-import notify2
+# import notify2
 import pyqtgraph
 import numpy as np
 
@@ -29,35 +29,31 @@ path = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe())))
 icons_path = os.path.join(path, 'icons')
 
 
-def get_norm(cmap, matrix, v_min=None, v_max=None):
-
+def get_norm(matrix, v_min=None, v_max=None):
     if np.isfinite(matrix).any():
         if not v_min:
             v_min = np.nanmin(matrix[np.isfinite(matrix)])
         if not v_max:
             v_max = np.nanmax(matrix[np.isfinite(matrix)])
-
         norm = mcolor.Normalize(v_min, v_max)
-
-        return norm, (v_min, v_max)
-
+        return [norm, (v_min, v_max)]
     else:
-        return None, None
+        return None
 
 
-def notify(title, msg, status=None):
-    """
-    status: error, info, warn
-    """
-    notify2.init("seisvo")
-    if status is not None:
-        n = notify2.Notification(title, msg, icon='%s/%s.png' %(icons_path, status))
-    else:
-        n = notify2.Notification(title, msg)
-    n.show()
+# def notify(title, msg, status=None):
+#     """
+#     status: error, info, warn
+#     """
+#     notify2.init("seisvo")
+#     if status is not None:
+#         n = notify2.Notification(title, msg, icon='%s/%s.png' %(icons_path, status))
+#     else:
+#         n = notify2.Notification(title, msg)
+#     n.show()
 
 
-class Navigation:
+class Navigation(object):
     def __init__(self, ax, imshow_axes=None, base_scale=2, parent=None, **kwargs):
         
         self.parent = parent
@@ -232,33 +228,6 @@ class Navigation:
 
 
 class Cursor(AxesWidget):
-    """
-    A crosshair cursor that spans the axes and moves with mouse cursor.
-
-    For the cursor to remain responsive you must keep a reference to it.
-
-    Parameters
-    ----------
-    ax : `matplotlib.axes.Axes`
-        The `~.axes.Axes` to attach the cursor to.
-    horizOn : bool, optional, default: True
-        Whether to draw the horizontal line.
-    vertOn : bool, optional, default: True
-        Whether to draw the vertical line.
-    useblit : bool, optional, default: False
-        Use blitting for faster drawing if supported by the backend.
-
-    Other Parameters
-    ----------------
-    **lineprops
-        `.Line2D` properties that control the appearance of the lines.
-        See also `~.Axes.axhline`.
-
-    Examples
-    --------
-    See :doc:`/gallery/widgets/cursor`.
-    """
-
     def __init__(self, ax, horizOn=True, vertOn=True, useblit=False,
                  **lineprops):
         

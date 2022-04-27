@@ -21,50 +21,6 @@ class Station(object):
         return self.info.__str__()
 
 
-    def __add_event__(self, sde, label, starttime, duration, **kwargs):
-        """
-        Add a new event in SDE database, for adding a row visit database/__init__ info
-        Check database atributes por kwargs
-        """
-
-        event_to_save = {}
-        event_to_save['network'] = self.info.net
-        event_to_save['station'] = self.info.code
-        event_to_save['location'] = self.info.loc
-
-        if self.is_infrasound():
-            event_to_save['event_type'] = 'P'
-        else:
-            event_to_save['event_type'] = 'S'
-        
-        event_to_save['label'] = label
-        event_to_save['starttime'] = starttime #datetime
-        event_to_save['duration'] = duration
-        event_to_save['event_id'] = sde.last_eid() + 1
-
-        id = sde.add_row(event_to_save)
-        sde.update_row(id, kwargs)
-    
-
-    def __add_episode__(self, lde, label, starttime, duration, lte_file):
-        """
-        Add a new episode in LDE database, for adding a row visit database/__init__ info
-        Check database atributes por kwargs
-        """
-
-        event_to_save = {}
-        event_to_save['network'] = self.info.net
-        event_to_save['station'] = self.info.code
-        event_to_save['location'] = self.info.loc
-        
-        event_to_save['label'] = label
-        event_to_save['starttime'] = starttime #datetime
-        event_to_save['duration'] = duration
-        event_to_save['lte_file'] = lte_file
-
-        lde.add_row(event_to_save)
-
-
     def is_infrasound(self):
         # Check if the station is an infrasound channel
         if len(self.info.chan) == 1:

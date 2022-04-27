@@ -307,26 +307,6 @@ class iArray(Network):
             self.dt_times[sta.info.id] = np.array(np.around((self.dt_times[sta.info.id] - dt_central) * self.sample_rate), dtype='int')
     
 
-    def __add_event__(self, isde, label, starttime, duration, air_file, pmax, pavg, channels):
-        """
-        Add a new episode in iSDE database, for adding a row visit database/__init__ info
-        Check database atributes por kwargs
-        """
-
-        event_to_save = {}
-        event_to_save['network'] = self.info.code
-        event_to_save['station'] = self.sta_code
-        event_to_save['label'] = label
-        event_to_save['channels'] = channels
-        event_to_save['starttime'] = starttime #datetime
-        event_to_save['duration'] = duration
-        event_to_save['air_file'] = air_file
-        event_to_save['pmax'] = pmax
-        event_to_save['pavg'] = pavg
-
-        isde.add_row(event_to_save)
-
-
     def get_stream(self, starttime, endtime, azm=None, time_pad=30, model=None, **kwargs):
         
         pad_delta = dt.timedelta(seconds=time_pad)
@@ -623,10 +603,9 @@ class iArray(Network):
         gplot(array=self, **kwargs)
 
 
-    @staticmethod
-    def get_azimuth(out, azm):
-        azm_list = list(range(out['model'].get('src_dgr')[0], out['model'].get('src_dgr')[1]+1))
-        return  azm_list.index(azm)
+    def get_azimuth(self, azm_bin):
+        azm_list = list(self.model_azimuths)
+        return  azm_list.index(azm_bin)
 
 
     @staticmethod
