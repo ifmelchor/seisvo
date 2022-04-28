@@ -8,16 +8,15 @@ from seisvo.plotting import plot_gram, get_colors
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
 
-default_color = get_colors('zesty')[1]
+defaultLTE_color = get_colors('zesty')[1]
 
 class plotLTE(object):
-    def __init__(self, fig, lte, start, end, interval, list_attr, show_mode=True, **kwargs):
-
+    def __init__(self, fig, lte, start, end, interval, list_attr, **kwargs):
         self.lte = lte
         self.fig = fig
-        self.show_mode = show_mode
         self.plotkwargs = kwargs
         
+        # check times
         if start < lte.stats.starttime:
             raise ValueError('warn: start < lte.stats.starttime')
         
@@ -29,17 +28,10 @@ class plotLTE(object):
         self.interval = interval
 
         # check that all attr are available of lte!
-        if not all([attr in lte.__attrs__ for attr in list_attr]):
-            attrs = [at not in lte.__attrs__ for at in list_attr]
-            pos = list(filter(lambda x: attrs[x], range(len(list_attr))))
-            not_availabel_attr = np.array(list_attr)[pos]
-            print('warn: attributes %s not available' %not_availabel_attr)
+        self.list_attr = lte.check_list_attr(list_attr, return_list=True)
+        if not self.list_attr:
+            raise ValueError('not attr available')
 
-            for att
-
-
-
-        self.list_attr = list_attr
         self.axes_ = {}
 
         # build the frame
@@ -149,25 +141,21 @@ class plotLTE(object):
 
     def get_ylim(self, attr):
         if attr == 'energy':
-            voff = 5
             ylabel = r'$e$'+'\n[dB]'
             vmin = self.plotkwargs.get('db_min', None)
             vmax = self.plotkwargs.get('db_max', None)
 
         if attr == 'pentropy':
-            voff = 0.2
             ylabel = r'$PE$'
             vmin = self.plotkwargs.get('pe_min', 0)
             vmax = self.plotkwargs.get('pe_max', 1)
 
         if attr == 'fq_dominant':
-            voff = 0
             ylabel = r'$f_d$'+'\n[Hz]'
             vmin = self.plotkwargs.get('fd_min', None)
             vmax = self.plotkwargs.get('fd_max', None)
 
         if attr == 'fq_centroid':
-            voff = 0
             ylabel = r'$f_c$'+'\n[Hz]'
             vmin = self.plotkwargs.get('fc_min', None)
             vmax = self.plotkwargs.get('fc_max', None)
@@ -223,7 +211,7 @@ class plotLTE(object):
                 self.axes_[i, 1].set_frame_on(False)
             
             # show mode values
-            if self.show_mode:
+            if self.plotkwargs.get('show_mode', True):
                 ans = self.lte.get_stats(attr)
                 ax.axhline(y=ans[3], color='r', lw=0.5, ls='-.', alpha=0.7, zorder=7)
         
@@ -255,11 +243,11 @@ class plotLTE(object):
         if ids:
             for eid in ids:
                 episode = lde[eid]
-                self.events_[eid] = {'ticks':[]}
+                self.events_[eid] = {'ticks':[], 'event':episode}
                 for i, attr in enumerate(self.list_attr):
                     if not self.lte.is_matrix(attr):
                         ax = self.axes_[attr][0]
-                        col = col_dict.get(episode.label, default_color)
+                        col = col_dict.get(episode.label, defaultLTE_color)
                         v1 = ax.axvline(episode.starttime,  alpha=0.5, color=col, ls='dashed')
                         v2 = ax.axvline(episode.endtime,  alpha=0.5, color=col, ls='dashed')
                         v3 = ax.avspan(episode.starttime,  episode.endtime, alpha=0.15, color=col)
@@ -278,7 +266,7 @@ class plotLTE(object):
         xformat = self.set_xformat()
 
         for i, attr in enumerate(self.list_attr):
-            self.axes_dict[attr] = []
+            self.axes_[attr] = []
 
             if i == num_i:
                 show_tickslabels = True
@@ -296,7 +284,6 @@ class plotLTE(object):
     
 
     def clear_events(self, id=None):
-
         def clear_id(eid):
             idict = self.events_.get(eid)
             if idict:

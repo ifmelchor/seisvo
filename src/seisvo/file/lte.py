@@ -238,6 +238,27 @@ class LTE(object):
         self.station = Network(net).get_sta(sta, loc=loc)
 
 
+    def check_list_attr(self, list_attr, return_list=True):
+        if not all([attr in self.__attrs__ for attr in list_attr]):
+            attrs = [at not in self.__attrs__ for at in list_attr]
+            pos = list(filter(lambda x: attrs[x], range(len(list_attr))))
+            not_availabel_attr = np.array(list_attr)[pos]
+            print('warn: attributes %s not available' %not_availabel_attr)
+
+            new_list_attr = [attr for attr in list_attr if attr in self.__attrs__]
+            if not new_list_attr:
+                print('available attr: %s' % self.__attrs__)
+
+        else:
+            new_list_attr = list_attr
+
+        if return_list:
+            return new_list_attr
+        
+        else:
+            return bool(new_list_attr)
+
+
     def get_dataset(self, group, attr, index):
         with h5py.File(self.lte_file, "r") as f:
             if index[1]:
@@ -355,6 +376,17 @@ class LTE(object):
         else:
             print(' sample size is less than 2')
             return None
+
+
+    def get_dict_stats(self, list_attr, starttime=None, endtime=None):
+        dout = {}
+        true_list = self.check_list_attr(list_attr, return_list=True)
+
+        for att in true_list:
+            if att in SCALAR_PARAMS:
+                dout[att] = self.get_stats(att, starttime=starttime, endtime=endtime)
+
+        return dout
 
 
     def __save_data__(self, group, attr, data, item):

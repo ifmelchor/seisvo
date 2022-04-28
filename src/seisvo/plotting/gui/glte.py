@@ -7,66 +7,66 @@ import datetime as dt
 import pyqtgraph
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+
 from matplotlib.figure import Figure, SubplotParams
-from matplotlib.backends.qt_compat import QtCore, QtWidgets, QtGui
+from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 
-from seisvo import LDE, Network
-from seisvo.gui import notify, get_norm, PSD_GUI
-from seisvo.gui.gstation import StationWindow
-from seisvo.gui.frames import ltegui2
-from seisvo.gui.glde import LDEWindow, __get_color__
+from seisvo import __seisvo__, LDE, Network
+from seisvo.plotting.gui import notify
+from seisvo.plotting.base import plotLTE, defaultLTE_color
+from seisvo.plotting.gui.frames import LTE_GUI
 
+# from seisvo.gui.gstation import StationWindow
+# from seisvo.gui.glde import LDEWindow, __get_color__
 
-def sort_list(llist):
-    sort_list = [None] * 10
-    for item in llist:
-        if item == 'energy':
-            sort_list[0] = item
-        if item == 'pentropy':
-            sort_list[1] = item
-        if item == 'fq_dominant':
-            sort_list[2] = item
-        if item == 'fq_centroid':
-            sort_list[3] = item
-        if item == 'specgram':
-            sort_list[4] = item
-        if item == 'degree_max':
-            sort_list[5] = item
-        if item == 'degree_wavg':
-            sort_list[6] = item
-        if item == 'fq_polar':
-            sort_list[7] = item
-        if item == 'degree':
-            sort_list[8] = item
-        if item == 'rect':
-            sort_list[9] = item
-    return list(filter(None.__ne__, sort_list))
+default_LDE_dir = os.path.join(__seisvo__, 'database', 'lde')
 
-
-def get_ticks(time_step, time, tint, day_off=1, yday=False):
-    one_day = int((60/time_step)*24)
-    one_day_bins = np.arange(0, len(time), one_day)
-    major_ticks = one_day_bins[day_off::tint]
-    minor_ticks = list(set(one_day_bins).difference(set(major_ticks)))
-    minor_ticks.sort()
-    if yday:
-        major_ticks_pos = [str(time[x].timetuple().tm_yday) for x in major_ticks]
-    else:
-        major_ticks_pos = [str(time[x].day) for x in major_ticks]
-    return major_ticks, minor_ticks, major_ticks_pos
+default_color_dictlabels = {
+    'NB':'k',
+    'BB':'k',
+    'HT':'k',
+    'MT':'k'
+}
 
 
 class LTEWindow(QtWidgets.QMainWindow):
-    def __init__(self, lte, starttime, endtime, interval, list_attr, lde_parent=None, **kwargs):
+    def __init__(self, lte, starttime, endtime, interval, list_attr, lde=None, lde_parent=None, **kwargs):
         QtWidgets.QMainWindow.__init__(self)
-        self.ui = ltegui2.Ui_MainWindow()
+        self.ui = LTE_GUI.Ui_MainWindow()
         self.ui.setupUi(self)
-        self.setWindowTitle('LTE: '+lte.stats.id)
+        self.setWindowTitle('LTE: '+ lte.stats.id)
 
-        self.canvas = LTECanvas(lte, starttime, endtime, interval, list_attr, parent=self, **kwargs)
+        self.lte = lte
+        self.starttime = starttime
+        self.endtime = endtime
+        self.interval = interval
+        self.list_attr = lte.check_list_attr(list_attr, return_list=True)
+        self.lde_parent = lde_parent
+        self.canvaskwargs = kwargs
+
+        if not lde:
+            lde_file = os.path.join(default_LDE_dir, self.lte.stats.id + '.lde')
+            self.lde = LDE(lde_file)
+        
+        else:
+            if isinstance(lde, LDE):
+                self.lde = lde
+            
+            elif isinstance(lde, str):
+                if lde.split('.')[-1] != 'lde':
+                    lde += '.lde'
+                self.lde = LDE(lde)
+            
+            else:
+                raise ValueError('lde should be LDE, string or None')
+            
+        self.set_canvas()
+
+
+    def set_canvas(self):
+        self.canvas = LTECanvas(self)
         self.ui.horizontalLayout.addWidget(self.canvas)
 
         self.ui.actionLTE_info.triggered.connect(self.canvas.show_info)
@@ -125,9 +125,9 @@ class LTEWindow(QtWidgets.QMainWindow):
         self.ui.eventWidget.itemClicked.connect(self.canvas.event_selected)
 
         # if LDE gui is the parent, hide it and when close LTE, turn on.
-        self.lde_parent = lde_parent
         if self.lde_parent:
             self.lde_parent.setEnabled(False)
+
 
     def eventFilter(self, source, event):
         if (event.type() == QtCore.QEvent.ContextMenu and
@@ -172,6 +172,7 @@ class LTEWindow(QtWidgets.QMainWindow):
         else:
             return False
 
+
     def closeEvent(self, event):
         if self.lde_parent:
             self.lde_parent.setEnabled(True)
@@ -186,31 +187,24 @@ class LTEWindow(QtWidgets.QMainWindow):
                     self.lde_parent.canvas.plot()
 
 
+def plot_gui(lte, starttime, endtime, interval, list_attr, **kwargs):
+    app = QtWidgets.QApplication(sys.argv)
+    lte_window = LTEWindow(lte, starttime, endtime, interval, list_attr, **kwargs)
+    lte_window.show()
+    sys.exit(app.exec_())
+
+
 class LTECanvas(FigureCanvas):
-    def __init__(self, lte, starttime, endtime, interval, list_attr, parent=None, **kwargs):
-        self.lte = lte
-        self.lde = LDE(self.lte.stats.id)
-        
-        self.delta = dt.timedelta(days=interval)
-        self.interval = interval
-
-        self.full_start = self.lte.stats.starttime
-        self.starttime = starttime
-        
-        self.full_end = self.lte.stats.endtime
-        self.endtime = endtime
-
-        self.list_attr = list_attr
-
+    def __init__(self, parent):
         self.parent = parent
-        self.kwargs = kwargs
+
         self.psd_frame = None
         self.sta_frame = None
         self.lde_frame = None
 
-        figsize = kwargs.get("figsize", (20,9))
-        self.fig = Figure(figsize=figsize, dpi=100,
+        self.fig = Figure(figsize=parent.canvaskwargs.get("figsize", (20,9)), dpi=100,
             subplotpars=SubplotParams(left=0.08, right=0.92, wspace=0.1, top=0.95, bottom=0.05))
+        
         FigureCanvas.__init__(self, self.fig)
         FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding)
@@ -222,6 +216,7 @@ class LTECanvas(FigureCanvas):
         self.cliks = dict(right=dict(tick=[], time=None), left=dict(tick=[], time=None))
         self.callbacks.connect('button_press_event', self.on_click)
 
+        self.update_interval() # init interval
         self.plot()
 
 
@@ -232,147 +227,115 @@ class LTECanvas(FigureCanvas):
 
     def show_info(self):
         lte_info = " LTE File: %s\n ID: %s\n Start Time: %s\n End Time: %s\n Time Step: %s\n" % (
-            os.path.basename(self.lte.lte_file), self.lte.stats.id, self.lte.stats.starttime.strftime("%Y-%m-%d"),
-            self.lte.stats.endtime.strftime("%Y-%m-%d"), self.lte.stats.time_step)
+            os.path.basename(self.parent.lte.lte_file), 
+            self.parent.lte.stats.id, 
+            self.parent.lte.stats.starttime.strftime("%Y-%m-%d"),
+            self.parent.lte.stats.endtime.strftime("%Y-%m-%d"),
+            self.parent.lte.stats.time_step
+        )
 
         lte_info += " Sampling Rate: %s\n Remove Response: %s\n Freq. Band: %s\n Avg. Step: %s\n" % (
-            self.lte.stats.sampling_rate, self.lte.stats.remove_response, self.lte.stats.fq_band, self.lte.stats.avg_step)
+            self.parent.lte.stats.sampling_rate,
+            self.parent.lte.stats.remove_response,
+            self.parent.lte.stats.fq_band,
+            self.parent.lte.stats.avg_step
+        )
 
-        lte_info += " Polargram: %s\n Matrix Return: %s\n PE (d,t): (%s,%s)\n" % (self.lte.stats.polargram,
-            self.lte.stats.matrix_return, self.lte.stats.p_order, self.lte.stats.tau)
+        lte_info += " Polargram: %s\n Matrix Return: %s\n PE (d,t): (%s,%s)\n" % (
+            self.parent.lte.stats.polargram,
+            self.parent.lte.stats.matrix_return,
+            self.parent.lte.stats.p_order,
+            self.parent.lte.stats.tau
+        )
 
         self.parent.ui.textTickInfo.setText(lte_info)
 
 
-    def get_attr_values(self, starttime, endtime, r=False):
-        """
-        Get the mean values of the period data specified
-        If end is not specified, take the value at time of start.
-        """
+    def update_interval(self, interval=None):
+        
+        if not interval:
+            interval = self.parent.interval
 
-        if r:
-            attr_list = self.list_attr + ['r']
-        else:
-            attr_list = self.list_attr
-
-        attr_mean_dict = {}
-        for attr in attr_list:
-            if not self.lte.is_matrix(attr):
-                if endtime:
-                    attr_mean_dict[attr] = self.lte.get_values(attr, starttime, endtime)[2]
-                else:
-                    attr_mean_dict[attr] = self.lte.get_attr(attr, starttime, None)
-
-        return attr_mean_dict
+        self.delta = dt.timedelta(days=interval)
+        self.set_statusbar(interval)
 
 
     def plot(self):
         self.fig.clf()
 
-        self.delta = dt.timedelta(days=self.interval)
-
-        if self.starttime < self.full_start:
-            self.starttime = self.full_start
-            notify('seisvo', 'End of the LTE file', status='warn')
+        if self.starttime < self.parent.lte.stats.starttime:
+            self.starttime = self.parent.lte.stats.starttime
+            notify('LTE', 'starttime set to LTE.starttime', status='info')
 
         self.endtime = self.starttime + self.delta
 
-        interval = self.interval
-        if self.endtime > self.full_end:
-            self.endtime = self.full_end
-            interval = (self.endtime - self.starttime).days
-            notify('seisvo', 'End of the LTE file', status='warn')
-
-        self.time = self.lte.get_time(self.starttime, self.endtime)
-
-        _, self.axes = get_fig(self.lte, self.starttime, self.endtime, interval, self.list_attr, 
-            fig=self.fig, settitle=False, **self.kwargs)
-
-        self.events = self.lde.get_events(time_interval=(self.starttime, self.endtime))
+        if self.endtime > self.parent.lte.stats.endtime:
+            self.endtime = self.parent.lte.stats.endtime
+            notify('LTE', 'endtime set to LTE.endtime', status='info')
         
-        self.parent.ui.eventWidget.clear()
+        interval = (self.endtime - self.starttime).days
+
+        self.parent.canvaskwargs['settitle'] = False
+        self.col_dict = self.parent.canvaskwargs.get('col_dict', default_color_dictlabels)
         
-        self.__eventlist = {}
-        if self.events:
-            for event in self.events:
-                self.__eventlist[event.id] = []
+        self.plte = plotLTE(
+            self.fig, 
+            self.parent.lte,
+            self.starttime,
+            self.endtime,
+            interval,
+            self.parent.list_attr,
+            **self.parent.canvaskwargs
+        )
 
-            for i, attr in enumerate(self.list_attr):
-                self.add_events(i)
-            
-            self.add_info_events()
-
+        # show episodes in LDE
+        self.show_events()
+        
         with pyqtgraph.BusyCursor():
             self.draw()
 
-        self.set_statusbar(interval)
+#----------------------------------------------
+#-----------  EVENTS --------------
+#----------------------------------------------
+
+    def show_events(self, reshow=False):
+        if not reshow:
+            self.plte.show_events(self.parent.lde, col_dict=self.col_dict)
+
+        self.parent.ui.eventWidget.clear()
+        if self.plte.events_:
+            for _, deid in self.plte.events_.items():
+                e = deid['event']
+                info_evnt = '  ID: %s | Label: %s' % (e.id, e.label)
+                self.parent.ui.eventWidget.addItem(info_evnt))
 
 
-    def add_info_events(self):
-        for e in self.events:
-            info_evnt = '  ID: %s | Label: %s' % (e.id, e.label)
-            self.parent.ui.eventWidget.addItem(info_evnt)
+    def deselect_event(self):
+        for _, deid in self.plte.events_.items():
+            if deid['ticks'][0].get_color() == 'gold':
+                deid['text'].set_color(self.col_dict.get(deid['event'].label, defaultLTE_color))
+                for artist in deid['ticks']:
+                    artist.set_color(self.col_dict.get(deid['event'].label, defaultLTE_color))
+                return
 
 
-    def add_events(self, i):
-        for event in self.events:
-            st = event.starttime
-            et = st + dt.timedelta(hours=event.duration)
-            color = __get_color__(event.label)
-            code = event.id
-
-            cond1 = st >= self.starttime and et <= self.endtime
-            cond2 = self.endtime > st > self.starttime and et > self.endtime
-            cond3 = self.starttime > st and self.starttime < et < self.endtime
-            cond4 = st < self.starttime and self.endtime < et
-
-            if cond1:
-                width = dt.timedelta(hours=event.duration)
-
-            if cond2:
-                width = self.endtime - st
-
-            if cond3:
-                st = self.starttime
-                width = et - st
-
-            if cond4:
-                st = self.starttime
-                width = self.endtime - st
-
-            if i == 0:
-                mid_bin = st + dt.timedelta(seconds=width.total_seconds()/2)
-                x_fraction_num = mdates.date2num(self.starttime) - mdates.date2num(mid_bin)
-                x_fraction_den = mdates.date2num(self.starttime) - mdates.date2num(self.endtime)
-                x_fraction = x_fraction_num/x_fraction_den
-                txt = self.axes[i, 0].annotate(code, xy=(x_fraction, 1.05), xycoords='axes fraction', c=color, fontsize=6)
-                self.__eventlist[code] += [txt]
-
-            span = self.axes[i, 0].axvspan(st, st + width, alpha=0.2, color=color, label=code)
-            self.__eventlist[code] += [span]
-
-
-    def event_selected(self):
-        # search for golds colors
-        for key in self.__eventlist.keys():
-            if self.__eventlist[key][0].get_color() == 'gold':
-                for item in self.__eventlist[key]:
-                    event = self.lde.get_event(key)
-                    item.set_color(__get_color__(event.label))
+    def select_event(self):
+        self.deselect_event()
 
         item = self.parent.ui.eventWidget.selectedItems()[0]
         event_id = int(item.text().split(' ')[3])
 
-        for item in self.__eventlist[event_id]:
+        for item in self.plte.events_[event_id]['ticks']:
             item.set_color('gold')
-
-        with pyqtgraph.BusyCursor():
-            self.draw()
+    
+        self.plte.events_[event_id]['text'].set_color('gold')
+        self.draw()
 
 
     def remove_event(self, i=None):
         if not i:
-            i, ok = QtWidgets.QInputDialog.getInt(self, "Remove Event","Event ID:")
+            i, ok = QtWidgets.QInputDialog.getInt(self, "Remove Event", "Event ID:")
+        
         else:
             msgBox = QtWidgets.QMessageBox()
             msgBox.setIcon(QtWidgets.QMessageBox.Information)
@@ -386,22 +349,45 @@ class LTECanvas(FigureCanvas):
                 return
 
         if ok and self.lde.is_event(i):
-            self.lde.remove(id=i)
-            self.plot()
+            self.lde.remove_row(i)
+            with pyqtgraph.BusyCursor():
+                self.plte.clear_events(i)
+                self.show_events(reshow=True)
+                self.draw()
 
 
     def relabel_event(self, i):
-        evnt = self.lde.get_event(id=i)
-        current_label = evnt.label
-        i, ok = QtWidgets.QInputDialog.getText(self, "Relabel Event","Event Label: ", text=current_label)
+        if self.lde.is_event(i):
+            evnt = self.lde.get(i)
+            current_label = evnt.label
+            new_label, ok = QtWidgets.QInputDialog.getText(self, "Relabel Event", "Event Label: ", text=current_label)
 
-        if ok:
-            new_label = str(i).upper()
-            self.lde.relabel(evnt, new_label)
-            with pyqtgraph.BusyCursor():
+            if ok:
+                new_label = str(new_label).upper()
+                self.lde.relabel_row(i, new_label)
+                
+                with pyqtgraph.BusyCursor():
+                    self.plte.clear_events(i)
+                    self.show_events(reshow=True)
+                    self.draw()
+
+
+    def write_event(self):
+        red_time, green_time, hr_dur, _ = self.get_infoticks()
+        if red_time and green_time:
+            lbl, ok = QtWidgets.QInputDialog.getText(self, "Long Duration Event type", "Label:")
+            if ok:
+                time = min([red_time, green_time])
+                dict_out = {}
+                dict_out['starttime'] = time
+                dict_out['duration'] = hr_dur
+                dict_out['label'] = lbl.upper()
+                dict_out['lte_file'] = os.path.join(self.lte.stats.id.split('.')[0], os.path.basename(self.lte.lte_file))
+                self.lde.save_event(dict_out)
                 self.plot()
 
 
+    #review!
     def plot_event(self, i=None, sta=False):
         if not i:
             i, ok = QtWidgets.QInputDialog.getInt(self, "Plot Event","Event ID:")
@@ -435,6 +421,7 @@ class LTECanvas(FigureCanvas):
             notify('seisvo', 'Event ID not found', status='warn')
 
 
+    #review!
     def plot_event_psd(self, i):
         if self.psd_frame:
             self.psd_frame.close()
@@ -455,6 +442,21 @@ class LTECanvas(FigureCanvas):
                 plot_prob=True, title='PSD/PD -- %s' % self.lte.get_station_id())
             self.psd_frame.show()
 
+
+    def show_eventinfo(self, i):
+        evnt = self.lde.get(i)
+        average_values = evnt.get_values(r=True)
+
+        info_text = evnt.__str__()
+        info_text += '\n -- Mean values ----- \n' 
+        for key in average_values:
+            info_text += '    %s : %2.2f\n' % (key, average_values[key])
+
+        self.parent.ui.textTickInfo.setText(info_text)
+
+#----------------------------------------------
+#-----------  TICKS   --------------
+#----------------------------------------------
 
     def reset_ticks(self):
         if self.cliks['left']['tick']:
@@ -529,128 +531,9 @@ class LTECanvas(FigureCanvas):
 
         self.parent.ui.textTickInfo.setText(text_tick)
 
-
-    def show_eventinfo(self, i):
-        evnt = self.lde.get_event(i)
-        average_values = evnt.get_values(r=True)
-
-        info_text = evnt.__str__()
-        info_text += '\n -- Mean values ----- \n' 
-        for key in average_values:
-            info_text += '    %s : %2.2f\n' % (key, average_values[key])
-
-        self.parent.ui.textTickInfo.setText(info_text)
-
-
-    def move_forward(self):
-        self.starttime += self.delta
-        self.plot()
-
-
-    def move_backwards(self):
-        self.starttime -= self.delta
-        self.plot()
-
-
-    def set_interval(self):
-        i, ok = QtWidgets.QInputDialog.getInt(self, "Set interval","Interval:", self.interval, 5, 150, 5)
-        if ok and int(i) != self.interval:
-            self.interval = i
-            self.plot()
-
-
-    def set_starttime(self):
-        current_day = self.starttime.strftime("%Y%m%d")
-        time, ok = QtWidgets.QInputDialog.getText(self, "Set Starttime", "Time (YYYYMMDD):", text=current_day)
-        if ok and str(time) != current_day:
-            try:
-                time = dt.datetime.strptime(str(time), "%Y%m%d")
-            except:
-                time = dt.datetime.now()
-
-            if self.full_start <= time < self.full_end:
-                self.starttime = time
-                self.plot()
-            
-            else:
-                msg = QtWidgets.QMessageBox()
-                msg.setIcon(QtWidgets.QMessageBox.Critical)
-                msg.setText("Time out of the bounds.")
-                msg.setWindowTitle("Error")
-                msg.exec_()
-
-
-    def plot_seismogram(self):
-
-        if self.sta_frame:
-            self.sta_frame.close()
-            self.sta_frame = None
-
-        net = Network(self.lte.stats.id.split('.')[0])
-        sta = net.get_sta(self.lte.stats.id.split('.')[1], self.lte.stats.id.split('.')[2])
-
-        times = [self.cliks['right']['time'], self.cliks['left']['time']]
-        starttime = min(times)
-        endtime = max(times)
-        delta = endtime - starttime
-        delta_minutes = int((endtime - starttime).total_seconds()/60)
-
-        if delta.days > 1:
-            one_day = True
-            specgram = False
-            interval = 60 #min
-
-        else:
-            one_day = False
-            specgram = True
-            interval = None #min
-
-        with pyqtgraph.BusyCursor():
-            self.sta_frame = StationWindow(sta, starttime, self.lte.stats.id.split('.')[3], delta_minutes, specgram=specgram,
-                specgram_lim=(-20, 60), fq_band=self.lte.stats.fq_band, one_day=one_day,
-                interval=interval)
-            self.sta_frame.show()
-
-
-    def plot_psd(self):
-        if self.psd_frame:
-            self.psd_frame.close()
-            self.psd_frame = None
-
-        times = [self.cliks['right']['time'], self.cliks['left']['time']]
-        starttime = min(times)
-        endtime = max(times)
-        data = self.lte.get_attr('specgram', starttime, endtime)
-        psdlist = data[0]
-        data2 = self.lte.get_attr('degree', starttime, endtime)
-        pdlist = data2[0]
-
-        with pyqtgraph.BusyCursor():
-            self.psd_frame = PSD_GUI(data[1], psdlist, pd_array=pdlist, 
-                plot_prob=True, title='PSD/PD -- %s' % self.lte.get_station_id())
-            self.psd_frame.show()
-
-
-    def write_event(self):
-        red_time, green_time, hr_dur, _ = self.get_infoticks()
-        if red_time and green_time:
-            lbl, ok = QtWidgets.QInputDialog.getText(self, "Long Duration Event type", "Label:")
-            if ok:
-                time = min([red_time, green_time])
-                dict_out = {}
-                dict_out['starttime'] = time
-                dict_out['duration'] = hr_dur
-                dict_out['label'] = lbl.upper()
-                dict_out['lte_file'] = os.path.join(self.lte.stats.id.split('.')[0], os.path.basename(self.lte.lte_file))
-                self.lde.save_event(dict_out)
-                self.plot()
-
-
-    def save_fig(self):
-        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save F:xile", "./", "Images (*.png *.svg *.pdf)")
-        if fileName:
-            self.fig.savefig(fileName)
-
+#----------------------------------------------
+#-----------  GUI & NAVIGATE   --------------
+#----------------------------------------------
 
     def on_click(self, event):
         try:
@@ -714,33 +597,102 @@ class LTECanvas(FigureCanvas):
         self.show_infoticks()
 
 
-    def plot_lde(self, scatter=False):
-        if scatter:
-            fig = plt.figure(figsize=(12,8))
-            self.lde.scatter(fig=fig)
+    def move_forward(self):
+        self.starttime += self.delta
+        self.plot()
+
+
+    def move_backwards(self):
+        self.starttime -= self.delta
+        self.plot()
+
+
+    def set_interval(self):
+        i, ok = QtWidgets.QInputDialog.getInt(self, "Set interval","Interval:", self.interval, 5, 150, 5)
+        if ok and int(i) != self.parent.interval:
+            self.update_interval(i)
+            self.plot()
+
+
+    def set_starttime(self):
+        current_day = self.starttime.strftime("%Y%m%d")
+        time, ok = QtWidgets.QInputDialog.getText(self, "Set Starttime", "Time (YYYYMMDD):", text=current_day)
+        if ok and str(time) != current_day:
+            try:
+                time = dt.datetime.strptime(str(time), "%Y%m%d")
+            except:
+                time = dt.datetime.now()
+
+            if self.parent.lte.stats.starttime <= time < self.parent.lte.stats.endtime:
+                self.starttime = time
+                self.plot()
+            
+            else:
+                msg = QtWidgets.QMessageBox()
+                msg.setIcon(QtWidgets.QMessageBox.Critical)
+                msg.setText("Time out of the bounds.")
+                msg.setWindowTitle("Error")
+                msg.exec_()
+
+
+#----------------------------------------------
+#-----------  ADITIONALS   --------------
+#----------------------------------------------
+
+    def plot_seismogram(self):
+
+        if self.sta_frame:
+            self.sta_frame.close()
+            self.sta_frame = None
+
+        net = Network(self.lte.stats.id.split('.')[0])
+        sta = net.get_sta(self.lte.stats.id.split('.')[1], self.lte.stats.id.split('.')[2])
+
+        times = [self.cliks['right']['time'], self.cliks['left']['time']]
+        starttime = min(times)
+        endtime = max(times)
+        delta = endtime - starttime
+        delta_minutes = int((endtime - starttime).total_seconds()/60)
+
+        if delta.days > 1:
+            one_day = True
+            specgram = False
+            interval = 60 #min
+
         else:
-            if not self.lde.activity:
-                f_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Select the file containing activity', "./", "Text (*.lde *.txt)")
-                if os.path.isfile(str(f_path)):
-                    try:
-                        self.lde.load_activity(f_path)
-                    except:
-                        self.lde.activity = None
-                        msg = QtWidgets.QMessageBox()
-                        msg.setIcon(QtWidgets.QMessageBox.Critical)
-                        msg.setText("Error reading file")
-                        msg.setWindowTitle("Error")
-                        msg.exec_()
-            self.lde.plot()
+            one_day = False
+            specgram = True
+            interval = None #min
+
+        with pyqtgraph.BusyCursor():
+            self.sta_frame = StationWindow(sta, starttime, self.lte.stats.id.split('.')[3], delta_minutes, specgram=specgram,
+                specgram_lim=(-20, 60), fq_band=self.lte.stats.fq_band, one_day=one_day,
+                interval=interval)
+            self.sta_frame.show()
 
 
-def plot_gui(lte, starttime, endtime, interval, list_attr, **kwargs):
-    app = QtWidgets.QApplication(sys.argv)
-    lte_window = LTEWindow(lte, starttime, endtime, interval, list_attr, **kwargs)
-    lte_window.show()
-    sys.exit(app.exec_())
+    def plot_psd(self):
+        if self.psd_frame:
+            self.psd_frame.close()
+            self.psd_frame = None
+
+        times = [self.cliks['right']['time'], self.cliks['left']['time']]
+        starttime = min(times)
+        endtime = max(times)
+        data = self.lte.get_attr('specgram', starttime, endtime)
+        psdlist = data[0]
+        data2 = self.lte.get_attr('degree', starttime, endtime)
+        pdlist = data2[0]
+
+        with pyqtgraph.BusyCursor():
+            self.psd_frame = PSD_GUI(data[1], psdlist, pd_array=pdlist, 
+                plot_prob=True, title='PSD/PD -- %s' % self.lte.get_station_id())
+            self.psd_frame.show()
 
 
-
+    def save_fig(self):
+        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save F:xile", "./", "Images (*.png *.svg *.pdf)")
+        if fileName:
+            self.fig.savefig(fileName)
 
 

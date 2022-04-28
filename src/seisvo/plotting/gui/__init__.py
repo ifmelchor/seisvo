@@ -2,14 +2,8 @@
 # coding=utf-8
 
 import os
-import inspect
-# import notify2
-import pyqtgraph
 import numpy as np
-
-import matplotlib.ticker as mtick
 import matplotlib.colors as mcolor
-import matplotlib.dates as mdates
 
 from matplotlib.figure import Figure
 from matplotlib.backends.qt_compat import QtCore, QtWidgets, QtGui
@@ -19,38 +13,25 @@ from matplotlib.widgets import AxesWidget
 from seisvo.utils.plotting import plot_multiple_psd
 from seisvo.gui.frames import psdfull_gui
 
-try:
-    import pyautogui
-except:
-    print('warning: pyautogui has not been imported')
-    pass
+from pynotifier import Notification
+import pyqtgraph
+import pyautogui
 
-path = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe())))
+path = os.path.dirname(os.path.realpath(__file__))
 icons_path = os.path.join(path, 'icons')
 
 
-def get_norm(matrix, v_min=None, v_max=None):
-    if np.isfinite(matrix).any():
-        if not v_min:
-            v_min = np.nanmin(matrix[np.isfinite(matrix)])
-        if not v_max:
-            v_max = np.nanmax(matrix[np.isfinite(matrix)])
-        norm = mcolor.Normalize(v_min, v_max)
-        return [norm, (v_min, v_max)]
-    else:
-        return None
-
-
-# def notify(title, msg, status=None):
-#     """
-#     status: error, info, warn
-#     """
-#     notify2.init("seisvo")
-#     if status is not None:
-#         n = notify2.Notification(title, msg, icon='%s/%s.png' %(icons_path, status))
-#     else:
-#         n = notify2.Notification(title, msg)
-#     n.show()
+def notify(title, description, status='info', duration=2):
+    """
+    status: error, info, warn
+    """
+    n = Notification(
+        title=title, 
+        description=description, 
+        icon_path='%s/%s.png' %(icons_path, status),
+        duration=duration
+        )
+    n.send()
 
 
 class Navigation(object):

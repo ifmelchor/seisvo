@@ -165,25 +165,16 @@ class _DataBase(object):
         else:
             raise ValueError(' DataBase must be SDE or LDE')
 
-        cond1 = os.path.isfile(sql_path)
-        cond2 = os.path.isfile(os.path.join(__seisvo__, 'database', sql_path))
-
-        if cond1 and cond2:
-            raise ValueError(' Two databases with same name!')
-        
-        if not cond1 and not cond2:
-            print(' Database %s created' % sql_path)
+        if not os.path.isfile(sql_path):
             engine = sql.create_engine('sqlite:///%s' % sql_path)
             SQLbase.metadata.create_all(engine)
-
-        if cond2:
-            self.sql_path = os.path.join(__seisvo__, 'database', sql_path)
-            print(' Database %s ready' % self.sql_path)
-        
+            print(' Database %s created' % sql_path)
         else:
-            self.sql_path = sql_path
-            print(' Database %s ready ' % self.sql_path)
-    
+            # check is database coincides with type
+            print(' Database %s ready' % sql_path)
+
+        self.sql_path = sql_path
+        
 
     def open(self):
         call_file = ["sqlitebrowser", self.sql_path]
@@ -563,7 +554,7 @@ class SDE(_DataBase):
 class LDE(_DataBase):
     def __init__(self, sql_path):
         super().__init__(sql_path, 'LDE')
-        self.id = os.path.basename(sql_path).split('.db')[0]
+        self.id = os.path.basename(sql_path).split('.lde')[0]
 
     
     def __len__(self):
@@ -571,6 +562,10 @@ class LDE(_DataBase):
 
 
     def __getitem__(self, eid):
+        self.get(eid)
+    
+
+    def get(self, eid):
         return Episode(eid, self)
 
 
