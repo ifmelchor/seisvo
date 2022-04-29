@@ -96,9 +96,6 @@ def get_group(attr):
             return 'polar'
 
 
-NoneType = type(None)
-
-
 default_bandwidth = {
             'frec': 0.01,
             'sp': 0.05,
@@ -788,6 +785,9 @@ class LTE(object):
         return pdf
 
 
+    # # def most_probable_function(self, attr
+
+
     def get_Peaks(self, fq_range=(), peak_thresholds={}):
         return Peaks(self, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
@@ -1166,12 +1166,12 @@ class Peaks(LTE):
         cl = []
         cp = []
         for  _, info in self.peaks_.items():
-            if isinstance(info['cp'], NoneType):
+            if isinstance(info['cp'], type(None)):
                 cp.append(np.nan)
             else:
                 cp.append(info['cp'])
 
-            if isinstance(info['cl'], NoneType):
+            if isinstance(info['cl'], type(None)):
                 cl.append(np.nan)
             else:
                 cl.append(info['cl'])
@@ -1183,7 +1183,7 @@ class Peaks(LTE):
             k_range = []
             k_n = []
             for  _, info in self.peaks_.items():
-                if isinstance(info[key_str], NoneType):
+                if isinstance(info[key_str], type(None)):
                     k_data.append(np.nan)
                     k_range.append(np.nan)
                     k_n.append(np.nan)

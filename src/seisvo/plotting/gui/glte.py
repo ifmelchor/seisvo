@@ -30,6 +30,7 @@ default_color_dictlabels = {
     'MT':'k'
 }
 
+CLICK_COLOR = ('r', 'darkgreen')
 
 class LTEWindow(QtWidgets.QMainWindow):
     def __init__(self, lte, starttime, endtime, interval, list_attr, lde=None, lde_parent=None, **kwargs):
@@ -198,6 +199,7 @@ class LTECanvas(FigureCanvas):
     def __init__(self, parent):
         self.parent = parent
 
+        self.interval = None
         self.psd_frame = None
         self.sta_frame = None
         self.lde_frame = None
@@ -251,17 +253,17 @@ class LTECanvas(FigureCanvas):
         self.parent.ui.textTickInfo.setText(lte_info)
 
 
-    def update_interval(self, interval=None):
-        
-        if not interval:
-            interval = self.parent.interval
+    def update_interval(self):
+        if not self.interval:
+            self.interval = self.parent.interval
 
-        self.delta = dt.timedelta(days=interval)
-        self.set_statusbar(interval)
+        self.delta = dt.timedelta(days=self.interval)
+        self.set_statusbar(self.interval)
 
 
     def plot(self):
         self.fig.clf()
+
 
         if self.starttime < self.parent.lte.stats.starttime:
             self.starttime = self.parent.lte.stats.starttime
@@ -288,11 +290,16 @@ class LTECanvas(FigureCanvas):
             **self.parent.canvaskwargs
         )
 
+        self.axes = []
+        for _, dat in self.plte.axes_:
+            self.axes.append(dat[0])
+
         # show episodes in LDE
         self.show_events()
         
         with pyqtgraph.BusyCursor():
-            self.draw()
+            self.reset_ticks()
+
 
 #----------------------------------------------
 #-----------  EVENTS --------------
@@ -373,53 +380,27 @@ class LTECanvas(FigureCanvas):
 
 
     def write_event(self):
-        red_time, green_time, hr_dur, _ = self.get_infoticks()
-        if red_time and green_time:
-            lbl, ok = QtWidgets.QInputDialog.getText(self, "Long Duration Event type", "Label:")
+        lticktime, rticktime, hr_dur, _ = self.get_infoticks()
+        ticktimes = [lticktime, rticktime]
+
+        if all(ticktimes):
+            label, ok = QtWidgets.QInputDialog.getText(self, "Long Duration Event type", "Label:")
             if ok:
-                time = min([red_time, green_time])
-                dict_out = {}
-                dict_out['starttime'] = time
-                dict_out['duration'] = hr_dur
-                dict_out['label'] = lbl.upper()
-                dict_out['lte_file'] = os.path.join(self.lte.stats.id.split('.')[0], os.path.basename(self.lte.lte_file))
-                self.lde.save_event(dict_out)
-                self.plot()
+                net_code = self.parent.lte.stats.id.split('.')[0]
+                sta_code = self.parent.lte.stats.id.split('.')[1]
+                loc_code = self.parent.lte.stats.id.split('.')[2]
+                self.lde.__add_episode__(
+                    net_code,
+                    sta_code,
+                    loc_code,
+                    label.upper(),
+                    min(ticktimes),
+                    hr_dur,
+                    self.parent.lte.lte_file
+                )
 
-
-    #review!
-    def plot_event(self, i=None, sta=False):
-        if not i:
-            i, ok = QtWidgets.QInputDialog.getInt(self, "Plot Event","Event ID:")
-        
-        else:
-            ok = True
-
-        if ok and self.lde.is_event(i):
-            if sta:
-                event = self.lde.get_event(id=i)
-                sta = self.lde.station
-
-                with pyqtgraph.BusyCursor():
-                    if self.sta_frame:
-                        self.sta_frame.close()
-                        self.sta_frame = None
-                    self.sta_frame = StationWindow(sta, event.starttime, self.lte.stats.id.split('.')[3], 
-                        30, specgram=True, specgram_lim=(-20, 60), 
-                        fq_band=self.lte.stats.fq_band, one_day=False)
-                    self.sta_frame.show()
-
-            else:
-                with pyqtgraph.BusyCursor():
-                    if self.lde_frame:
-                        self.lde_frame.close()
-                        self.lde_frame = None
-                    self.lde_frame = LDEWindow(self.lde, event_id=i, lte_parent=self.parent, vmin=-20, vmax=60)
-                    self.lde_frame.show()
-                self.parent.setEnabled(False)
-        else:
-            notify('seisvo', 'Event ID not found', status='warn')
-
+                # reset ticks
+                # reset episodes
 
     #review!
     def plot_event_psd(self, i):
@@ -458,72 +439,95 @@ class LTECanvas(FigureCanvas):
 #-----------  TICKS   --------------
 #----------------------------------------------
 
-    def reset_ticks(self):
-        if self.cliks['left']['tick']:
-            for ac_ver_bar in self.cliks['left']['tick']:
-                ac_ver_bar.remove()
-            self.cliks['left']['tick'] = []
-            self.cliks['left']['time'] = None
+    def clear_click(self, button):
+        # left click
+        if button == 1:
+            if self.cliks['left']['tick']:
+                for ac_ver_bar in self.cliks['left']['tick']:
+                    ac_ver_bar.remove()
+                self.cliks['left']['tick'] = []
 
-        if self.cliks['right']['tick']:
-            for ac_ver_bar in self.cliks['right']['tick']:
-                ac_ver_bar.remove()
-            self.cliks['right']['tick'] = []
-            self.cliks['right']['time'] = None
+        # right click
+        if button == 3:
+            if self.cliks['right']['tick']:
+                for ac_ver_bar in self.cliks['right']['tick']:
+                    ac_ver_bar.remove()
+                self.cliks['right']['tick'] = []
 
-        self.parent.ui.actionWaveform.setEnabled(False)
-        self.parent.ui.buttonWaveform.setEnabled(False)
-        self.parent.ui.actionPSD.setEnabled(False)
-        self.parent.ui.buttonPSD.setEnabled(False)
-        self.parent.ui.actionSave_Event.setEnabled(False)
-        self.parent.ui.buttonSave_Event.setEnabled(False)
+
+    def on_click(self, event):
+        if event.inaxes in self.axes:
+            t = mdates.num2date(float(event.xdata))
+            t = t.replace(tzinfo=None)
+            t = self.plte.xtime[np.argmin(np.abs(np.array(self.plte.xtime)-t))]
+        else:
+            return
+
+        # double click clean clicks!
+        if event.dblclick:
+            self.clear_click(1)
+            self.clear_click(3)
+        
+        else:
+            if event.button in (1, 3):
+                self.clear_click(event.button)
+                for iax in self.axes:
+                    if event.button == 1:
+                        self.cliks['left']['time'] = t
+                        tax = iax.axvline(t, color=CLICK_COLOR[0])
+                        self.cliks['left']['tick'].append(tax)
+
+                    if event.button == 3:
+                        self.cliks['right']['time'] = t
+                        tax = iax.axvline(t, color=CLICK_COLOR[1])
+                        self.cliks['right']['tick'].append(tax)
+            else:
+                return
 
         self.draw()
+        self.update_buttons()
         self.show_infoticks()
 
 
-    def get_infoticks(self, r=False):
-        if self.cliks['left']['time']:
-            red_tick = self.cliks['left']['time']
-        else:
-            red_tick = None
+    def reset_ticks(self):
+        self.clear_click(1)
+        self.clear_click(3)
+        self.update_buttons()
+        self.show_infoticks()
+        self.draw()
 
-        if self.cliks['right']['time']:
-            green_tick = self.cliks['right']['time']
-        else:
-            green_tick = None
 
-        if not green_tick and not red_tick:
-            return red_tick, green_tick, np.nan, [np.nan]*5
-
-        if red_tick and green_tick:
-            times = [red_tick, green_tick]
-            hr_dur = (max(times)-min(times)).total_seconds()/3600.0
-            dict_ans = self.get_attr_values(min(times), max(times), r=r)
-
-        else:
-            if red_tick:
-                time = red_tick
+    def get_infoticks(self):
+        lticktime = self.cliks['left'].get('time', None)
+        rticktime = self.cliks['right'].get('time', None)
+        
+        ticktimes = [lticktime, rticktime]
+        if any(ticktimes):
+            if all(ticktimes):
+                hr_dur = (max(ticktimes)-min(ticktimes)).total_seconds()/3600.0
+                dict_ans = self.parent.lte.get_dict_stats(self.parent.list_attr, starttime=min(ticktimes), endtime=max(ticktimes))
             else:
-                time = green_tick
-
+                ticktime = list(filter(None, ticktimes))[0]
+                hr_dur = np.nan
+                dict_ans = self.parent.lte.get_dict_stats(self.parent.list_attr, starttime=ticktime, endtime=None)
+        else:
             hr_dur = np.nan
-            dict_ans = self.get_attr_values(time, None)
-
-        return red_tick, green_tick, hr_dur, dict_ans
+            dict_ans = None
+        
+        return lticktime, rticktime, hr_dur, dict_ans
 
 
     def show_infoticks(self):
-        red_time, green_time, hr_dur, dict_ans = self.get_infoticks(r=True)
+        lticktime, rticktime, hr_dur, dict_ans = self.get_infoticks()
 
-        if red_time:
-            red_time = red_time.strftime("%Y-%m-%d %H:%M")
+        if lticktime:
+            lticktime = lticktime.strftime("%Y-%m-%d %H:%M")
 
-        if green_time:
-            green_time = green_time.strftime("%Y-%m-%d %H:%M")
+        if rticktime:
+            rticktime = rticktime.strftime("%Y-%m-%d %H:%M")
 
-        text_tick = " Red click : %s\n" % red_time
-        text_tick += " Green click : %s\n" % green_time
+        text_tick = " Left click : %s\n" % lticktime
+        text_tick += " Right click : %s\n" % rticktime
         text_tick += " Time delta  : %2.1f hr\n" % hr_dur
 
         for key in dict_ans.keys():
@@ -535,66 +539,22 @@ class LTECanvas(FigureCanvas):
 #-----------  GUI & NAVIGATE   --------------
 #----------------------------------------------
 
-    def on_click(self, event):
-        try:
-            t = mdates.num2date(float(event.xdata))
-            t = t.replace(tzinfo=None)
-            t = self.time[np.argmin(np.abs(np.array(self.time)-t))]
-        except:
-            return
-
-        if event.button == 1:
-            if self.cliks['left']['tick']:
-                for ac_ver_bar in self.cliks['left']['tick']:
-                    ac_ver_bar.remove()
-                self.cliks['left']['tick'] = []
-
-
-        if event.button == 3:
-            if self.cliks['right']['tick']:
-                for ac_ver_bar in self.cliks['right']['tick']:
-                    ac_ver_bar.remove()
-                self.cliks['right']['tick'] = []
-
-
-        for iax in range(self.axes.shape[0]):
-            if event.button == 1:
-                self.cliks['left']['time'] = t
-                tax = self.axes[iax,0].axvline(t, color='r')
-                self.cliks['left']['tick'].append(tax)
-
-            if event.button == 3 and not event.dblclick:
-                self.cliks['right']['time'] = t
-                tax = self.axes[iax,0].axvline(t, color='darkgreen')
-                self.cliks['right']['tick'].append(tax)
-
-            if event.button == 3 and event.dblclick:
-                self.cliks['right']['time'] = None
-
-
+    def update_buttons(self):
         if self.cliks['right']['time'] and self.cliks['left']['time']:
             self.parent.ui.actionWaveform.setEnabled(True)
             self.parent.ui.buttonWaveform.setEnabled(True)
-
             self.parent.ui.actionPSD.setEnabled(True)
             self.parent.ui.buttonPSD.setEnabled(True)
-
             self.parent.ui.actionSave_Event.setEnabled(True)
             self.parent.ui.buttonSave_Event.setEnabled(True)
 
         else:
             self.parent.ui.actionWaveform.setEnabled(False)
             self.parent.ui.buttonWaveform.setEnabled(False)
-
             self.parent.ui.actionPSD.setEnabled(False)
             self.parent.ui.buttonPSD.setEnabled(False)
-
             self.parent.ui.actionSave_Event.setEnabled(False)
             self.parent.ui.buttonSave_Event.setEnabled(False)
-
-
-        self.draw()
-        self.show_infoticks()
 
 
     def move_forward(self):
@@ -608,9 +568,11 @@ class LTECanvas(FigureCanvas):
 
 
     def set_interval(self):
-        i, ok = QtWidgets.QInputDialog.getInt(self, "Set interval","Interval:", self.interval, 5, 150, 5)
-        if ok and int(i) != self.parent.interval:
-            self.update_interval(i)
+        max_int = (self.parent.lte.stats.endtime - self.parent.lte.stats.starttime).days
+        new_interval, ok = QtWidgets.QInputDialog.getInt(self, "Set interval", "Interval [days]:", self.interval, 5, int(max_int), 5)
+        if ok and int(new_interval) != self.interval:
+            self.interval = int(new_interval)
+            self.update_interval()
             self.plot()
 
 
@@ -638,7 +600,7 @@ class LTECanvas(FigureCanvas):
 #----------------------------------------------
 #-----------  ADITIONALS   --------------
 #----------------------------------------------
-
+    #review!
     def plot_seismogram(self):
 
         if self.sta_frame:
@@ -670,7 +632,7 @@ class LTECanvas(FigureCanvas):
                 interval=interval)
             self.sta_frame.show()
 
-
+    #review!
     def plot_psd(self):
         if self.psd_frame:
             self.psd_frame.close()
@@ -696,3 +658,6 @@ class LTECanvas(FigureCanvas):
             self.fig.savefig(fileName)
 
 
+
+class PDFWindow(QtWidgets.QMainWindow):
+    

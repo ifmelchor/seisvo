@@ -13,30 +13,30 @@ from seisvo.signal import freq_bins
 
 class Station(object):
     def __init__(self, StaFile):
-        self.info = StaFile
+        self.stats = StaFile
         self.set_dates()
 
 
     def __str__(self):
-        return self.info.__str__()
+        return self.stats.__str__()
 
 
     def is_infrasound(self):
         # Check if the station is an infrasound channel
-        if len(self.info.chan) == 1:
-            if self.info.chan[0][-1] == 'P':
+        if len(self.stats.chan) == 1:
+            if self.stats.chan[0][-1] == 'P':
                 return True
         return False
 
 
     def get_response(self):
-        return get_respfile(self.info.net, self.info.code, self.info.loc)
+        return get_respfile(self.stats.net, self.stats.code, self.stats.loc)
 
 
     def is_component(self, component):
         # Check if the component exist
         ans = False
-        for true_chan in self.info.chan:
+        for true_chan in self.stats.chan:
             if true_chan[-1] == component:
                 ans = True
         return ans
@@ -45,7 +45,7 @@ class Station(object):
     def get_chan(self, component):
         # get all the channel with the same component
         ans = []
-        for true_chan in self.info.chan:
+        for true_chan in self.stats.chan:
             if true_chan[-1] == component:
                 ans +=[true_chan]
         return ans
@@ -68,21 +68,21 @@ class Station(object):
 
         import utm
 
-        lat = self.info.lat
-        lon = self.info.lon
+        lat = self.stats.lat
+        lon = self.stats.lon
 
         if degree:
-            if self.info.type == 'utm':
-                zn = self.info.zone_number
-                zl = self.info.zone_letter
+            if self.stats.type == 'utm':
+                zn = self.stats.zone_number
+                zl = self.stats.zone_letter
                 return utm.to_latlon(lat, lon, zn, zl)
             else:
                 return (lat, lon)
 
         else:
-            if self.info.type == 'utm':
-                zn = self.info.zone_number
-                zl = self.info.zone_letter
+            if self.stats.type == 'utm':
+                zn = self.stats.zone_number
+                zl = self.stats.zone_letter
                 return (lat, lon, zn, zl)
             else:
                 return utm.from_latlon(lat, lon)
@@ -96,12 +96,12 @@ class Station(object):
         """
 
         if not chan:
-            chan = self.info.chan[0]
+            chan = self.stats.chan[0]
         else:
-            if chan not in self.info.chan:
+            if chan not in self.stats.chan:
                 raise TypeError('Channel not loaded')
 
-        list = glob(os.path.join(self.info.sdsdir, '*', self.info.net, self.info.code, '%s.D' % chan, '*'))
+        list = glob(os.path.join(self.stats.sdsdir, '*', self.stats.net, self.stats.code, '%s.D' % chan, '*'))
         datelist = [i[-8:] for i in list]
         datelist.sort()
 
@@ -112,12 +112,12 @@ class Station(object):
             sd_st = self.is_file(chan, date=startdate, stream=True)
             ed_st = self.is_file(chan, date=enddate, stream=True)
 
-            self.info.starttime = sd_st[0].stats.starttime.datetime
-            self.info.endtime = ed_st[0].stats.endtime.datetime
+            self.stats.starttime = sd_st[0].stats.starttime.datetime
+            self.stats.endtime = ed_st[0].stats.endtime.datetime
 
         else:
-            self.info.starttime = None
-            self.info.endtime = None
+            self.stats.starttime = None
+            self.stats.endtime = None
 
 
     def is_file(self, chan, julian_date=(), date=None, stream=False, status=False):
@@ -130,7 +130,7 @@ class Station(object):
         :return: file_path or False
         """
 
-        if chan not in self.info.chan:
+        if chan not in self.stats.chan:
             raise TypeError('Channel not loaded')
 
         if julian_date:
@@ -145,19 +145,19 @@ class Station(object):
             raise TypeError('A date must be specified')
 
         file_name = '%s.%s.%s.%s.D.%s.%03d' % (
-            self.info.net,
-            self.info.code,
-            self.info.loc,
+            self.stats.net,
+            self.stats.code,
+            self.stats.loc,
             chan,
             year,
             yday
             )
 
         file = os.path.join(
-            self.info.sdsdir,
+            self.stats.sdsdir,
             str(year),
-            self.info.net,
-            self.info.code,
+            self.stats.net,
+            self.stats.code,
             '%s.D' % chan,
             file_name)
 
@@ -180,14 +180,14 @@ class Station(object):
         :return: file_path or False
         """
 
-        if chan not in self.info.chan:
+        if chan not in self.stats.chan:
             raise TypeError('Channel not loaded')
 
         if not startdate:
-            startdate = self.info.starttime
+            startdate = self.stats.starttime
 
         if not enddate:
-            enddate = self.info.endtime
+            enddate = self.stats.endtime
 
         day_diff = (enddate - startdate).days
         date_list = [startdate + timedelta(days=i) for i in range(day_diff+1)]
@@ -206,14 +206,14 @@ class Station(object):
 
         from seisvo.plotting import pplot_control
 
-        if chan not in self.info.chan:
+        if chan not in self.stats.chan:
             raise TypeError('Channel not loaded')
 
         if not startdate:
-            startdate = self.info.starttime
+            startdate = self.stats.starttime
 
         if not enddate:
-            enddate = self.info.endtime
+            enddate = self.stats.endtime
 
         day_diff = (enddate - startdate).days
         date_list = [startdate + timedelta(days=i) for i in range(day_diff+1)]
@@ -239,7 +239,7 @@ class Station(object):
 
         print('\t\t')
 
-        title = '%s \n %s -- %s' % (self.info.id,
+        title = '%s \n %s -- %s' % (self.stats.id,
             startdate.strftime('%Y.%m.%d'),
             enddate.strftime('%Y.%m.%d'))
         pplot_control(title, date_list, nro_traces, sample_rate, npts, max_value)
@@ -279,7 +279,7 @@ class Station(object):
                 chan = self.get_chan(component)
 
         else:
-            chan = self.info.chan
+            chan = self.stats.chan
 
         day_diff = (endtime_2.date() - starttime_2.date()).days
         date_list = [starttime_2.date() + timedelta(days=i) for i in range(day_diff+1)]
@@ -292,8 +292,8 @@ class Station(object):
                     stream += st_day
                 else:
                     if verbose:
-                        print(' Error [%s.%s]: No data for %s' % (self.info.code,
-                    self.info.loc, day.strftime('%Y.%m.%d')))
+                        print(' Error [%s.%s]: No data for %s' % (self.stats.code,
+                    self.stats.loc, day.strftime('%Y.%m.%d')))
 
         if pad_zeros:
             fill_value = 0
@@ -306,24 +306,6 @@ class Station(object):
             return None
 
         else:
-            # if pad_zeros:
-            #     for trace in st:
-            #         true_starttime = trace.stats.starttime.datetime
-            #         true_endtime = trace.stats.endtime.datetime
-            #         fs = trace.stats.sampling_rate
-
-            #         if starttime != true_starttime:
-            #             sec_diff = abs((starttime - true_starttime).total_seconds())
-            #             zeros = np.zeros(int(fs*sec_diff))
-            #             trace.data = np.concatenate((zeros, trace.data))
-            #             trace.starttime = UTCDateTime(starttime)
-
-            #         if endtime != true_endtime:
-            #             sec_diff = abs((true_endtime - endtime).total_seconds())
-            #             zeros = np.zeros(int(fs*sec_diff))
-            #             trace.data = np.concatenate((trace.data, zeros))
-            #             trace.stats.npts += int(fs*sec_diff)
-
             t1 = max([tr.stats.starttime for tr in st])
             t2 = min([tr.stats.endtime for tr in st])
             st = Stream2(st.slice(t1, t2))
@@ -353,9 +335,9 @@ class Station(object):
 
         if not chan:
             # get vertical component as default
-            chan = [c for c in self.info.chan if c[-1]=='Z'][0]
+            chan = [c for c in self.stats.chan if c[-1]=='Z'][0]
 
-        info = {'id': '%s.%s' % (self.info.id, chan)}
+        info = {'id': '%s.%s' % (self.stats.id, chan)}
         info['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')
         info['endtime'] = endtime.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -393,7 +375,7 @@ class Station(object):
         
         out_dir = kwargs.get("out_dir", None)
         if not out_dir:
-            out_dir = os.path.join(__seisvo__, 'lte', self.info.net)
+            out_dir = os.path.join(__seisvo__, 'lte', self.stats.net)
         
         file_name_full = os.path.join(out_dir, file_name)
 

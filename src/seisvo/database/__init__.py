@@ -569,7 +569,7 @@ class LDE(_DataBase):
         return Episode(eid, self)
 
 
-    def __add_episode__(self, net_code, sta_code, location, label, starttime, duration, lte_file):
+    def __add_episode__(self, net_code, sta_code, location, label, starttime, duration, lte_file, lte_file_sup=None):
         """
         Add a new episode in LDE database, for adding a row visit database/__init__ info
         Check database atributes por kwargs
@@ -584,6 +584,7 @@ class LDE(_DataBase):
         event_to_save['starttime'] = starttime #datetime
         event_to_save['duration'] = duration
         event_to_save['lte_file'] = lte_file
+        event_to_save['lte_file_sup'] = lte_file_sup
 
         self.add_row(event_to_save)
 

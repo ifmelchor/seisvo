@@ -16,12 +16,12 @@ import os
 
 class Network(object):
     def __init__(self, net_code):
-        self.info = get_network(net_code)
-        self.station = [Station(x) for x in self.info.stations]
+        self.stats = get_network(net_code)
+        self.station = [Station(x) for x in self.stats.stations]
 
 
     def __str__(self):
-        return self.info.__str__()
+        return self.stats.__str__()
 
 
     def __len__(self):
@@ -42,9 +42,9 @@ class Network(object):
         
         n = 0
         for sta in self.station:
-            if not sta_code or sta.info.code == sta_code:
-                st = sta.info.starttime
-                et = sta.info.endtime
+            if not sta_code or sta.stats.code == sta_code:
+                st = sta.stats.starttime
+                et = sta.stats.endtime
 
                 if n >= 1:
                     if st < start:
@@ -66,7 +66,7 @@ class Network(object):
         Get a iArray object. Only for infrasound stations
         :param loc_list: Specify the list of locations to exclude
         """
-        return iArray(self.info.code, sta_code, model)
+        return iArray(self.stats.code, sta_code, model)
 
 
     def get_sta(self, sta_code, loc=''):
@@ -74,7 +74,7 @@ class Network(object):
         Get a station object
         """
         for sta in self.station:
-            if sta_code == sta.info.code and loc ==sta.info.loc:
+            if sta_code == sta.stats.code and loc ==sta.stats.loc:
                 return sta
         return None
 
@@ -86,7 +86,7 @@ class Network(object):
         
         stream = Stream2()
         for sta in self.station:
-            if not sta_code or sta_code == sta.info.code:
+            if not sta_code or sta_code == sta.stats.code:
                 try:
                     stream += sta.get_stream(starttime, endtime, **kwargs)
                 except:
@@ -104,15 +104,15 @@ class Network(object):
         from seisvo.utils.maps import get_map
 
         # desired coordinates
-        coord = [self.info.latOrig, self.info.lonOrig]
-        title = "Network: %s" % self.info.code
+        coord = [self.stats.latOrig, self.stats.lonOrig]
+        title = "Network: %s" % self.stats.code
         
         fig, ax = get_map(coord, arcgis_map, zoom_scale, epsg, pixel=pixel, dpi=dpi, title=title)
 
         # draw station
         for station in self.station:
             (lat, lon) = station.get_latlon(degree=True)
-            ax.scatter(lon, lat, marker='^', label=station.info.id, transform=proj)
+            ax.scatter(lon, lat, marker='^', label=station.stats.id, transform=proj)
         ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
 
         if save:
@@ -138,10 +138,10 @@ class Network(object):
 
         sta_list = []
         for sta in self.station:
-            if sta_code == sta.info.code:
-                if not loc or sta.info.loc == loc:
-                    for chan in sta.info.chan:
-                        sta_list += ['%s.%s' % (sta.info.id, chan)]
+            if sta_code == sta.stats.code:
+                if not loc or sta.stats.loc == loc:
+                    for chan in sta.stats.chan:
+                        sta_list += ['%s.%s' % (sta.stats.id, chan)]
 
         if not sta_list:
             raise TypeError(' Station list is empty.')
@@ -157,7 +157,7 @@ class Network(object):
         for i, x in enumerate(day_list):
             for j, y in enumerate(sta_list):
                 for sta in self.station:
-                    if sta.info.id == '.'.join(y.split('.')[0:-1]):
+                    if sta.stats.id == '.'.join(y.split('.')[0:-1]):
                         #print ('  reading data... (%d%%)' % (100*r/nro_reads), end='\r')
                         status = sta.is_file(y.split('.')[-1], date=x)
                         
@@ -170,13 +170,13 @@ class Network(object):
                         else:
                             if not status:
                                 missing_day = x.strftime('%Y%j')
-                                missing_day_str = '%s-%s' %(sta.info.id, missing_day)
+                                missing_day_str = '%s-%s' %(sta.stats.id, missing_day)
                                 list_missing_days += [missing_day_str]
 
                         r += 1
             
         if plot:
-            title = "Availability for Network %s" % self.info.code
+            title = "Availability for Network %s" % self.stats.code
             plot_check(title, sta_list, availability, day_list)
 
         else:
@@ -191,7 +191,7 @@ class Network(object):
         if sta:
             sta_id = sta.id
             self.station.remove(sta)
-            self.info.stations_info.remove(sta_id)
+            self.stats.stations_info.remove(sta_id)
 
 
 class iArray(Network):
@@ -209,26 +209,26 @@ class iArray(Network):
     def __setstacode__(self):
         sta_to_remove = []
         for sta in self.station:
-            if sta.info.code == self.sta_code:
-                for ch in sta.info.chan:
+            if sta.stats.code == self.sta_code:
+                for ch in sta.stats.chan:
                     if ch[-1] != self.chan:
-                        sta.info.chan.remove(ch)
-                if not sta.info.chan:
+                        sta.stats.chan.remove(ch)
+                if not sta.stats.chan:
                     sta_to_remove += [sta]
             else:
                 sta_to_remove += [sta]
         
-        id_list = [sta.info.id for sta in sta_to_remove]
+        id_list = [sta.stats.id for sta in sta_to_remove]
         for sta in self.station:
-            if sta.info.id in id_list:
+            if sta.stats.id in id_list:
                 self.station.remove(sta)
         
-        self.stations_info = [sta.info.id for sta in self.station]
+        self.stations_info = [sta.stats.id for sta in self.station]
     
 
     def __check__(self):
         # check sample rate
-        sample_rate = list(set([sta.info.sampling_rate for sta in self.station]))
+        sample_rate = list(set([sta.stats.sampling_rate for sta in self.station]))
         if len(sample_rate) == 1:
             self.sample_rate = int(sample_rate[0])
         else:
@@ -248,15 +248,15 @@ class iArray(Network):
         self.lon0 = None
         for sta in self.station:
             if not sta_code:
-                if sta.info.central:
+                if sta.stats.central:
                     self.lat0 = sta.get_latlon(degree=False)[0]
                     self.lon0 = sta.get_latlon(degree=False)[1]
-                    self.central_sta = sta.info.id
+                    self.central_sta = sta.stats.id
             else:
-                if sta.info.code == sta_code:
+                if sta.stats.code == sta_code:
                     self.lat0 = sta.get_latlon(degree=False)[0]
                     self.lon0 = sta.get_latlon(degree=False)[1]
-                    self.central_sta = sta.info.id
+                    self.central_sta = sta.stats.id
         
         if not self.lat0:
             print("warn: central station is not defined")
@@ -283,7 +283,7 @@ class iArray(Network):
         for key, item in self.model.items():
             print(f'  {key:>8s} : ', item)
 
-        h_mean = np.array([sta.info.elev for sta in self.station]).mean()
+        h_mean = np.array([sta.stats.elev for sta in self.station]).mean()
         self.h_mean_ = h_mean
         h_diff = self.model['h_src'] - h_mean
 
@@ -298,13 +298,13 @@ class iArray(Network):
             lat_lon = sta.get_latlon(degree=False)
             xx = lat_lon[0] - x_src
             yy = lat_lon[1] - y_src
-            zz = sta.info.elev - h_diff
+            zz = sta.stats.elev - h_diff
             dist_src = np.sqrt(xx ** 2 + yy ** 2 + zz ** 2)
-            self.dt_times[sta.info.id] = dist_src / self.model['vel_air']
+            self.dt_times[sta.stats.id] = dist_src / self.model['vel_air']
 
         dt_central = self.dt_times[self.central_sta]
         for sta in self:
-            self.dt_times[sta.info.id] = np.array(np.around((self.dt_times[sta.info.id] - dt_central) * self.sample_rate), dtype='int')
+            self.dt_times[sta.stats.id] = np.array(np.around((self.dt_times[sta.stats.id] - dt_central) * self.sample_rate), dtype='int')
     
 
     def get_stream(self, starttime, endtime, azm=None, time_pad=30, model=None, **kwargs):
@@ -323,7 +323,7 @@ class iArray(Network):
         stream = Stream2()
         for sta in self:
             if azm:
-                azm_delta = dt.timedelta(seconds=int(self.dt_times[sta.info.id][azm_idx]) * delta)
+                azm_delta = dt.timedelta(seconds=int(self.dt_times[sta.stats.id][azm_idx]) * delta)
             else:
                 azm_delta = dt.timedelta(seconds=0)
 
@@ -369,7 +369,7 @@ class iArray(Network):
         air_file = kwargs.get('air', False)
 
         info = {}
-        info['code'] = '%s.%s' % (self.info.code, self.sta_code)
+        info['code'] = '%s.%s' % (self.stats.code, self.sta_code)
         info['sampling_rate'] = self.sample_rate_
         info['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')
         info['endtime'] = endtime.strftime('%Y-%m-%d %H:%M:%S')
@@ -570,7 +570,7 @@ class iArray(Network):
                 endtime = time + pad_time
 
             else:
-                sec = float((int(self.dt_times[sta.info.id][azm_bin]) - 1) * delta)
+                sec = float((int(self.dt_times[sta.stats.id][azm_bin]) - 1) * delta)
                 starttime = time + dt.timedelta(seconds=sec)
                 endtime = time + dt.timedelta(seconds=sec) + time_width
 
@@ -592,8 +592,8 @@ class iArray(Network):
             azm_bin = self.get_azimuth(out, azm)
 
         for sta in self.station:
-            dt_delta = dt.timedelta(seconds=float((int(self.dt_times[sta.info.id][azm_bin]) - 1) * delta))
-            v_bars[sta.info.id] = (time + dt_delta, time + dt_delta + time_width)
+            dt_delta = dt.timedelta(seconds=float((int(self.dt_times[sta.stats.id][azm_bin]) - 1) * delta))
+            v_bars[sta.stats.id] = (time + dt_delta, time + dt_delta + time_width)
 
         return v_bars
     
