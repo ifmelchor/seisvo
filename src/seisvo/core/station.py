@@ -358,7 +358,7 @@ class Station(object):
 
         # computing freq_bins
         if not sample_rate:
-            sample_rate = int(self.get_sampling_rate(starttime))
+            sample_rate = self.stats.sampling_rate
         info['sampling_rate'] = sample_rate
         
         fq_band = kwargs.get('fq_band', (1, 10))

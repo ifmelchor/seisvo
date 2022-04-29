@@ -10,6 +10,20 @@ import matplotlib.dates as mdates
 
 defaultLTE_color = get_colors('zesty')[1]
 
+
+default_labels = {
+    'energy':r'$e$'+'[dB]',
+    'specgram':'PSD [dB]',
+    'degree':'PD',
+    'rect':'R',
+    'azm':r'$\Theta_H$ [$\degree$]',
+    'dip':r'$\Theta_V$ [$\degree$]',
+    'pentropy': 'PE',
+    'fq_dominant': r'$f_d$'+'[Hz]',
+    'fq_centroid': r'$f_c$'+'[Hz]',
+}
+
+
 class plotLTE(object):
     def __init__(self, fig, lte, start, end, interval, list_attr, **kwargs):
         self.lte = lte
@@ -102,29 +116,24 @@ class plotLTE(object):
         if attr == 'specgram':
             v_min = self.plotkwargs.get('specgram_vmin', None)
             v_max = self.plotkwargs.get('specgram_vmax', None)
-            label = 'PSD'
 
         if attr == 'degree':
             v_min = 0
             v_max = 1
-            label = 'PD'
         
         if attr == 'rect':
             v_min = 0
             v_max = 1
-            label = 'R'
 
         if attr == 'azm':
             v_min = 0
             v_max = 180
-            label = r'$\Theta_H$'
         
         if attr == 'dip':
             v_min = 0
             v_max = 90
-            label = r'$\Theta_V$'
         
-        return label, (v_min, v_max)
+        return (v_min, v_max)
 
 
     def get_ymax(self, attr):
@@ -141,26 +150,22 @@ class plotLTE(object):
 
     def get_ylim(self, attr):
         if attr == 'energy':
-            ylabel = r'$e$'+'\n[dB]'
             vmin = self.plotkwargs.get('db_min', None)
             vmax = self.plotkwargs.get('db_max', None)
 
         if attr == 'pentropy':
-            ylabel = r'$PE$'
             vmin = self.plotkwargs.get('pe_min', 0)
             vmax = self.plotkwargs.get('pe_max', 1)
 
         if attr == 'fq_dominant':
-            ylabel = r'$f_d$'+'\n[Hz]'
             vmin = self.plotkwargs.get('fd_min', None)
             vmax = self.plotkwargs.get('fd_max', None)
 
         if attr == 'fq_centroid':
-            ylabel = r'$f_c$'+'\n[Hz]'
             vmin = self.plotkwargs.get('fc_min', None)
             vmax = self.plotkwargs.get('fc_max', None)
         
-        return ylabel, (vmin, vmax)
+        return (vmin, vmax)
 
 
     def __show_data__(self, i, attr, show_tickslabels, xformat, **kwargs):
@@ -273,13 +278,15 @@ class plotLTE(object):
             else:
                 show_tickslabels = False
 
+            label = default_labels.get(attr, attr)
+
             if self.lte.is_matrix(attr):
                 ylabel = r'$f$ [Hz]'
-                label, v_min, v_max = self.get_vlim(attr)
+                (v_min, v_max) = self.get_vlim(attr)
                 self.__show_data__(i, attr, show_tickslabels, xformat, v_max=v_max, v_min=v_min, y_label=ylabel, bar_label=label)
             
             else:
-                ylabel, (vmin, vmax) = self.get_ylim(attr)
+                (vmin, vmax) = self.get_ylim(attr)
                 self.__show_data__(i, attr, show_tickslabels, xformat, ylim=(vmin, vmax), y_label=ylabel)
     
 

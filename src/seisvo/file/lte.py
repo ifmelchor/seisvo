@@ -15,6 +15,7 @@ from scipy import signal
 from scipy.stats import gaussian_kde
 from antropy import perm_entropy
 from pytictoc import TicToc
+from seisvo.plotting import plot_gram
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from obspy.core.util.attribdict import AttribDict
 from datetime import datetime, timedelta
@@ -755,37 +756,36 @@ class LTE(object):
             plot_gui(self, starttime, endtime, interval, list_attr, **kwargs)
 
 
-    def pdf(self, attr='specgram', bandwidth=0.01, starttime=None, endtime=None, axis=None, plot=True, **kwargs):
+    def get_pdf(self, attr, starttime=None, endtime=None, bandwidth=0.01, **kwargs):
         """
         Compute the PDF
         """
 
-        matrix, x_space = self.get_attr(attr, starttime=starttime, endtime=endtime)
-            
-        if attr == 'specgram':
+        y_size = kwargs.get('y_space', 1000)
+
+        if self.is_matrix(attr):
+            matrix, x_space = self.get_attr(attr, starttime=starttime, endtime=endtime)
             masked_matrix = np.ma.masked_invalid(matrix.T)
             matrix = np.ma.compress_cols(masked_matrix)
-            matrix = 10*np.log10(matrix.T)
+            
+            if attr == 'specgram':
+                matrix = 10*np.log10(matrix.T)
+            
+            y_min = kwargs.get('y_min', matrix.min())
+            y_max = kwargs.get('y_max', matrix.max())
+            y_space = np.linspace(y_min, y_max, y_size).reshape(y_size, 1)
+            pdf = get_PDF(matrix, y_space, bandwidth, **kwargs)
+
+            return x_space, y_space.reshape(y_size,), pdf
         
-        y_size = kwargs.get('y_space', 1000)
-        y_min = kwargs.get('y_min', matrix.min())
-        y_max = kwargs.get('y_max', matrix.max())
-        y_space = np.linspace(y_min, y_max, y_size).reshape(y_size, 1)
+        else:
+            data = self.get_attr(attr, starttime=starttime, endtime=endtime)
+            y_min = kwargs.get('y_min', data.min())
+            y_max = kwargs.get('y_max', data.max())
+            y_space = np.linspace(y_min, y_max, y_size).reshape(y_size, 1)
+            pdf = get_PDF(data.reshape(-1,1), y_space, bandwidth, **kwargs)
 
-        pdf = get_PDF(matrix, y_space, bandwidth, **kwargs)
-
-        savefig = kwargs.get('savefig', False)
-        
-        if axis or plot or savefig:
-            fig = sup.plot_pdf(pdf, y_space.reshape(y_size,), x_space, axis=axis, plot=plot, **kwargs)
-
-            if fig and savefig:
-                fig.savefig(savefig, transparent=True)
-        
-        return pdf
-
-
-    # # def most_probable_function(self, attr
+            return y_space.reshape(y_size,), pdf
 
 
     def get_Peaks(self, fq_range=(), peak_thresholds={}):

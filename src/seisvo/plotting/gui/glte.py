@@ -6,20 +6,18 @@ import numpy as np
 import datetime as dt
 import pyqtgraph
 
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-
-from matplotlib.figure import Figure, SubplotParams
+from matplotlib.figure import Figure
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 
-from seisvo import __seisvo__, LDE, Network
+from seisvo import __seisvo__, LDE
+from seisvo.file.lte import SCALAR_PARAMS, SCALAR_OPT_PARAMS, VECTORAL_PARAMS, VECTORAL_OPT_PARAMS
+from seisvo.plotting import plot_gram
 from seisvo.plotting.gui import notify
-from seisvo.plotting.base import plotLTE, defaultLTE_color
-from seisvo.plotting.gui.frames import LTE_GUI
+from seisvo.plotting.base import plotLTE, defaultLTE_color, default_labels
+from seisvo.plotting.gui.frames import lte_base, lte_pdf
 
-# from seisvo.gui.gstation import StationWindow
-# from seisvo.gui.glde import LDEWindow, __get_color__
 
 default_LDE_dir = os.path.join(__seisvo__, 'database', 'lde')
 
@@ -32,10 +30,18 @@ default_color_dictlabels = {
 
 CLICK_COLOR = ('r', 'darkgreen')
 
+
+def plot_gui(lte, starttime, endtime, interval, list_attr, **kwargs):
+    app = QtWidgets.QApplication(sys.argv)
+    lte_window = LTEWindow(lte, starttime, endtime, interval, list_attr, **kwargs)
+    lte_window.show()
+    sys.exit(app.exec_())
+
+
 class LTEWindow(QtWidgets.QMainWindow):
     def __init__(self, lte, starttime, endtime, interval, list_attr, lde=None, lde_parent=None, **kwargs):
         QtWidgets.QMainWindow.__init__(self)
-        self.ui = LTE_GUI.Ui_MainWindow()
+        self.ui = lte_base.Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle('LTE: '+ lte.stats.id)
 
@@ -188,24 +194,14 @@ class LTEWindow(QtWidgets.QMainWindow):
                     self.lde_parent.canvas.plot()
 
 
-def plot_gui(lte, starttime, endtime, interval, list_attr, **kwargs):
-    app = QtWidgets.QApplication(sys.argv)
-    lte_window = LTEWindow(lte, starttime, endtime, interval, list_attr, **kwargs)
-    lte_window.show()
-    sys.exit(app.exec_())
-
-
 class LTECanvas(FigureCanvas):
     def __init__(self, parent):
         self.parent = parent
 
         self.interval = None
-        self.psd_frame = None
-        self.sta_frame = None
-        self.lde_frame = None
+        self.pdf_frame = None
 
-        self.fig = Figure(figsize=parent.canvaskwargs.get("figsize", (20,9)), dpi=100,
-            subplotpars=SubplotParams(left=0.08, right=0.92, wspace=0.1, top=0.95, bottom=0.05))
+        self.fig = Figure(figsize=parent.canvaskwargs.get("figsize", (20,9)), dpi=100)
         
         FigureCanvas.__init__(self, self.fig)
         FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding,
@@ -314,7 +310,7 @@ class LTECanvas(FigureCanvas):
             for _, deid in self.plte.events_.items():
                 e = deid['event']
                 info_evnt = '  ID: %s | Label: %s' % (e.id, e.label)
-                self.parent.ui.eventWidget.addItem(info_evnt))
+                self.parent.ui.eventWidget.addItem(info_evnt)
 
 
     def deselect_event(self):
@@ -355,8 +351,8 @@ class LTECanvas(FigureCanvas):
             else:
                 return
 
-        if ok and self.lde.is_event(i):
-            self.lde.remove_row(i)
+        if ok and self.parent.lde.is_event(i):
+            self.parent.lde.remove_row(i)
             with pyqtgraph.BusyCursor():
                 self.plte.clear_events(i)
                 self.show_events(reshow=True)
@@ -364,14 +360,14 @@ class LTECanvas(FigureCanvas):
 
 
     def relabel_event(self, i):
-        if self.lde.is_event(i):
-            evnt = self.lde.get(i)
+        if self.parent.lde.is_event(i):
+            evnt = self.parent.lde.get(i)
             current_label = evnt.label
             new_label, ok = QtWidgets.QInputDialog.getText(self, "Relabel Event", "Event Label: ", text=current_label)
 
             if ok:
                 new_label = str(new_label).upper()
-                self.lde.relabel_row(i, new_label)
+                self.parent.lde.relabel_row(i, new_label)
                 
                 with pyqtgraph.BusyCursor():
                     self.plte.clear_events(i)
@@ -389,7 +385,7 @@ class LTECanvas(FigureCanvas):
                 net_code = self.parent.lte.stats.id.split('.')[0]
                 sta_code = self.parent.lte.stats.id.split('.')[1]
                 loc_code = self.parent.lte.stats.id.split('.')[2]
-                self.lde.__add_episode__(
+                self.parent.lde.__add_episode__(
                     net_code,
                     sta_code,
                     loc_code,
@@ -399,41 +395,10 @@ class LTECanvas(FigureCanvas):
                     self.parent.lte.lte_file
                 )
 
-                # reset ticks
-                # reset episodes
-
-    #review!
-    def plot_event_psd(self, i):
-        if self.psd_frame:
-            self.psd_frame.close()
-            self.psd_frame = None
-
-        event = self.lde.get_event(id=i)
-        start = event.starttime
-        end = start + dt.timedelta(hours=event.duration)
-
-        data = self.lte.get_attr('specgram', start, end)
-        psdlist = data[0]
-
-        data2 = self.lte.get_attr('degree', start, end)
-        pdlist = data2[0]
-
-        with pyqtgraph.BusyCursor():
-            self.psd_frame = PSD_GUI(data[1], psdlist, pd_array=pdlist, 
-                plot_prob=True, title='PSD/PD -- %s' % self.lte.get_station_id())
-            self.psd_frame.show()
-
-
-    def show_eventinfo(self, i):
-        evnt = self.lde.get(i)
-        average_values = evnt.get_values(r=True)
-
-        info_text = evnt.__str__()
-        info_text += '\n -- Mean values ----- \n' 
-        for key in average_values:
-            info_text += '    %s : %2.2f\n' % (key, average_values[key])
-
-        self.parent.ui.textTickInfo.setText(info_text)
+                with pyqtgraph.BusyCursor():
+                    self.plte.clear_events()
+                    self.show_events()
+                    self.reset_ticks()
 
 #----------------------------------------------
 #-----------  TICKS   --------------
@@ -517,18 +482,25 @@ class LTECanvas(FigureCanvas):
         return lticktime, rticktime, hr_dur, dict_ans
 
 
-    def show_infoticks(self):
-        lticktime, rticktime, hr_dur, dict_ans = self.get_infoticks()
+    def show_infoticks(self, eid=None):
+        if eid:
+            episode = self.parent.lde.get(eid)
+            lticktime, rticktime = episode.starttime, episode.endtime
+            hr_dur = episode.duration
+            dict_ans = self.parent.lte.get_dict_stats(self.parent.list_attr, starttime=episode.starttime, endtime=episode.endtime)
+        
+        else:
+            lticktime, rticktime, hr_dur, dict_ans = self.get_infoticks()
 
-        if lticktime:
-            lticktime = lticktime.strftime("%Y-%m-%d %H:%M")
+            if lticktime:
+                lticktime = lticktime.strftime("%Y-%m-%d %H:%M")
 
-        if rticktime:
-            rticktime = rticktime.strftime("%Y-%m-%d %H:%M")
+            if rticktime:
+                rticktime = rticktime.strftime("%Y-%m-%d %H:%M")
 
         text_tick = " Left click : %s\n" % lticktime
         text_tick += " Right click : %s\n" % rticktime
-        text_tick += " Time delta  : %2.1f hr\n" % hr_dur
+        text_tick += " Time delta [hr] : %2.1f hr\n" % hr_dur
 
         for key in dict_ans.keys():
             text_tick += " %s : %2.2f\n" % (key, dict_ans[key])
@@ -597,59 +569,24 @@ class LTECanvas(FigureCanvas):
                 msg.exec_()
 
 
-#----------------------------------------------
-#-----------  ADITIONALS   --------------
-#----------------------------------------------
-    #review!
-    def plot_seismogram(self):
-
-        if self.sta_frame:
-            self.sta_frame.close()
-            self.sta_frame = None
-
-        net = Network(self.lte.stats.id.split('.')[0])
-        sta = net.get_sta(self.lte.stats.id.split('.')[1], self.lte.stats.id.split('.')[2])
-
-        times = [self.cliks['right']['time'], self.cliks['left']['time']]
-        starttime = min(times)
-        endtime = max(times)
-        delta = endtime - starttime
-        delta_minutes = int((endtime - starttime).total_seconds()/60)
-
-        if delta.days > 1:
-            one_day = True
-            specgram = False
-            interval = 60 #min
-
+    def show_pdf(self, eid=None):
+        if eid:
+            episode = self.parent.lde.get(eid)
+            starttime = episode.starttime
+            endtime = episode.endtime
+        
         else:
-            one_day = False
-            specgram = True
-            interval = None #min
-
+            ticktimes = [self.cliks['right']['time'], self.cliks['left']['time']]
+            starttime = min(ticktimes)
+            endtime = max(ticktimes)
+            
         with pyqtgraph.BusyCursor():
-            self.sta_frame = StationWindow(sta, starttime, self.lte.stats.id.split('.')[3], delta_minutes, specgram=specgram,
-                specgram_lim=(-20, 60), fq_band=self.lte.stats.fq_band, one_day=one_day,
-                interval=interval)
-            self.sta_frame.show()
-
-    #review!
-    def plot_psd(self):
-        if self.psd_frame:
-            self.psd_frame.close()
-            self.psd_frame = None
-
-        times = [self.cliks['right']['time'], self.cliks['left']['time']]
-        starttime = min(times)
-        endtime = max(times)
-        data = self.lte.get_attr('specgram', starttime, endtime)
-        psdlist = data[0]
-        data2 = self.lte.get_attr('degree', starttime, endtime)
-        pdlist = data2[0]
-
-        with pyqtgraph.BusyCursor():
-            self.psd_frame = PSD_GUI(data[1], psdlist, pd_array=pdlist, 
-                plot_prob=True, title='PSD/PD -- %s' % self.lte.get_station_id())
-            self.psd_frame.show()
+            if self.pdf_frame:
+                self.pdf_frame.update(starttime, endtime)
+                self.pdf_frame.show()
+            else:
+                self.pdf_frame = PDFWindow(self.parent, starttime, endtime)
+                self.pdf_frame.show()
 
 
     def save_fig(self):
@@ -658,6 +595,145 @@ class LTECanvas(FigureCanvas):
             self.fig.savefig(fileName)
 
 
-
 class PDFWindow(QtWidgets.QMainWindow):
+    def __init__(self, main, starttime, endtime):
+        QtWidgets.QMainWindow.__init__(self)
+        self.ui = lte_pdf.Ui_MainWindow()
+        self.ui.setupUi(self)
+        
+        self.main = main
+        self.starttime = starttime
+        self.endtime = endtime
+
+        attrs = self.main.list_attr()
+        self.scalar_attrs = [atr for atr in attrs if atr in SCALAR_PARAMS + SCALAR_OPT_PARAMS]
+        self.vector_attrs = [atr for atr in attrs if atr in VECTORAL_PARAMS + VECTORAL_OPT_PARAMS]
+
+        if self.scalar_attrs:
+            self.scalar_canvas = PDFCanvas(self, 1, init_attr=self.scalar_attrs[0])
+            self.ui.horizontalLayout.addWidget(self.scalar_canvas)
+        else:
+            self.scalar_canvas = None
+
+        if self.vector_attrs:
+            self.vector_canvas = PDFCanvas(self, 2, init_attr=self.vector_attrs[0])
+            self.ui.horizontalLayout_2.addWidget(self.vector_canvas)
+        else:
+            self.vector_canvas = None
+
+        self.set_window_title()
+        self.add_buttons()
+    
+
+    def set_window_title(self):
+        self.setWindowTitle('PDF %s -- %s' % (
+            self.starttime.strftime('%d %b %Y'),
+            self.endtime.strftime('%d %b %Y'))
+        )
+
+
+    def add_buttons(self):
+        self.button_ = {}
+        
+        # scalar attributes
+        for sat in self.scalar_attrs:
+            pushButton = QtWidgets.QPushButton(self.ui.frame)
+            self.ui.horizontalLayout.addWidget(pushButton)
+            pushButton.setText(sat)
+            pushButton.clicked.connect(lambda: self.scalar_canvas.plot(sat))
+            self.button_[sat] = pushButton
+
+        # vector attributes
+        for vat in self.vector_attrs:
+            pushButton = QtWidgets.QPushButton(self.ui.frame_2)
+            self.ui.horizontalLayout.addWidget(pushButton)
+            pushButton.setText(vat)
+            pushButton.clicked.connect(lambda: self.vector_canvas.plot(vat))
+            self.button_[vat] = pushButton
+
+
+    def update(self, starttime, endtime):
+        self.starttime = starttime
+        self.endtime = endtime
+        self.set_window_title()
+
+        if self.scalar_canvas:
+            self.scalar_canvas.plot(self.scalar_canvas.last_attr)
+        
+        if self.vector_canvas:
+            self.vector_canvas.plot(self.vector_canvas.last_attr)
+
+
+class PDFCanvas(FigureCanvas):
+    def __init__(self, parent, ncol, init_attr=None):
+        self.parent = parent
+        self.lte = parent.main.parent.lte
+
+        self.fig = Figure(figsize=(9,3.5), dpi=100)
+    
+        FigureCanvas.__init__(self, self.fig)
+        FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding)
+        FigureCanvas.updateGeometry(self)
+        self.setParent(self.parent)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.setFocus()
+
+        self.set_frame(ncol)
+        self.plot(init_attr)
+    
+
+    def set_frame(self, ncol):
+        grid = {'hspace':0.3, 'left':0.08, 'right':0.92, 'wspace':0.1, 'top':0.95, 'bottom':0.05}
+        
+        if ncol == 2:
+            grid['width_ratios'] = [1, 0.01]
+            grid['wspace'] = 0.01
+            self.vect_attr = True
+        else:
+            self.vect_attr = False
+    
+        self.axes = self.fig.subplots(1, ncol, gridspec_kw=grid)
+    
+
+    def plot(self, attr):
+        self.last_attr = attr
+
+        if self.vect_attr:
+            ax = self.axes[0, 0]
+            ax.cla()
+            cax = self.axes[0, 1]
+            cax.cla()
+
+            x_space, y_space, pdf = self.lte.get_pdf(attr, starttime=self.parent.starttime, endtime=self.parent.endtime)
+            
+            pltkwargs = {
+                'y_label': r'$f$ [Hz]', 
+                'x_label': default_labels.get(attr, attr), 
+                'v_max':np.percentile(pdf, 95), 
+                'v_min':np.percentile(pdf, 5), 
+                'axis_bar':cax, 
+                'bar_label':'PDF'
+                }
+
+            plot_gram(y_space, pdf, x_space, ax, **pltkwargs)
+
+        else:
+            self.axes.cla()
+            x_space, pdf = self.lte.get_pdf(attr, starttime=self.parent.starttime, endtime=self.parent.endtime)
+            self.axes.plot(x_space, pdf, color='k')
+            self.axes.set_xlabel(default_labels.get(attr, attr))
+            self.axes.set_ylabel('PDF')
+
+
+
+
+        
+
+
+
+
+
+
+
     

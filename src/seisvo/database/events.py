@@ -202,6 +202,7 @@ class Episode(object):
         self.station = []
         self._setattr()
     
+    
     def __str__(self):
         text_info = " Event ID: %s ::%s (%s) \n" % (self.lde.id, self.label, self.id)
         text_info += "    LTE_file      : %s\n" % self.row_.lte_file
