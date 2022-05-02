@@ -2,6 +2,7 @@
 # coding=utf-8
 
 import os
+import utm
 from datetime import datetime, timedelta
 from glob import glob
 
@@ -9,11 +10,12 @@ from seisvo import __seisvo__
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins
-
+from seisvo.plotting import pplot_control
 
 class Station(object):
     def __init__(self, StaFile):
         self.stats = StaFile
+        self.resp_ = get_respfile(self.stats.net, self.stats.code, self.stats.loc)
         self.set_dates()
 
 
@@ -27,10 +29,6 @@ class Station(object):
             if self.stats.chan[0][-1] == 'P':
                 return True
         return False
-
-
-    def get_response(self):
-        return get_respfile(self.stats.net, self.stats.code, self.stats.loc)
 
 
     def is_component(self, component):
@@ -51,12 +49,9 @@ class Station(object):
         return ans
 
 
-    def is_3component(self):
-        # Check if the station is three component
-
+    def is_three_component(self):
         if self.is_component('Z') and self.is_component('E') and self.is_component('N'):
             return True
-
         else:
             return False
 
@@ -65,8 +60,6 @@ class Station(object):
         """
         Get longitude coord.
         """
-
-        import utm
 
         lat = self.stats.lat
         lon = self.stats.lon
@@ -112,15 +105,15 @@ class Station(object):
             sd_st = self.is_file(chan, date=startdate, stream=True)
             ed_st = self.is_file(chan, date=enddate, stream=True)
 
-            self.stats.starttime = sd_st[0].stats.starttime.datetime
-            self.stats.endtime = ed_st[0].stats.endtime.datetime
+            self.starttime = sd_st[0].stats.starttime.datetime
+            self.endtime = ed_st[0].stats.endtime.datetime
 
         else:
-            self.stats.starttime = None
-            self.stats.endtime = None
+            self.starttime = None
+            self.endtime = None
 
 
-    def is_file(self, chan, julian_date=(), date=None, stream=False, status=False):
+    def is_file(self, chan, julian_date=(), date=None, stream=False, headonly=False):
         """
         Return True or False if exist file for a specific date of the station's channel
         :param chan: channel e.j. 'SHZ'
@@ -131,7 +124,7 @@ class Station(object):
         """
 
         if chan not in self.stats.chan:
-            raise TypeError('Channel not loaded')
+            raise ValueError('Channel not loaded')
 
         if julian_date:
             year = julian_date[0]
@@ -163,7 +156,7 @@ class Station(object):
 
         if os.path.isfile(file):
             if stream:
-                return read2(file)
+                return read2(file, headonly=headonly)
             else:
                 return file
 
@@ -204,8 +197,6 @@ class Station(object):
         :param endtime: datetime object. optinal
         """
 
-        from seisvo.plotting import pplot_control
-
         if chan not in self.stats.chan:
             raise TypeError('Channel not loaded')
 
@@ -221,88 +212,109 @@ class Station(object):
         npts = []
         sample_rate = []
         nro_traces = []
-        max_value = []
+        filesize = []
 
         for i, item in enumerate(date_list):
             print ('  reading data... (%d%%)' % (100*i/len(date_list)), end='\r')
-            st = self.is_file(chan, date=item, stream=True)
+            st = self.is_file(chan, date=item, stream=True, headonly=True)
+            
             if st:
-                npts += [sum([len(tr.data) for tr in st])]
-                sample_rate += [st[0].stats.sampling_rate]
+                npts += [sum([tr.stats.npts for tr in st])]
+                sample_rate += [sum([tr.stats.sampling_rate for tr in st])/len(st)]
                 nro_traces += [len(st)]
-                max_value += [max([max(tr.data) for tr in st])]
+                filesize += [sum([tr.stats.filesize for tr in st])]
+            
             else:
                 npts += [None]
                 sample_rate += [None]
                 nro_traces += [None]
-                max_value += [None]
+                filesize += [None]
 
         print('\t\t')
 
         title = '%s \n %s -- %s' % (self.stats.id,
             startdate.strftime('%Y.%m.%d'),
             enddate.strftime('%Y.%m.%d'))
-        pplot_control(title, date_list, nro_traces, sample_rate, npts, max_value)
+        pplot_control(title, date_list, nro_traces, sample_rate, npts, filesize)
 
 
-    def get_stream(self, starttime, endtime, chan=None, component=None, 
-        remove_response=False, sample_rate=None, pad_zeros=False, **kwargs):
+    def get_stream(self, starttime, endtime, channel=None, **kwargs):
         """
         Get stream from station object
         :param starttime: datetime
         :param endtime: datetime
-        :param component: string e.j.:'Z' or 'N'. optional
-        :param chan: string e.j.:'SHZ' or 'HHN'. optional
-        :param remove_response: boolean
-        :param pad_zeros: boolean
-        :param kwargs: taper, taper_p, prefilt, fill_values
+        :param chan: list or string e.j.:'SHZ' or 'HHN'. optional
+        :param kwargs: remove_response, prefilt, fill_values
         :return: stream2 object
         """
 
+        sample_rate = kwargs.get('sample_rate', None)
+        remove_response = kwargs.get('remove_response', False)
+        rrkwargs = kwargs.get('rrkwargs', {})
         prefilt = kwargs.get('prefilt', [])
         fill_value = kwargs.get('fill_value', None)
         verbose = kwargs.get('verbose', True)
 
         if starttime > endtime:
             raise ValueError('starttime is greater than endtime')
+        
+        if starttime < self.starttime:
+            raise ValueError('starttime not valid')
+
+        if endtime > self.endtime:
+            raise ValueError('endtime not valid')
 
         starttime_2 = starttime - timedelta(minutes=2)
         endtime_2 = endtime + timedelta(minutes=2)
 
-        if chan:
-            component = chan[-1]
+        if not isinstance(channel, (str, list, type(None))):
+            raise ValueError('channel should be list or string')
 
-        if component:
-            if not self.is_component(component):
-                raise TypeError('component not loaded')
-            else:
-                chan = self.get_chan(component)
+
+        if isinstance(channel, type(None)):
+            channel = self.stats.chan
 
         else:
-            chan = self.stats.chan
+            if isinstance(channel, str):
+                if channel not in self.stats.chan:
+                    raise ValueError('channel %s not available' % channel)
+            
+            else:
+                true_chan = []
+                for ch in channel:
+                    if ch in self.stats.chan:
+                        true_chan.append(ch)
+                    else:
+                        print('warn: channel %s not available' % ch)
+                channel = true_chan
+        
+
+        if not channel:
+            raise ValueError(' no channel defined!')
 
         day_diff = (endtime_2.date() - starttime_2.date()).days
         date_list = [starttime_2.date() + timedelta(days=i) for i in range(day_diff+1)]
 
         stream = Stream2()
+        sample_rate_list = []
         for day in date_list:
-            for ch in chan:
+            for ch in channel:
                 st_day = self.is_file(ch, date=day, stream=True)
                 if st_day:
                     stream += st_day
+                    sample_rate_list.append(int(st_day[0].stats.sampling_rate))
                 else:
                     if verbose:
-                        print(' Error [%s.%s]: No data for %s' % (self.stats.code,
-                    self.stats.loc, day.strftime('%Y.%m.%d')))
+                        print(' warn [STA.ID: %s.%s]. No data for %s' % (self.stats.code, self.stats.loc, day.strftime('%d %b %Y')))
 
-        if pad_zeros:
-            fill_value = 0
+        if len(list(set(sample_rate_list))) > 1:
+            raise ValueError('error: stream with mixed sampling rates. Revise your data.')
 
         stream.merge(fill_value=fill_value)
         st = stream.slice(UTCDateTime(starttime), UTCDateTime(endtime))
 
         if not st:
-            print(' Warning: [get_stream] No data found for selected dates')
+            print(' warn:  No data found for selected dates. Return None')
             return None
 
         else:
@@ -310,16 +322,14 @@ class Station(object):
             t2 = min([tr.stats.endtime for tr in st])
             st = Stream2(st.slice(t1, t2))
 
-            # removing instrument response
             if remove_response:
-                resp_file = self.get_response()
-                if resp_file:
-                    st = st.remove_response2(resp_dict=resp_file, **kwargs)
+                if self.resp_:
+                    st = st.remove_response2(resp_dict=self.resp_, **rrkwargs)
                 else:
-                    print('warn: no response removed!')
+                    print('warn: no responsefile found')
 
-            if sample_rate:
-                if sample_rate < st[0].stats.sampling_rate:
+            if isinstance(sample_rate, int):
+                if sample_rate < sample_rate_list[0]:
                     st.resample(sample_rate)
 
             if prefilt:
@@ -328,24 +338,58 @@ class Station(object):
             return st
 
 
-    def lte(self, starttime, endtime, time_step, chan=None, polargram=False, sample_rate=None,
-        avg_step=1, polarization_attr=False, **kwargs):
+    def lte(self, starttime, endtime, time_step, channel=None, avg_step=1, **kwargs):
+        """Compute LTE file
 
+        Parameters
+        ----------
+        starttime : datetime
+        endtime : datetime
+        time_step : int, time window in minutes
+        time_olap : int, time window in minutes (< time_step)
+        chan : list or string, optional
+            channels to be analyzed. If None, computes all available channels, by default None
+        avg_step : None or int, optional
+            time window for moving average (< time_step). If None, avg_step = time_step, by default 1
+        kwargs : sample_rate, polar_degree, polarization_attr, 
+
+        Returns
+        -------
+        LTE file
+        """
         from seisvo.file.lte import LTE
+
+        # defining kwargs
+        sample_rate = kwargs.get('sample_rate', None)
+        remove_response = kwargs.get('remove_response', False)
+        polar_degree = kwargs.get('polar_degree', False)
+        polarization_attr = kwargs.get('polarization_attr', False)
+        fq_band = kwargs.get('fq_band', (1, 10))
+        file_name = kwargs.get("file_name", None)
+        out_dir = kwargs.get("out_dir", None)
+        pe_tau = kwargs.get("tau", 1)
+        pe_order = kwargs.get("p_order", 5)
+        threshold = kwargs.get("threshold", 0.0)
+        time_bandwidth = kwargs.get('time_bandwidth', 3.5)
+        th_outlier = kwargs.get("th_outlier", 3.2)
+        ltekwargs = kwargs.get("ltekwargs", {})
 
         if not chan:
             # get vertical component as default
             chan = [c for c in self.stats.chan if c[-1]=='Z'][0]
 
-        info = {'id': '%s.%s' % (self.stats.id, chan)}
-        info['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')
-        info['endtime'] = endtime.strftime('%Y-%m-%d %H:%M:%S')
+        lte_stats = {}
+        lte_stats['id'] = self.stats.id
+        lte_stats['chan'] = channel
+        # info = {'id': '%s.%s' % (self.stats.id, chan)}
+        lte_stats['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')
+        lte_stats['endtime'] = endtime.strftime('%Y-%m-%d %H:%M:%S')
 
-        info['time_step'] = time_step
+        lte_stats['time_step'] = time_step
         if avg_step is None:
-            info['avg_step'] = time_step
+            lte_stats['avg_step'] = time_step
         else:
-            info['avg_step'] = avg_step
+            lte_stats['avg_step'] = avg_step
 
         # computing time_bins
         nro_time_bins = 0
@@ -354,26 +398,23 @@ class Station(object):
         while start_time + time_delta <= endtime:
             nro_time_bins += 1
             start_time += time_delta
-        info['time_bins'] = nro_time_bins
+        lte_stats['time_bins'] = nro_time_bins
 
         # computing freq_bins
         if not sample_rate:
             sample_rate = self.stats.sampling_rate
-        info['sampling_rate'] = sample_rate
+        lte_stats['sampling_rate'] = sample_rate
         
-        fq_band = kwargs.get('fq_band', (1, 10))
         nro_freq_bins = freq_bins(sample_rate*60*info['avg_step'], sample_rate, fq_band=fq_band, nfft='uppest')
-        info['fq_band'] = fq_band
-        info['freq_bins'] = nro_freq_bins
+        lte_stats['fq_band'] = fq_band
+        lte_stats['freq_bins'] = nro_freq_bins
 
         # create hdf5 file
-        file_name = kwargs.get("file_name", None)
         if not file_name:
             lte_id = '.'.join(info['id'].split('.')[1:])
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (lte_id, starttime.year, starttime.timetuple().tm_yday,
                 endtime.year, endtime.timetuple().tm_yday, time_step)
         
-        out_dir = kwargs.get("out_dir", None)
         if not out_dir:
             out_dir = os.path.join(__seisvo__, 'lte', self.stats.net)
         
@@ -384,17 +425,17 @@ class Station(object):
             print(' file %s removed.' % file_name_full)
 
         # define other parameters
-        info['tau'] = kwargs.get("tau", 1)
-        info['p_order'] = kwargs.get("p_order", 5)
-        info['threshold'] = kwargs.get("threshold", 0.0)
-        info['time_bandwidth'] = kwargs.get('time_bandwidth', 3.5)
-        info['remove_response'] = int(kwargs.get("remove_response", False))
-        info['th_outlier'] = kwargs.get("th_outlier", 3.2)
-        info['polargram'] = polargram
+        info['tau'] = pe_tau
+        info['p_order'] = pe_order
+        info['threshold'] = threshold
+        info['time_bandwidth'] = time_bandwidth
+        info['remove_response'] = int(remove_response)
+        info['th_outlier'] = th_outlier
+        info['polar_degree'] = polar_degree
         info['matrix_return'] = polarization_attr
 
         # create new file and process data
-        lte = LTE.new(file_name_full, info, **kwargs)
+        lte = LTE.new(file_name_full, info, **ltekwargs)
 
         return lte, file_name
 
