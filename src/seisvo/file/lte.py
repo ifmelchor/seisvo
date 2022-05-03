@@ -229,12 +229,6 @@ class LTE(object):
                 'threshold':hdr.attrs['threshold']
                 })
 
-        net = self.stats.id.split('.')[0]
-        sta = self.stats.id.split('.')[1]
-        loc = self.stats.id.split('.')[2]
-
-        self.station = Network(net).get_sta(sta, loc=loc)
-
 
     def check_list_attr(self, list_attr, return_list=True):
         if not all([attr in self.__attrs__ for attr in list_attr]):
@@ -432,7 +426,7 @@ class LTE(object):
             self.__save_data__(gr, attr, dict_in[attr], tbin)
 
 
-    def __compute__(self, **kwargs):
+    def __compute__(self, station, **kwargs):
         """ 
         Compute parameters.
         """
@@ -458,7 +452,7 @@ class LTE(object):
             chan = self.stats.id.split('.')[-1]
             
             try:
-                st3 = self.station.get_stream(start_time, start_time + time_delta, 
+                st3 = station.get_stream(start_time, start_time + time_delta, 
                         remove_response=self.stats.remove_response, sample_rate=self.stats.sampling_rate)
                 trace = st3.get(component=chan[-1])
 
@@ -507,10 +501,10 @@ class LTE(object):
                 save_dict['hf_f'] = np.array([remove_outlier(hf, seg_twindow, self.stats.th_outlier)]).reshape(1,)
 
                 if self.stats.remove_response:
-                    dst_mf = self.station.get_stream(start_time, start_time + time_delta, component='Z',
+                    dst_mf = station.get_stream(start_time, start_time + time_delta, component='Z',
                         remove_response='DISP', sample_rate=self.stats.sampling_rate, prefilt=(4,8))
                     
-                    dst_hf = self.station.get_stream(start_time, start_time + time_delta, component='Z',
+                    dst_hf = station.get_stream(start_time, start_time + time_delta, component='Z',
                         remove_response='DISP', sample_rate=self.stats.sampling_rate, prefilt=(8,16))
                     
                     dsar = np.abs(dst_mf[0].data).mean()/np.abs(dst_hf[0].data).mean()
@@ -793,12 +787,13 @@ class LTE(object):
 
 
     @staticmethod
-    def new(lte_file, headers, **kwargs):
+    def new(station, lte_file, headers, auto_chunk=True, **ltekwargs):
         """
         Create new LTE (hdf5) file
         """
 
         f = h5py.File(lte_file, "w-")
+        
         # header dataset
         hdr = f.create_dataset('header',(1,))
         hdr.attrs['id'] = headers['id']
@@ -828,22 +823,42 @@ class LTE(object):
         nro_days = (time1 - time0).days
         day_bin = int(60/(headers['time_step'])*24)
 
-        if nro_days > 10:
-            chunk_shape1 = (5*day_bin, freqbins)
-            chunk_shape2 = (5*day_bin,)
-
-        elif 2 < nro_days <= 10:
-            chunk_shape1 = (day_bin, freqbins)
-            chunk_shape2 = None
+        if auto_chunk:
+            chunk_shape1 = chunk_shape2 = True
 
         else:
-            chunk_shape1 = chunk_shape2 = None
+            if nro_days > 300:
+                chunk_shape1 = (50*day_bin, freqbins)
+                chunk_shape2 = (50*day_bin,)
+
+            elif nro_days > 1000:
+                chunk_shape1 = (100*day_bin, freqbins)
+                chunk_shape2 = (100*day_bin,)
+
+            else:
+                chunk_shape1 = chunk_shape2 = None
 
         # print shape info
         print(" hdf5_memory info: %s " % lte_file)
         print(' --- all datasets sizes are ', (timebins, freqbins))
         print(' --- saving in memory chunk sizes of ', chunk_shape1)
         print('')
+
+        # channel groups
+        for chan in headers['channel']:
+            chgr = f.create_group(chan)
+            spec = chgr.create_group("spectral")
+            amp = chgr.create_group("amplitude")
+
+            if headers['full_amplitude']:
+                ampF = chgr.create_group("amplitude_f")
+        
+        if headers['polar_degree']:
+            polar = f.create_group("polar")
+
+            if headers['polar_analysis']:
+                
+
 
         # spectral datasets
         spec = f.create_group("spectral")
@@ -881,7 +896,7 @@ class LTE(object):
         f.close()
 
         lte = LTE(lte_file)
-        lte.__compute__(**kwargs)
+        lte.__compute__(station, ltekwargs)
 
         return lte
 

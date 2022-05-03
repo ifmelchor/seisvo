@@ -62,6 +62,12 @@ def freq_bins(npts, sampling_rate, fq_band=[], nfft='uppest', get_freq=False):
         return len(freq)
 
 
+def time_bins(start_time, end_time, interval, olap):
+    total_time = ((end_time - start_time).total_seconds()/60)
+    n = (total_time/interval) - olap) / (1 - olap)
+    return int(n)
+
+
 class SSteps(object):
     def __init__(self, start_time, end_time, window_length, overlap, **kwargs):
         """Class for fitting intervals in continuous data matching with window_length and overlap
@@ -71,9 +77,9 @@ class SSteps(object):
         start_time : [datetime]
         end_time : [datetime]
         window_length : [int]
-            [in seconds]
+            [in sec]
         overlap : [int]
-            [in seconds]
+            [in sec]
 
         """
 
@@ -83,7 +89,7 @@ class SSteps(object):
         self.start_time = start_time
         self.end_time = end_time
         self.total_time = ((self.end_time - self.start_time).total_seconds()/60)
-        default_interval = window_length # in minutes!
+        default_interval = kwargs.get('interval', window_length) # in minutes!
 
         if self.total_time < default_interval:
             raise ValueError ('interval must be smaller than total time')
@@ -199,15 +205,15 @@ class SSteps(object):
         print('')
         print('    -------------------------------')
         for k, v in [
-            ('total_time', self.total_time),
-            ('interval', self.interval_.total_seconds()/60),
+            ('total_time [min]', self.total_time),
+            ('interval [min]', self.interval_.total_seconds()/60),
             ('nro_intervals', self.nro_intervals),
-            ('window_length', self.window_length),
-            ('last_window_length', self.last_window_),
-            ('overlap', self.overlap),
+            ('window_length [sec]', self.window_length),
+            ('last_window_length [sec]', self.last_window_),
+            ('overlap [sec]', self.overlap),
             ('steps_per_interval', self.steps_),
             ('steprest_per_interval', self.rest_),
-            ('last_interval', self.last_interval_.total_seconds()/60),
+            ('last_interval [min]', self.last_interval_.total_seconds()/60),
             ('last_interval_steps', self.laststeps_),
             ('last_interval_rest', self.lastrest_),
             ]:

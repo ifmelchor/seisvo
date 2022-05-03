@@ -9,7 +9,7 @@ from glob import glob
 from seisvo import __seisvo__
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
-from seisvo.signal import freq_bins
+from seisvo.signal import freq_bins, time_bins
 from seisvo.plotting import pplot_control
 
 class Station(object):
@@ -21,6 +21,38 @@ class Station(object):
 
     def __str__(self):
         return self.stats.__str__()
+
+
+    def __get_channel__(self, channel):
+
+        if not isinstance(channel, (str, list, type(None))):
+            raise ValueError('channel should be list or string')
+
+        if isinstance(channel, type(None)):
+            channel = self.stats.chan
+
+        else:
+            if isinstance(channel, str):
+                if channel not in self.stats.chan:
+                    raise ValueError('channel %s not available' % channel)
+                
+                else:
+                    true_chan = [channel]
+            
+            else:
+                true_chan = []
+                for ch in channel:
+                    if ch in self.stats.chan:
+                        true_chan.append(ch)
+                    else:
+                        print('warn: channel %s not available' % ch)
+            
+            channel = true_chan
+        
+        if not channel:
+            raise ValueError(' no channel defined!')
+        
+        return channel
 
 
     def is_infrasound(self):
@@ -267,38 +299,13 @@ class Station(object):
         starttime_2 = starttime - timedelta(minutes=2)
         endtime_2 = endtime + timedelta(minutes=2)
 
-        if not isinstance(channel, (str, list, type(None))):
-            raise ValueError('channel should be list or string')
-
-
-        if isinstance(channel, type(None)):
-            channel = self.stats.chan
-
-        else:
-            if isinstance(channel, str):
-                if channel not in self.stats.chan:
-                    raise ValueError('channel %s not available' % channel)
-            
-            else:
-                true_chan = []
-                for ch in channel:
-                    if ch in self.stats.chan:
-                        true_chan.append(ch)
-                    else:
-                        print('warn: channel %s not available' % ch)
-                channel = true_chan
-        
-
-        if not channel:
-            raise ValueError(' no channel defined!')
-
         day_diff = (endtime_2.date() - starttime_2.date()).days
         date_list = [starttime_2.date() + timedelta(days=i) for i in range(day_diff+1)]
 
         stream = Stream2()
         sample_rate_list = []
         for day in date_list:
-            for ch in channel:
+            for ch in self.__get_channel__(channel):
                 st_day = self.is_file(ch, date=day, stream=True)
                 if st_day:
                     stream += st_day
@@ -338,104 +345,103 @@ class Station(object):
             return st
 
 
-    def lte(self, starttime, endtime, time_step, channel=None, avg_step=1, **kwargs):
-        """Compute LTE file
+    def lte(self, starttime, endtime, channel=None, interval=20, int_olap=0.0, step=1, step_olap=0.0, **kwargs):
+        """ Compute LTE file
 
         Parameters
         ----------
         starttime : datetime
         endtime : datetime
-        time_step : int, time window in minutes
-        time_olap : int, time window in minutes (< time_step)
-        chan : list or string, optional
-            channels to be analyzed. If None, computes all available channels, by default None
-        avg_step : None or int, optional
-            time window for moving average (< time_step). If None, avg_step = time_step, by default 1
-        kwargs : sample_rate, polar_degree, polarization_attr, 
+        channel : _type_, optional
+            _description_, by default None
+        interval : int, optional
+            interval length for LTE file, by default 20
+        int_olap : float, optional
+            overlap of the interval length, by default 0.0
+        step : int, optional
+            interval length for moving average of the interval, by default 1
+        step_olap : float, optional
+            overlap for moving average in the interval, by default 0.0
 
         Returns
         -------
-        LTE file
+        LTE
+            LTE object
         """
+
         from seisvo.file.lte import LTE
 
+        channel = self.__get_channel__(channel)
+
+        if starttime > endtime:
+            raise ValueError('starttime is greater than endtime')
+        
+        if starttime < self.starttime:
+            raise ValueError('starttime not valid')
+        
+        if endtime > self.endtime:
+            raise ValueError('endtime not valid')
+        
+        if not (0.0 <= int_olap > 1):
+            raise ValueError(' time_olap should be float between 0 and 1')
+    
+        if step >= interval:
+            raise ValueError(' step is greater than interval')
+        
+        if not (0.0 <= step_olap > 1):
+            raise ValueError(' step_olap should be float between 0 and 1')
+
         # defining kwargs
-        sample_rate = kwargs.get('sample_rate', None)
-        remove_response = kwargs.get('remove_response', False)
-        polar_degree = kwargs.get('polar_degree', False)
-        polarization_attr = kwargs.get('polarization_attr', False)
-        fq_band = kwargs.get('fq_band', (1, 10))
+        lte_header = dict(
+            id = self.stats.id,
+            channel = channel,
+            starttime = starttime.strftime('%Y-%m-%d %H:%M:%S'),
+            endtime = endtime.strftime('%Y-%m-%d %H:%M:%S'),
+            interval = interval,
+            int_olap = int_olap,
+            step = step,
+            step_olap = step_olap,
+            sample_rate = kwargs.get('sample_rate', self.stats.sampling_rate),
+            remove_response = kwargs.get('remove_response', False),
+            polar_degree = kwargs.get('polar_degree', False),
+            polar_analysis = kwargs.get('polar_analysis', False),
+            fq_band = kwargs.get('fq_band', (0.5, 10)),
+            f_threshold = kwargs.get("f_threshold", False),
+            PE_tau = kwargs.get("pe_tau", 2),
+            PE_order = kwargs.get("pe_order", 7),
+            time_bandwidth = kwargs.get('time_bandwidth', 3.5),
+            full_params = kwargs.get('full_params', False),
+        )
+
+        # other kwargs
         file_name = kwargs.get("file_name", None)
-        out_dir = kwargs.get("out_dir", None)
-        pe_tau = kwargs.get("tau", 1)
-        pe_order = kwargs.get("p_order", 5)
-        threshold = kwargs.get("threshold", 0.0)
-        time_bandwidth = kwargs.get('time_bandwidth', 3.5)
-        th_outlier = kwargs.get("th_outlier", 3.2)
+        out_dir = kwargs.get("out_dir", './')
         ltekwargs = kwargs.get("ltekwargs", {})
 
-        if not chan:
-            # get vertical component as default
-            chan = [c for c in self.stats.chan if c[-1]=='Z'][0]
+        # compute time and freq bins
+        nro_time_bins = time_bins(starttime, endtime, interval, int_olap)
+        lte_header['nro_time_bins'] = nro_time_bins
 
-        lte_stats = {}
-        lte_stats['id'] = self.stats.id
-        lte_stats['chan'] = channel
-        # info = {'id': '%s.%s' % (self.stats.id, chan)}
-        lte_stats['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')
-        lte_stats['endtime'] = endtime.strftime('%Y-%m-%d %H:%M:%S')
+        nro_freq_bins = freq_bins(lte_header['sample_rate']*60*step, lte_header['sample_rate'],fq_band=lte_header['fq_band'], nfft='uppest')
+        lte_header['nro_freq_bins'] = nro_freq_bins
 
-        lte_stats['time_step'] = time_step
-        if avg_step is None:
-            lte_stats['avg_step'] = time_step
-        else:
-            lte_stats['avg_step'] = avg_step
-
-        # computing time_bins
-        nro_time_bins = 0
-        start_time = starttime
-        time_delta = timedelta(minutes=time_step)
-        while start_time + time_delta <= endtime:
-            nro_time_bins += 1
-            start_time += time_delta
-        lte_stats['time_bins'] = nro_time_bins
-
-        # computing freq_bins
-        if not sample_rate:
-            sample_rate = self.stats.sampling_rate
-        lte_stats['sampling_rate'] = sample_rate
-        
-        nro_freq_bins = freq_bins(sample_rate*60*info['avg_step'], sample_rate, fq_band=fq_band, nfft='uppest')
-        lte_stats['fq_band'] = fq_band
-        lte_stats['freq_bins'] = nro_freq_bins
-
-        # create hdf5 file
+        # create hdf5 file and process data
         if not file_name:
-            lte_id = '.'.join(info['id'].split('.')[1:])
-            file_name = '%s.%s%03d-%s%03d_%s.lte' % (lte_id, starttime.year, starttime.timetuple().tm_yday,
-                endtime.year, endtime.timetuple().tm_yday, time_step)
+            file_name = '%s.%s%03d-%s%03d_%s.lte' % (lte_header['id'], starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, interval)
         
         if not out_dir:
             out_dir = os.path.join(__seisvo__, 'lte', self.stats.net)
         
         file_name_full = os.path.join(out_dir, file_name)
 
+        if file_name_full.split('.')[-1] != 'lte':
+            file_name_full += '.lte'
+
         if os.path.isfile(file_name_full):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
 
-        # define other parameters
-        info['tau'] = pe_tau
-        info['p_order'] = pe_order
-        info['threshold'] = threshold
-        info['time_bandwidth'] = time_bandwidth
-        info['remove_response'] = int(remove_response)
-        info['th_outlier'] = th_outlier
-        info['polar_degree'] = polar_degree
-        info['matrix_return'] = polarization_attr
-
-        # create new file and process data
-        lte = LTE.new(file_name_full, info, **ltekwargs)
+        lte = LTE.new(self, file_name_full, lte_header, **ltekwargs)
 
         return lte, file_name
 

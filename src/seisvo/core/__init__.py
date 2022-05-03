@@ -17,8 +17,6 @@ class StaFile(AttribDict):
     def __init__(self, header):
         super(StaFile, self).__init__(header)
         self.id = None
-        self.starttime = None
-        self.endtime = None
 
     def __str__(self):
         priorized_keys = [
@@ -27,10 +25,11 @@ class StaFile(AttribDict):
         'code',
         'loc',
         'chan',
-        'starttime',
-        'endtime',
+        'sampling_rate',
+        'central',
         'lat',
         'lon',
+        'type',
         'elev'
         ]
         return self._pretty_str(priorized_keys)
