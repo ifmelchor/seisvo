@@ -1,176 +1,159 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-from __future__ import division
 import numpy as np
 import cmath as cm
-from numba import njit, jit, float32, complex128
+from itertools import product
+from seisvo.signal import freq_bins
+from seisvo.signal.spectrum import cosine_taper, mtspec
 
 
-def pplot(a, b, text=None):
-    from mpl_toolkits.mplot3d import Axes3D
-    import matplotlib.pyplot as plt
-    print(a, b)
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    X, Y, Z = ([0,0], [0,0], [0,0])
-    U, V, W = ([a[0],b[0]], [a[1],b[1]], [a[2],b[2]])
-    ax.quiver(X, Y, Z, U, V, W, color=['k', 'r'], length=0.2)
-    ax.set_title(text)
-    plt.show()
+class PolarAnalysis(object):
+    def __init__(self, Zdata, Ndata, Edata, sample_rate, npts_mov_avg=None, olap=0.0, fq_band=(0.5, 10),full_analysis=False, **kwargs):
 
+        self.data = [Zdata, Ndata, Edata]
+        npts = list(set(list(map(len, self.data))))
 
-def polar_degree(idata, jdata, kdata, sample_rate, per_lap=0.7, avg_step=None, 
-    fq_band=[], matrix_return=False, **kwargs):
-    """
-    Compute the polargram...
-    :param avg_step: int, in minutes
-    :param opt_return: boolean, if True return azimuth, dip and rectiliniarity
-    """
-
-    from seisvo.signal import freq_bins
-    from seisvo.signal.spectrum import cross_spectrum_matrix
-
-    npts = len(idata)
-    
-    if not avg_step:
-        npts_step = npts
-    
-    else:
-        npts_step = int(avg_step*60*sample_rate-1)
-
-    nfft = kwargs.get("nfft", 'uppest')
-    freq_n, (fnptlo, fnpthi), nfft_n = freq_bins(npts_step, sample_rate,
-            fq_band=fq_band, nfft=nfft, get_freq=True)
-
-    npts_olap = int(npts_step*per_lap)
-
-    if npts_olap >= npts_step:
-        raise ValueError('overlap must be shorter than step')
-
-    polar_dgr = np.zeros((len(freq_n),), dtype='float64')
-    
-    if matrix_return:
-        azm = np.zeros((len(freq_n),), dtype='float64')
-        dip = np.zeros((len(freq_n),), dtype='float64')
-        rect = np.zeros((len(freq_n),), dtype='float64')
-
-    threshold = kwargs.get('threshold', 0)
-    npts_start = 0
-    k = 0
-    while npts_start + npts_step <= npts:
-        idata_n = idata[npts_start:npts_start + npts_step]
-        jdata_n = jdata[npts_start:npts_start + npts_step]
-        kdata_n = kdata[npts_start:npts_start + npts_step]
-        spec_mat, _ = cross_spectrum_matrix(idata_n, jdata_n, kdata_n, sample_rate, fq_band=fq_band, **kwargs)
-
-        # polarization analysis
-        ans = polarization_content(spec_mat, matrix_return=matrix_return, threshold=threshold)
-
-        polar_dgr += ans[0]
+        if len(npts) > 1:
+            raise ValueError(' data with different lengths')
         
-        if matrix_return:
-            azm += ans[1]
-            dip += ans[2]
-            rect += ans[3]
+        self.npts = npts[0]
+        nfft = kwargs.get("nfft", 'uppest')
+        
+        if npts_mov_avg:
+            if not isinstance(olap, float) or not 0 <= olap < 1:
+                raise ValueError(' olap must be a float between 0 and 1')
+            
+            if not isinstance(npts_mov_avg, int) or not npts_mov_avg < self.npts:
+                raise ValueError(' npts_mov_avg must be an integer lower than npts')
+        
+            self.freq, _, self.nfft = freq_bins(npts_mov_avg, sample_rate, fq_band=fq_band, nfft=nfft, get_freq=True)
+        
+        else:
+            self.freq, self.fq_pos, self.nfft = freq_bins(self.npts, sample_rate, fq_band=fq_band, nfft=nfft, get_freq=True)
 
-        k += 1
-        npts_start += npts_step - npts_olap
+        self.sample_rate = sample_rate
+        self.npts_mov_avg = npts_mov_avg
+        self.olap_step = olap
+        self.fq_band = fq_band
+        self.taper = kwargs.get('taper', False)
+        self.taper_p = kwargs.get('taper_p', 0.05)
+        self.time_bandwidth = kwargs.get('time_bandwidth', 3.5)
+        self.full_analysis = full_analysis
 
-    if matrix_return:
-        return freq_n, polar_dgr/k, azm/k, dip/k, rect/k
-    
-    else:
-        return freq_n, polar_dgr/k
+        self.fit()
 
+    def fit(self):
+        msize = (len(self.freq),)
+        self.polar_dgr = np.zeros(msize, dtype='float64')
+        
+        if self.full_analysis:
+            self.azimuth = np.zeros(msize, dtype='float64')
+            self.elevation = np.zeros(msize, dtype='float64')
+            self.rect = np.zeros(msize, dtype='float64')
 
-@jit(float32(complex128[:]))
-def get_azimuth(z):
-    """
-    Code to give the azimuth and the phy2-phy3 acoording to Park et al (1987).
-    """
+        if self.npts_mov_avg:
+            npts_olap = int(self.npts_mov_avg*self.olap_step)
+        else:
+            # one step
+            self.npts_mov_avg = self.npts
+            npts_olap = 0
 
-    abs_z2, phy2 = cm.polar(z[1])
-    abs_z3, phy3 = cm.polar(z[2])
+        npts_start = 0
+        step = 0
+        while npts_start + self.npts_mov_avg <= self.npts:
+            Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
+            Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
+            Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
+            ans = self.get_polar_attributes(Zdata_n, Ndata_n, Edata_n)
 
-    _ , phy23 = cm.polar(z[2]**2+z[1]**2)
+            self.polar_dgr += ans[0]
 
-    th_l = -0.5*phy23 + np.arange(1,10)*np.pi/2
-    func = abs_z2**2*np.cos(th_l+phy2)**2 + abs_z3**2*np.cos(th_l+phy3)**2
-    th_H = th_l[np.argmin(func)]
+            if self.full_analysis:
+                self.rect += ans[1]
+                self.azimuth += ans[2]
+                self.elevation += ans[3]
 
-    z2_rot = z[1] * np.exp(-1j*th_H)
-    z3_rot = z[2] * np.exp(-1j*th_H)
-
-    # z2 shuld be NORTH and z3 shuld de EAST
-    azm = np.real(np.arctan(z2_rot/z3_rot))*180/np.pi 
-    
-    # range -90 -- +90
-    # arg = np.real(z[0]*np.conjugate(z[1]))
-    # if arg < 0:
-    #     azimuth = azm + 90
-    # else:
-    #     azimuth = azm - 90
-
-    return azm
-
-
-@jit(float32(complex128[:]))
-def get_dip(z):
-    """
-    Code to give the incidence acoording to Park et al (1987).
-    """
-    abs_z1, phy1 = cm.polar(z[0])
-    zH = np.sqrt(z[1]**2 + z[2]**2)
-    abs_zH, phyH = cm.polar(zH)
-    _ , phy1H = cm.polar(z[0]**2 + zH**2)
-
-    th_m = -0.5*phy1H + np.arange(1,10)*np.pi/2
-    func = abs_z1**2*np.cos(th_m + phy1)**2 + abs_zH**2*np.cos(th_m + phyH)**2
-    th_V = th_m[np.argmax(func)]
-
-    z1_rot = np.real(z[0] * np.exp(-1j*th_V))
-    zH_rot = np.real(zH * np.exp(-1j*th_V))
-
-    dip = np.arctan(np.abs(z1_rot/zH_rot))
-    return dip*180/np.pi
+            npts_start += self.npts_mov_avg - npts_olap
+            step += 1
+        
+        self.polar_dgr /= step
+        self.rect /= step
+        self.azimuth /= step
+        self.elevation /= step
 
 
-@jit
-def rotate(z, dgr):
-    ans = np.empty((dgr.shape[0],), dtype=float32)
-    for k in range(dgr.shape[0]):
-        z_rot = z * np.complex(np.cos(dgr[k]), np.sin(dgr[k]))
-        #z_rot = z * np.exp(np.complex(0, dgr[k]), dtype='complex128')
+    def get_polar_attributes(self, Zdata, Ndata, Edata):
+        data = [Zdata, Ndata, Edata]
+        cmatrix = np.zeros((3, 3, len(self.freq)), dtype='complex128')
+
+        index = set(product(set(range(3)), repeat=2))
+        for i, j in list(index):
+            cmatrix[i,j] = self.__cross_spec__(data[i], data[j])
+        
+        polar_dgr = np.empty((len(self.freq),), dtype=np.float32)
+
+        z_list = []
+        for fq in range(len(self.freq)):
+            _, s, vh = np.linalg.svd(cmatrix[:,:,fq], full_matrices=False)
+            polar_dgr[fq] = (3 * np.sum(s**2) - np.sum(s) ** 2) / (2 * np.sum(s) ** 2)
+
+            if self.full_analysis:
+                z = vh[0,:]
+                z_list += [rotate(z)]
+        
+        if self.full_analysis:
+            rect = np.array(list(map(get_rectiliniarity, z_list)))
+            azimuth = np.array(list(map(get_azimuth, z_list)))
+            elevation = np.array(list(map(get_elevation, z_list)))
+            return polar_dgr, rect, azimuth, elevation
+        
+        else:
+            return polar_dgr 
+
+
+    def __cross_spec__(self, xdata, ydata):
+        delta = float(1/self.sample_rate)
+        
+        xdata_mean = np.nanmean(xdata[np.isfinite(xdata)])
+        xdata = xdata - xdata_mean
+
+        ydata_mean = np.nanmean(ydata[np.isfinite(ydata)])
+        ydata = ydata - ydata_mean
+
+        if self.taper:
+            tap = cosine_taper(self.npts, p=self.taper_p)
+            xdata = xdata * tap
+            ydata = ydata * tap
+
+        x = mtspec(data=xdata, delta=delta, nfft=self.nfft, time_bandwidth=self.time_bandwidth, optional_output=True)
+        y = mtspec(data=ydata, delta=delta, nfft=self.nfft, time_bandwidth=self.time_bandwidth, optional_output=True)
+
+        psd_xy = np.zeros((len(self.freq),), dtype='complex128')
+        
+        nro_tapers = int(2* self.time_bandwidth) - 1
+        for k in range(nro_tapers):
+            psd_xy += x[3][self.fq_pos[0]:self.fq_pos[1], k] * np.conj(y[3][self.fq_pos[0]:self.fq_pos[1], k])
+        
+        return psd_xy
+
+
+def rotate(z):
+    def rot_dgr(alpha):
+        z_rot = z * (np.cos(alpha)+1j*np.sin(alpha))
         a = np.array([x.real for x in z_rot])
         b = np.array([x.imag for x in z_rot])
-        ans[k] = np.abs(np.vdot(a,b))
-    return ans
+        return np.abs(np.vdot(a,b))
+    ans = np.array(list(map(rot_dgr, np.arange(0, np.pi/2, 1e-2))))
+    ans_min = int(np.argmin(ans))
+    phi_min = np.arange(0, np.pi/2, 1e-2)[ans_min]
+    z_rot = z * (np.cos(phi_min)+1j*np.sin(phi_min))
+    return z_rot
 
 
 def get_rectiliniarity(z):
-    """
-    This code returns the rectilinearity acoording to Schimmel and Gallard 2004.
-
-    --exlpain--:
-    First, we rotate the first eigenvector in the complex domain by a phase "phy" which
-    produces a orthogonal relation between real vectors a and b. Then semimajor and
-    semiminor axes of polarization ellipse are identify. Finally the rectiliniarity is
-    computed as: 1 - |b|/|a|
-
-    :param z: first eigenvector
-    :type z: complex array
-    :return: float
-    """
-
-    degree = np.arange(0, np.pi/2, 1e-2)
-    ans = rotate(z, degree)
-    ans_min = int(np.argmin(ans))
-    phi_min = np.arange(0, np.pi/2, 1e-2)[ans_min]
-
-    z_rot = z * np.exp(np.complex(0, phi_min))
-    a = np.array([x.real for x in z_rot])
-    b = np.array([x.imag for x in z_rot])
+    a = np.array([x.real for x in z])
+    b = np.array([x.imag for x in z])
     a_norm = np.linalg.norm(a)
     b_norm = np.linalg.norm(b)
 
@@ -179,87 +162,44 @@ def get_rectiliniarity(z):
     else:
         minor, major = a_norm, b_norm
 
-    rectiliniarity = 1 - (minor/major)
+    rect = 1 - (minor/major)
 
-    return rectiliniarity
+    return rect
 
 
-def decompose(spec_matrix, full_return=False):
-    vh_vector = np.empty((spec_matrix.shape[2],3), dtype=np.complex128)
-    polar_dgr = np.empty((spec_matrix.shape[2],), dtype=np.float32)
-    if full_return:
-        s_matrix = np.empty((spec_matrix.shape[2],3), dtype=np.float32)
-    
-    def decompose_k(k):
-        _, s, vh = np.linalg.svd(spec_matrix[:,:,k], full_matrices=False)
-        beta2 = (3 * np.sum(s**2) - np.sum(s) ** 2) / (2 * np.sum(s) ** 2)
-        polar_dgr[k] = beta2
-        vh_vector[k,:] = vh[0,:]
-        if full_return:
-            s_matrix[k,:] = s
-
-    # map(decompose_k, list(range(spec_matrix.shape[2])))
-
-    for k in range(spec_matrix.shape[2]):
-        _, s, vh = np.linalg.svd(spec_matrix[:,:,k], full_matrices=False)
-        beta2 = (3 * np.sum(s**2) - np.sum(s) ** 2) / (2 * np.sum(s) ** 2)
-        polar_dgr[k] = beta2
-        vh_vector[k,:] = vh[0,:]
-        if full_return:
-            s_matrix[k,:] = s
-    
-    if full_return:
-        return (polar_dgr, vh_vector, s_matrix)
+def get_azimuth(z):
+    abs_zN, phyN = cm.polar(z[1])
+    abs_zE, phyE = cm.polar(z[2])
+    _ , phyH = cm.polar(z[2]**2+z[1]**2)
+    th_l = -0.5*phyH + np.arange(1,10)*np.pi/2
+    func = abs_zN**2*np.cos(th_l+phyN)**2 + abs_zE**2*np.cos(th_l+phyE)**2
+    th_H = th_l[np.argmin(func)]
+    zN_rot = z[1] * np.exp(-1j*th_H)
+    zE_rot = z[2] * np.exp(-1j*th_H)
+    tH = np.arctan(np.real(zE_rot)/np.real(zN_rot))*180/np.pi
+    arg = np.real(z[0]*np.conjugate(z[2]))
+    if arg < 0:
+        tH += 90
     else:
-        return (polar_dgr, vh_vector)
+        tH -= 90
+    if tH < 0:
+        tH += 180
+    return tH
 
 
-def polarization_content(spec_matrix, matrix_return=False, threshold=0.75):
-    """
-    Compute polarization degree from the cross-spectral matrix.
+def get_elevation(z):
+    abs_zV, phyV = cm.polar(z[0])
+    zH = np.sqrt(z[1]**2 + z[2]**2)
+    abs_zH, phyH = cm.polar(zH)
+    _ , phyVH = cm.polar(z[0]**2 + zH**2)
+    th_m = -0.5*phyVH + np.arange(1,10)*np.pi/2
+    func = abs_zV**2*np.cos(th_m + phyV)**2 + abs_zH**2*np.cos(th_m + phyH)**2
+    th_V = th_m[np.argmax(func)]
+    zV_rot = np.real(z[0] * np.exp(-1j*th_V))
+    zH_rot = np.real(zH * np.exp(-1j*th_V))
+    tV = np.arctan(np.abs(zV_rot/zH_rot))
+    return tV*180/np.pi
 
-    :param spec_matrix: cross-correlation spectral hermitian complex matrix
-    :type spec_matrix: 3x3xN complex numpy array
-    :param threshold: minimum point to compute optional return
-    :type threshold: float. default 0.75
-    :param opt_return: if True, return azimuth, dip, and rectiliniarity
-    :type opt_return: boolean
-    :return: array with a float (polarization degree).
-    """
-
-    ans = decompose(spec_matrix)
-    polar_dgr = ans[0]
-
-    if matrix_return:
-        # return a 2D array
-        azm = np.zeros((polar_dgr.shape[0],), dtype='float32')
-        dip = np.zeros((polar_dgr.shape[0],), dtype='float32')
-        rect = np.zeros((polar_dgr.shape[0],), dtype='float32')
-        for k in range(polar_dgr.shape[0]):
-            if polar_dgr[k] >= threshold:
-                z = ans[1][k,:]
-                azm[k] = get_azimuth(z)
-                dip[k] = get_dip(z)
-                rect[k] = get_rectiliniarity(z)
-            else:
-                azm[k] = np.nan
-                dip[k] = np.nan
-                rect[k] = np.nan
-
-    else:
-        # return 1D array with max values
-        if polar_dgr.max() >= threshold:
-            k = np.argmax(polar_dgr)
-            z = ans[1][k,:]
-            azm = get_azimuth(z)
-            dip = get_dip(z)
-            rect = get_rectiliniarity(z)
-        else:
-            azm = np.nan
-            dip = np.nan
-            rect = np.nan
-
-    return [polar_dgr, azm, dip, rect]
 
 
 

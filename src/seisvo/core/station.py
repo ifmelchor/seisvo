@@ -3,13 +3,14 @@
 
 import os
 import utm
-from datetime import datetime, timedelta
+import datetime as dt
 from glob import glob
 
 from seisvo import __seisvo__
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins, time_bins
+from seisvo.signal.polarization import PolarAnalysis
 from seisvo.plotting import pplot_control
 
 class Station(object):
@@ -296,11 +297,17 @@ class Station(object):
         if endtime > self.endtime:
             raise ValueError('endtime not valid')
 
-        starttime_2 = starttime - timedelta(minutes=2)
-        endtime_2 = endtime + timedelta(minutes=2)
+        # most of MSEED files do not start in 00:00:00 and (finish in 23:59:59), this is why we need to define time delta to overcome this lack.
+        time_delta = dt.timedelta(minutes=5)
 
-        day_diff = (endtime_2.date() - starttime_2.date()).days
-        date_list = [starttime_2.date() + timedelta(days=i) for i in range(day_diff+1)]
+        if starttime - time_delta > self.starttime:
+            starttime = starttime - time_delta
+
+        if endtime + time_delta < self.endtime:
+            endtime = endtime + time_delta
+
+        day_diff = (endtime - starttime).days + 1
+        date_list = [starttime.date() + dt.timedelta(days=i) for i in range(day_diff)]
 
         stream = Stream2()
         sample_rate_list = []
@@ -321,7 +328,7 @@ class Station(object):
         st = stream.slice(UTCDateTime(starttime), UTCDateTime(endtime))
 
         if not st:
-            print(' warn:  No data found for selected dates. Return None')
+            print(' warn:  No data found for selected dates.')
             return None
 
         else:
@@ -337,12 +344,54 @@ class Station(object):
 
             if isinstance(sample_rate, int):
                 if sample_rate < sample_rate_list[0]:
-                    st.resample(sample_rate)
+                    st = Stream2(st.resample(sample_rate))
 
             if prefilt:
                 st = st.filter2(fq_band=prefilt)
 
             return st
+
+
+    def polar_analysis(self, starttime, endtime, step_sec=None, olap=0.0, fq_band=(0.5, 10), full_analysis=False, **kwargs):
+        
+        if not self.is_three_component():
+            raise ValueError(' polarization analysis is only for three-component station')
+        
+        st_kwargs = dict(
+            sample_rate = kwargs.get('sample_rate', None),
+            remove_response = kwargs.get('remove_response', False),
+            prefilt = kwargs.get('prefilt', []),
+            fill_value = kwargs.get('fill_value', None),
+            rrkwargs = kwargs.get('rrkwargs', {}),
+            verbose = kwargs.get('verbose', True)
+        )
+
+        stream = self.get_stream(starttime, endtime, **st_kwargs)
+
+        z_data = stream.get_component('Z')
+        n_data = stream.get_component('N').get_data(detrend=True)
+        e_data = stream.get_component('E').get_data(detrend=True)
+
+        sampling_rate = z_data.stats.sampling_rate
+
+        pa_kwargs = dict(
+            taper = kwargs.get('taper', False),
+            taper_p = kwargs.get('taper_p', 0.05),
+            time_bandwidth = kwargs.get('time_bandwidth', 3.5)
+        )
+
+        if isinstance(step_sec, float):
+            npts_mov_avg = step_sec*sampling_rate
+        else:
+            npts_mov_avg = None
+
+        pa = PolarAnalysis(z_data.get_data(detrend=True), n_data, e_data, sampling_rate, npts_mov_avg=npts_mov_avg, olap=olap, fq_band=fq_band, full_analysis=full_analysis, **pa_kwargs)
+
+        if full_analysis:
+            return pa.freq, pa.polar_dgr, pa.rect, pa.azimuth, pa.elevation
+        
+        else:
+            return pa.freq, pa.polar_dgr
 
 
     def lte(self, starttime, endtime, channel=None, interval=20, int_olap=0.0, step=1, step_olap=0.0, **kwargs):
@@ -401,21 +450,23 @@ class Station(object):
             int_olap = int_olap,
             step = step,
             step_olap = step_olap,
+            fq_band = kwargs.get('fq_band', (0.5, 10)),
             sample_rate = kwargs.get('sample_rate', self.stats.sampling_rate),
             remove_response = kwargs.get('remove_response', False),
             polar_degree = kwargs.get('polar_degree', False),
             polar_analysis = kwargs.get('polar_analysis', False),
-            fq_band = kwargs.get('fq_band', (0.5, 10)),
+            f_params = kwargs.get('f_params', False),
+            opt_params = kwargs.get('opt_params', False),
             f_threshold = kwargs.get("f_threshold", False),
             PE_tau = kwargs.get("pe_tau", 2),
             PE_order = kwargs.get("pe_order", 7),
-            time_bandwidth = kwargs.get('time_bandwidth', 3.5),
-            full_params = kwargs.get('full_params', False),
+            time_bandwidth = kwargs.get('time_bandwidth', 3.5)
         )
 
         # other kwargs
         file_name = kwargs.get("file_name", None)
         out_dir = kwargs.get("out_dir", './')
+        auto_chunk = kwargs.get("auto_chunk", True)
         ltekwargs = kwargs.get("ltekwargs", {})
 
         # compute time and freq bins
@@ -425,6 +476,12 @@ class Station(object):
         nro_freq_bins = freq_bins(lte_header['sample_rate']*60*step, lte_header['sample_rate'],fq_band=lte_header['fq_band'], nfft='uppest')
         lte_header['nro_freq_bins'] = nro_freq_bins
 
+        if lte_header['polar_analysis']:
+            lte_header['polar_degree'] = True
+            
+        if isinstance(lte_header['f_threshold'], float):
+            lte_header['f_params'] = True
+        
         # create hdf5 file and process data
         if not file_name:
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (lte_header['id'], starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, interval)
@@ -441,9 +498,9 @@ class Station(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
 
-        lte = LTE.new(self, file_name_full, lte_header, **ltekwargs)
+        lte = LTE.new(self, file_name_full, lte_header, auto_chunk=auto_chunk, **ltekwargs)
 
-        return lte, file_name
+        return lte
 
 
     def plot(self, starttime, sde, channel='all', delta=30, app=False, **kwargs):

@@ -63,8 +63,8 @@ def freq_bins(npts, sampling_rate, fq_band=[], nfft='uppest', get_freq=False):
 
 
 def time_bins(start_time, end_time, interval, olap):
-    total_time = ((end_time - start_time).total_seconds()/60)
-    n = (total_time/interval) - olap) / (1 - olap)
+    total_time = (end_time - start_time).total_seconds()/60
+    n = ((total_time/interval) - olap) / (1 - olap)
     return int(n)
 
 

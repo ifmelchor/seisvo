@@ -3,11 +3,14 @@
 
 from __future__ import division
 
-from seisvo.signal import freq_bins
-from seisvo.utils.plotting import plot_gram
 import numpy as np
 from mtspec import mtspec
 from scipy import signal
+
+from obspy.signal.invsim import cosine_taper
+from seisvo.signal import freq_bins, _nearest_pow_2
+from seisvo.plotting import plot_gram
+
 
 
 def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_band=(), date_list=None, **kwargs):
@@ -18,11 +21,6 @@ def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_ba
     fq_logscale (False), axis_bar, axis_bar_label
     """
 
-    import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolor
-    import matplotlib.ticker as mtick
-    import matplotlib.dates as mdates
-    from seisvo.signal import _nearest_pow_2
 
     npts = len(data)
 
@@ -67,7 +65,7 @@ def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_ba
     return im, (v_min, v_max)
 
 
-def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0, **kwargs):
+def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0, drm_params=False, **kwargs):
     """
     Compute the PSD using multitaper algortihm
 
@@ -75,22 +73,15 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
     :type avg_step: float
     """
 
-    from obspy.signal.invsim import cosine_taper
-
     time_bandwidth = kwargs.get("time_bandwidth", 3.5)
     taper = kwargs.get("taper", False)
     taper_p = kwargs.get("taper_p", 0.05)
     nfft = kwargs.get("nfft", 'uppest')
-
     npts = len(data)
+
     if avg_step:
-        npts_step = int(avg_step*60*sample_rate-1)
+        npts_step = int(avg_step*60*sample_rate)
         npts_olap = int(olap*npts_step)
-        
-        if npts_step > npts:
-            print('Error: step (%i) is greater than data lenght (%i)' %
-                  (npts, npts_step))
-            return None, None
         
         freq_n, (fnptlo, fnpthi), nfft_n = freq_bins(npts_step, sample_rate,
             fq_band=fq_band, nfft=nfft, get_freq=True)
@@ -98,6 +89,12 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
         N = 0
         npts_start = 0
         psd_avg = np.zeros((len(freq_n),), dtype='float64')
+        
+        if drm_params:
+            centroid = 0
+            dominant = 0
+            energy = 0
+
         while npts_start + npts_step <= npts:
             data_n = data[npts_start:npts_start+npts_step]
             data_n_mean = np.nanmean(data_n[np.isfinite(data_n)])
@@ -108,23 +105,42 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
                 data_n = data_n * tap
 
             spec = mtspec(data=data_n, delta=1/sample_rate, nfft=nfft_n, time_bandwidth=time_bandwidth)
-            psd_avg += spec[0][fnptlo:fnpthi]
+            psd_n = spec[0][fnptlo:fnpthi]
+            psd_avg += psd_n
+            
+            if drm_params:
+                centroid += get_centroid(freq_n, psd_n)
+                dominant += get_dominant(freq_n, psd_n)
+                energy += sum(psd_n)
+
             npts_start += npts_step - npts_olap
             N += 1
+        
+        to_return = [psd_avg/N, freq_n]
 
-        return psd_avg/N, freq_n
+        if drm_params:
+            to_return += [centroid/N, dominant/N, energy/N]
+    
+    else:
+        freq, (fnptlo, fnpthi), nfft = freq_bins(npts, sample_rate,
+        fq_band=fq_band, nfft=nfft, get_freq=True)
 
-    freq, (fnptlo, fnpthi), nfft = freq_bins(npts, sample_rate,
-     fq_band=fq_band, nfft=nfft, get_freq=True)
+        if taper:
+            tap = cosine_taper(npts, p=taper_p)
+            data = data * tap
 
-    if taper:
-        tap = cosine_taper(npts, p=taper_p)
-        data = data * tap
+        y = mtspec(data=data, delta=1/sample_rate, nfft=nfft, time_bandwidth=time_bandwidth)
+        psd = y[0][fnptlo:fnpthi]
 
-    y = mtspec(data=data, delta=1/sample_rate, nfft=nfft, time_bandwidth=time_bandwidth)
-    psd = y[0][fnptlo:fnpthi]
+        to_return = [psd, freq]
 
-    return psd, freq
+        if drm_params:
+            centroid = get_centroid(freq, psd)
+            dominant = get_dominant(freq, psd)
+            energy = sum(psd)
+            to_return += [centroid, dominant, energy]
+
+    return to_return
 
 
 def cross_spectrum(xdata, ydata, sample_rate, avg_step=None, fq_band=(), **kwargs):
