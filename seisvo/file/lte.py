@@ -23,6 +23,8 @@ from obspy.core.util.attribdict import AttribDict
 from antropy import perm_entropy
 
 from seisvo.signal.polarization import PolarAnalysis
+from seisvo.signal.proba import get_PDF
+
 # import seisvo.utils.plotting as sup
 # from seisvo.signal.pdf import get_PDF, get_KDE
 
@@ -128,8 +130,31 @@ class LTE(object):
         return self.stats.__str__()
 
 
-    def is_attr(self, attr):
-        return attr in self.stats.attributes
+    def is_attr(self, attr, only_scalars=False):
+        if not isinstance(attr, list):
+            list_attr = [attr]
+        else:
+            list_attr = attr
+
+        if not all([attr in self.stats.attributes for attr in list_attr]):
+            attrs = [at not in self.stats.attributes for at in list_attr]
+            pos = list(filter(lambda x: attrs[x], range(len(list_attr))))
+            not_availabel_attr = np.array(list_attr)[pos]
+            print('warn: attributes %s not available' % not_availabel_attr)
+
+            list_attr2 = [attr for attr in list_attr if attr in self.stats.attributes]
+            
+            if not list_attr2:
+                print('available attr: %s' % self.stats.attributes)
+
+        else:
+            list_attr2 = list_attr
+        
+        if only_scalars:
+            return [attr for attr in list_attr2 if attr in SCALAR_PARAMS + SCALAR_PARAMS_OPT + SCALAR_PARAMS_F]
+        
+        else:
+            return list_attr2
 
 
     def is_matrix(self, attr):
@@ -138,6 +163,21 @@ class LTE(object):
 
         if attr in VECTORAL_PARAMS + VECTORAL_PARAMS_OPT:
             return True
+
+
+    def is_chan(self, chan):
+        if isinstance(chan, list):
+            chan_list = [ch for ch in chan if ch in self.stats.channel]
+        else:
+            if not chan:
+                chan_list = self.stats.channel
+            else:
+                if chan in self.stats.channel:
+                    chan_list = [chan]
+                else:
+                    chan_list = []
+        
+        return chan_list
 
 
     def __set_stats__(self):
@@ -437,10 +477,23 @@ class LTE(object):
                 pbar.update()
 
 
-    def get(self, attr, starttime=None, endtime=None):
+    def get(self, attr, chan=None, starttime=None, endtime=None):
         
+        attr_list = self.is_attr(attr)
+        
+        if not attr_list:
+            print(' attribute unknown')
+            return None
+        
+        chan_list = self.is_chan(chan)
+
+        if not chan_list:
+            print(' channel unknown')
+            return None
+
         if not starttime:
             n_0 = 0
+        
         else:
             delta = (starttime - self.stats.starttime).total_seconds()/60
             n_0 = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
@@ -448,164 +501,115 @@ class LTE(object):
 
         if not endtime:
             n_f = self.stats.nro_time_bins
+        
         else:
             delta = (endtime - self.stats.starttime).total_seconds()/60
             n_f = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
             n_f = int(np.ceil(n_f))
+
+        dout = {}
+        if len(chan_list) > 1:
+            multichanel = True
+            for chan in chan_list:
+                dout[chan] = {}
         
-        if self.is_attr(attr):
+        else:
+            multichanel = False
+
+        for attr in attr_list:
             group = get_group(attr)
 
-
-        else:
-            return None
-
-
-    def check_list_attr(self, list_attr):
-        if not all([attr in self.stats.attributes for attr in list_attr]):
-            attrs = [at not in self.stats.attributes for at in list_attr]
-            pos = list(filter(lambda x: attrs[x], range(len(list_attr))))
-            not_availabel_attr = np.array(list_attr)[pos]
-            print('warn: attributes %s not available' %not_availabel_attr)
-
-            new_list_attr = [attr for attr in list_attr if attr in self.stats.attributes]
-            if not new_list_attr:
-                print('available attr: %s' % self.stats.attributes)
-
-        else:
-            new_list_attr = list_attr
-
-        return new_list_attr
-
-
-    def get_dataset(self, group, attr, index):
-        with h5py.File(self.lte_file, "r") as f:
-            if index[1]:
-                if attr in ('specgram', 'degree'):
-                    dset1 = f.get(group)[attr][index[0]:index[1],:]
-                    dset2 = f.get('spectral')['freq'][:]
-                    dset = (dset1, dset2)
-
-                elif attr in ('dip', 'rect', 'azm') and self.stats.matrix_return:
-                    dset1 = f.get('polar')[attr][index[0]:index[1],:]
-                    dset2 = f.get('spectral')['freq'][:]
-                    dset = (dset1, dset2)
-
-                else:
-                    dset = f.get(group)[attr][index[0]:index[1],]
-            
-            else:
-                if attr in ('specgram', 'degree'):
-                    dset1 = f.get(group)[attr][index[0],:]
-                    dset2 = f.get('spectral')['freq'][:]
-                    dset = (dset1, dset2)
-
-                elif attr in ('dip', 'rect', 'azm') and self.stats.matrix_return:
-                    dset1 = f.get('polar')[attr][index[0],:]
-                    dset2 = f.get('spectral')['freq'][:]
-                    dset = (dset1, dset2)
-
-                else:
-                    dset = f.get(group)[attr][index[0],]
-
-        return dset
-
-
-    def get_index(self, starttime=None, endtime=None):
-        if starttime and endtime:
-            st_diff = int((starttime - self.stats.starttime).total_seconds()/60)
-            start_index = int(st_diff/self.stats.time_step)
-            cond1 = start_index < 0 or start_index >= self.stats.time_bins
+            with h5py.File(self.lte_file, "r") as f:
+                if group == 'polar':
+                    data = f.get('polar')[attr][n_0:n_f,:]
+                    freq = f.get('freq')[:]
+                    dout[attr] = (data, freq)
                 
-            ed_diff = int((endtime - self.stats.starttime).total_seconds()/60)
-            end_index = int(ed_diff/self.stats.time_step)
-            cond2 = end_index < 0 or end_index > self.stats.time_bins
-            
-            if cond1 or cond2:
-                raise ValueError(' [0] Select a correct period of time ')
+                else:
+                    for chan in chan_list:
+                        if self.is_matrix(attr):
+                            data = f.get(chan)[group][attr][n_0:n_f,:]
+                            freq = f.get('freq')[:]
+                            to_return = (data, freq)
+                        
+                        else:
+                            data = f.get(chan)[group][attr][n_0:n_f,]
+                            to_return = data
 
-        if starttime and not endtime:
-            st_diff = int((starttime - self.stats.starttime).total_seconds()/60)
-            start_index = int(st_diff/self.stats.time_step)
-            cond1 = start_index < 0 or start_index >= self.stats.time_bins
-            end_index = None
+                        if multichanel:
+                            dout[chan][attr] = to_return
+                        
+                        else:
+                            dout[attr] = to_return
+    
+        time = np.array([self.stats.starttime + dt.timedelta(minutes=k*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)])
 
-            if cond1:
-                raise ValueError(' [1] Select a correct period of time ')
+        return time, dout
         
-        if not starttime and not endtime:
-            start_index = 0
-            end_index = self.stats.time_bins
-        
-        return (start_index, end_index)
 
-
-    def get_attr(self, attr, starttime=None, endtime=None):
-        """
-        Get array from file
-        :param starttime: datetime
-        :param endtime: datetime
-        :param attr: string.
-        :return: numpy array
-        """
-
-        if attr not in self.__attrs__:
-            raise ValueError(' attribute nor in %s' %self.__attrs__)
-
-        gr = get_group(attr)
-        (i, j) = self.get_index(starttime, endtime)
-        dset = self.get_dataset(gr, attr, (i,j))
-
-        return dset
-
-
-    def get_time(self, starttime=None, endtime=None):
-        i = self.get_index(starttime, endtime)
-        times = [self.stats.starttime + dt.timedelta(minutes=k*self.stats.time_step) for k in range(i[0],i[1])]
-        return np.array(times)
-
-
-    def get_stats(self, attr, starttime=None, endtime=None):
+    def get_stats(self, attr, chan=None, starttime=None, endtime=None):
         """
         Return (min,max,mean,mode)
         """
 
-        if attr not in SCALAR_PARAMS:
-            raise ValueError ('attr must be a scalar parameter')
-
-        data = self.get_attr(attr, starttime=starttime, endtime=endtime)
-        true_data = data[np.isfinite(data)]
-
-        if attr == 'energy':
-            data[np.where(data == 0)] = np.nan
-            true_data = 10*np.log10(true_data)
-
-        if true_data.shape[0] > 2:
-            v_min = true_data.min()
-            v_max = true_data.max()
-            v_mean = true_data.mean()
+        def attr_stats(x):
+            v_min = x.min()
+            v_max = x.max()
+            v_mean = x.mean()
 
             x_range = np.linspace(v_min, v_max, 500)
-            gkde = gaussian_kde(true_data)
+            gkde = gaussian_kde(x)
             kde = gkde(x_range)
             v_mode = x_range[np.argmax(kde)]
 
-            return(v_min, v_max, v_mean, v_mode)
+            return [v_min, v_max, v_mean, v_mode]
 
+        attr_list = self.is_attr(attr, only_scalars=True)
+        chan_list = self.is_chan(chan)
+
+        if len(chan_list) > 1:
+            multichanel = True
         else:
-            print(' sample size is less than 2')
-            return None
+            multichanel = False
+
+        if attr_list and chan_list:
+            ans = self.get(attr_list, chan=chan_list, starttime=starttime, endtime=endtime)
+
+            if isinstance(ans, type(None)):
+                return None
+            
+            din = ans[1] # time: 0
+
+            dout = {}
+            if multichanel:
+                for chan, ch_dict in din.items():
+                    dout[chan] = {}
+
+                    for attr, data in ch_dict.items():
+                        x_filt = data[np.isfinite(data)]
+
+                        if attr == 'energy':
+                            x_filt = 10*np.log10(x_filt)
+
+                        dout[chan][attr] = attr_stats(x_filt)
+            
+            else:
+                for attr, data in din.items():
+                    x_filt = data[np.isfinite(data)]
+                    
+                    if attr == 'energy':
+                        x_filt = 10*np.log10(x_filt)
+                    
+                    dout[attr] = attr_stats(x_filt)
+            
+            return dout
 
 
-    def get_dict_stats(self, list_attr, starttime=None, endtime=None):
-        dout = {}
-        true_list = self.check_list_attr(list_attr, return_list=True)
+    def get_pdf(self, attr, chan=None, starttime=None, endtime=None, bandwidth=0.01, **kwargs):
+        
+        
+        y_size = kwargs.get('y_space', 1000)
 
-        for att in true_list:
-            if att in SCALAR_PARAMS:
-                dout[att] = self.get_stats(att, starttime=starttime, endtime=endtime)
-
-        return dout
 
 
     def get_peaks(self, fq_range=(), peak_thresholds={}):
@@ -834,7 +838,6 @@ class LTE(object):
         
         # header dataset
         hdr = f.create_dataset('header',(1,))
-        
         hdr.attrs['id'] = headers['id']
         hdr.attrs['channel'] = headers['channel']
         hdr.attrs['starttime'] = headers['starttime']
@@ -898,11 +901,12 @@ class LTE(object):
         for info_key in ['id', 'channel', 'starttime', 'endtime' ,'interval' ,'int_olap' ,'step' ,'step_olap' ,'sample_rate' ,'remove_response' ,'fq_band' ,'nro_time_bins' ,'nro_freq_bins' ,'polar_degree' ,'polar_analysis' ,'f_params', 'opt_params', 'f_threshold' ,'PE_tau' ,'PE_order', 'time_bandwidth']:
             print(f' {info_key}:  {headers[info_key]}')
 
+        f.create_dataset('freq', (freqbins,), dtype=np.float32)
+
         for chan in headers['channel']:
             chgr = f.create_group(chan)
 
             spec = chgr.create_group("spectral")
-            spec.create_dataset('freq', (freqbins,), dtype=np.float32)
             spec.create_dataset('specgram', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
             spec.create_dataset('fq_dominant', (timebins,), chunks=chunk_shape2, dtype=np.float32)
             spec.create_dataset('fq_centroid', (timebins,), chunks=chunk_shape2, dtype=np.float32)
