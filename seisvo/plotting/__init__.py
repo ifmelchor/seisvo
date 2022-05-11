@@ -11,7 +11,6 @@ import matplotlib.dates as mdates
 import matplotlib.ticker as mtick
 import matplotlib.colors as mcolor
 import matplotlib._color_data as mcd
-from seisvo.signal.pdf import get_max_prob
 
 plt.rc('axes', labelsize=10)
 plt.rc('axes', labelpad=4.0)

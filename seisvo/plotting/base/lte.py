@@ -3,10 +3,13 @@
 
 import numpy as np
 import datetime as dt
-from seisvo.file.lte import VECTORAL_PARAMS, VECTORAL_OPT_PARAMS
+from seisvo.file.lte import VECTORAL_PARAMS, VECTORAL_PARAMS_OPT
 from seisvo.plotting import plot_gram, get_colors
+
+import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+from matplotlib.gridspec import GridSpec
 
 defaultLTE_color = get_colors('zesty')[1]
 
@@ -17,7 +20,7 @@ default_labels = {
     'degree':'PD',
     'rect':'R',
     'azm':r'$\Theta_H$ [$\degree$]',
-    'dip':r'$\Theta_V$ [$\degree$]',
+    'elev':r'$\Theta_V$ [$\degree$]',
     'pentropy': 'PE',
     'fq_dominant': r'$f_d$'+'[Hz]',
     'fq_centroid': r'$f_c$'+'[Hz]',
@@ -54,7 +57,7 @@ class plotLTE(object):
 
 
     def is_twocolumns(self):
-        a = [attr for attr in self.list_attr if attr in VECTORAL_PARAMS+VECTORAL_OPT_PARAMS]
+        a = [attr for attr in self.list_attr if attr in VECTORAL_PARAMS+VECTORAL_PARAMS_OPT]
         return any(a)
     
 
@@ -310,4 +313,167 @@ class plotLTE(object):
     def set_text(self, id, txt):
         idict = self.events_.get(id)
         idict['text'].set_text(txt)
+
+
+
+def plotPeaksSpecPDF(peak, show=True, **kwargs):
+    grid = {'left':0.15, 'right':0.95, 'top':0.90, 'bottom':0.2}
+    fig, ax = plt.subplots(1,1, figsize=kwargs.get('figsize',(4,3)), gridspec_kw=grid)
+
+    norm = max([info['fq_prob'] for _, info in peak.peaks_.items()])
+    
+    ax.plot(peak.fq_space_, peak.fq_pdf_/norm, color='k') # plot normalized PDF
+
+    if peak.threshold:
+        ax.axhline(y=peak.threshold, color='r', ls='--')
+    
+
+    for p_i, info in peak.peaks_.items():
+        ax.scatter(info['fq'], info['fq_prob']/norm, color='r', marker='o', ec='k')
+        half_width = info['width']
+        y1_index = np.argmin(np.abs(peak.fq_space_-(info['fq']-half_width)))
+        y2_index = np.argmin(np.abs(peak.fq_space_-(info['fq']+half_width)))
+        x_fill = peak.fq_space_[y1_index:y2_index].reshape(-1,)
+        y_fill = peak.fq_pdf_[y1_index:y2_index]/norm
+        ax.fill_between(x_fill, y_fill, color='k', alpha=0.1)
+        # ax.annotate(f'#{p_i}', xy=(info['fq']+0.05, info['fq_prob']+0.01), bbox=dict(boxstyle="round", fc="w", ec="k", lw=0.8), fontsize=8, family='monospace')
+    
+    ax.set_xlim(peak.fq_space_.min(), peak.fq_space_.max())
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel('Normalized PDF($\mathcal{P}$)', fontsize=kwargs.get('fs', 10))
+    ax.set_xlabel(r'$f$ [Hz]', fontsize=kwargs.get('fs', 10))
+
+    ax.set_xticks([1,2,3,4,5])
+    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+    ax.yaxis.set_major_locator(mtick.FixedLocator([0.25,0.5,0.75,1.0]))
+
+    ax.grid(which='major', axis='both', ls='--', alpha=0.5)
+    ax.grid(which='minor', axis='both', ls=':', alpha=0.25)
+
+    ax.tick_params(axis='y', labelsize=kwargs.get('fs', 10))
+    ax.tick_params(axis='x', labelsize=kwargs.get('fs', 10))
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def plotPeaksPDF(peak, n, show=True, **kwargs):
+    nPeak = peak.peaks_[n]
+
+    PDFs = {}
+    if nPeak['sp']:
+        sp_space = np.linspace(-170, -100, 1000).reshape(-1,1)
+        sp_pdf = np.exp(nPeak['sp']['kde'].score_samples(sp_space))
+        PDFs['sp'] = (sp_space, sp_pdf)
+
+    if nPeak['rect']:
+        r_space = np.linspace(0, 1, 1000).reshape(-1,1)
+        r_pdf = np.exp(nPeak['rect']['kde'].score_samples(r_space))
+        PDFs['rect'] = (r_space, r_pdf)
+    
+    if nPeak['thH']:
+        azm_space = np.linspace(0, 180, 1000).reshape(-1,1)
+        azm_pdf = np.exp(nPeak['thH']['kde'].score_samples(azm_space))
+        PDFs['thH'] = (azm_space, azm_pdf)
+    
+    if nPeak['thV']:
+        dip_space = np.linspace(0, 90, 1000).reshape(-1,1)
+        dip_pdf = np.exp(nPeak['thV']['kde'].score_samples(dip_space))
+        PDFs['thV'] = (dip_space, dip_pdf)
+    
+    n_axis = len(PDFs)
+
+    if n_axis == 0:
+        print(' nothing to plot')
+        return
+    
+    grid = {'hspace':0.1, 'wspace':0.1, 'left':0.15, 'right':0.95, 'top':0.90, 'bottom':0.2}
+    fig, axis = plt.subplots(1, n_axis, figsize=(n_axis*2,2.5), gridspec_kw=grid)
+
+    fs = kwargs.get('fs', 10)
+    spec_th = kwargs.get('spec_th', 0.1)
+
+    if not isinstance(axis, np.ndarray):
+        axis = [axis]
+
+    for ax, att in zip(axis, PDFs.keys()):
+        space, pdf = PDFs[att]
+        pdf /= pdf.max()
+        ax.plot(space, pdf, color='k')
+
+        if att == 'rect':
+            rect_th = peak.peak_thresholds['rect_th']
+            ax.fill_between(space[space>rect_th], pdf[np.where(space>rect_th)[0]], alpha=0.1, color='k')
+            ax.set_xlim(0,1)
+            ax.set_xlabel(r'R', fontsize=fs)
+            ax.set_xticks([0.3, 0.5, 0.7])
+        
+        elif att == 'thH':
+            ax.set_xlim(0,180)
+            ax.set_xlabel(r'$\Theta_H$ [$\degree$]', fontsize=fs)
+            ax.set_xticks([45, 90, 135])
+
+        elif att == 'thV':
+            ax.set_xlim(0,90)
+            ax.set_xlabel(r'$\Theta_V$ [$\degree$]', fontsize=fs)
+            ax.set_xticks([22, 45, 70])
+        
+        else:
+            ax.set_xlim(-170,-110)
+            ax.set_xlabel(r'PSD [dB]', fontsize=fs)
+            ax.axhline(spec_th, color='k', ls='--')
+        
+        ax.set_ylim(0,1.1)
+            
+        ax.tick_params(axis='x', labelsize=fs)
+        ax.set_yticks([0.25, 0.5, 0.75])
+        ax.grid(which='major', axis='both', ls='--', alpha=0.5)
+        ax.grid(which='minor', axis='both', ls=':', alpha=0.25)
+        
+        if ax == axis[0]:
+            ax.tick_params(axis='y', labelsize=fs)
+            ax.set_ylabel(r'Normalized PDF', fontsize=fs)
+        else:
+            ax.yaxis.set_major_formatter(mtick.NullFormatter())
+    
+    if show:
+        plt.show()
+
+    return fig
+
+
+# revise
+class plotDPeakTEVO(object):
+    def _init__(self, peak, fq_range_dict, marker_dict={}, color_dict={}):
+        
+        self.peak = peak
+        self.fq_range_dict = fq_range_dict
+        self.marker_dict = marker_dict
+        self.color_dict = color_dict
+
+        self.set_frame()
+
+    def set_frame(self):
+        gridspec_dict = {
+            'left':0.1, 
+            'right':0.95, 
+            'height_ratios':[0.75,1,1], 
+            'hspace':0.1, 
+            'wspace':0.1
+            }
+
+        self.fig, self.axes = plt.subplots(3,1, figsize=(9,6), gridspec_kw=gridspec_dict)
+
+
+    def plot(self):
+
+        
+        dpeaks_dict = self.peak.get_dominant_peaks(fq_range)
+
+
+
+
 

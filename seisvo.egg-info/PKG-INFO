@@ -1,0 +1,13 @@
+Metadata-Version: 2.1
+Name: seisvo
+Version: 1.0.0
+Summary: A python tool for seismovolcanic processes
+Home-page: https://github.com/ifmelchor/seisvo
+Author: Ivan Melchor
+Author-email: ifmelchor@unrn.edu.ar
+License: UNKNOWN
+Platform: UNKNOWN
+Requires-Python: >=3.8
+
+UNKNOWN
+

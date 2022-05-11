@@ -23,10 +23,8 @@ from obspy.core.util.attribdict import AttribDict
 from antropy import perm_entropy
 
 from seisvo.signal.polarization import PolarAnalysis
-from seisvo.signal.proba import get_PDF
+from seisvo.signal.proba import get_PDF, get_KDE
 
-# import seisvo.utils.plotting as sup
-# from seisvo.signal.pdf import get_PDF, get_KDE
 
 SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam', 'dsar']
 SCALAR_PARAMS_OPT = ['mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar']
@@ -72,7 +70,7 @@ default_peak_thresholds = {
     'pd_std':0.1,
     'r_std':0.1,
     'azm_std':10,
-    'dip_std':10
+    'elev_std':10
 }
 
 
@@ -346,7 +344,8 @@ class LTE(object):
             'taper_p':kwargs.get('taper_p', 0.05),
             'time_bandwidth':self.stats.time_bandwidth
         }
-        
+
+        freq_saved = False
         with tqdm(total=total_bins) as pbar:
             tbin = 0
             while time + interval_delta <= self.stats.endtime:
@@ -383,6 +382,13 @@ class LTE(object):
                             h = perm_entropy(data, order=self.stats.PE_order, delay=self.stats.PE_tau, normalize=True)
                             rsam = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(2,4.5), abs=True)
                             
+                            if not freq_saved:
+                                with h5py.File(self.lte_file, "r+") as f:
+                                    dset = f.get('freq')
+                                    dset[:] = chan_spec_params[1]
+                                    f.flush()
+                                freq_saved = True
+
                             save_dict[chan]['specgram'] = chan_spec_params[0]
                             save_dict[chan]['fq_dominant'] = chan_spec_params[3]
                             save_dict[chan]['fq_centroid'] = chan_spec_params[2]
@@ -495,6 +501,10 @@ class LTE(object):
             n_0 = 0
         
         else:
+            if starttime < self.stats.starttime:
+                print(' starttime out of bounds')
+                return None
+
             delta = (starttime - self.stats.starttime).total_seconds()/60
             n_0 = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
             n_0 = int(np.ceil(n_0))
@@ -503,6 +513,10 @@ class LTE(object):
             n_f = self.stats.nro_time_bins
         
         else:
+            if endtime > self.stats.endtime:
+                print(' endtime out of bounds')
+                return None
+
             delta = (endtime - self.stats.starttime).total_seconds()/60
             n_f = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
             n_f = int(np.ceil(n_f))
@@ -605,14 +619,54 @@ class LTE(object):
             return dout
 
 
-    def get_pdf(self, attr, chan=None, starttime=None, endtime=None, bandwidth=0.01, **kwargs):
+    def pdf(self, attr, chan=None, starttime=None, endtime=None, bandwidth=0.01, **kwargs):
         
+        if not chan:
+            chan = self.stats.channel[0]
         
+        if chan not in self.stats.channel:
+            raise ValueError(' chan not found')
+        
+        if attr not in self.stats.attributes:
+            raise ValueError(' attr not availabel')
+        
+
+        _, dout = self.get(attr, chan=chan, starttime=starttime, endtime=endtime)
         y_size = kwargs.get('y_space', 1000)
 
+        if self.is_matrix(attr):
+            data = dout[attr][0]
+            dmin = kwargs.get('y_min', data.min())
+            dmax = kwargs.get('y_max', data.max())
+
+            freq = dout[attr][1]
+
+            masked_data = np.ma.masked_invalid(data)
+            data = np.ma.compress_cols(masked_data)
+            
+            if attr == 'specgram':
+                data = 10*np.log10(data)
+            
+            y_space = np.linspace(dmin, dmax, y_size).reshape(y_size, 1)
+            pdf = get_PDF(data, y_space, bandwidth, **kwargs)
+        
+            return freq, y_space.reshape(y_size,), pdf
+        
+        else:
+            data = dout[attr]
+            dmin = kwargs.get('y_min', data.min())
+            dmax = kwargs.get('y_max', data.max())
+
+            if attr == 'energy':
+                data = 10*np.log10(data)
+
+            y_space = np.linspace(dmin, dmax, y_size).reshape(y_size, 1)
+            pdf = get_PDF(data.reshape(-1,1), y_space, bandwidth, **kwargs)
+
+            return y_space.reshape(y_size,), pdf
 
 
-    def get_peaks(self, fq_range=(), peak_thresholds={}):
+    def __get_peaks__(self, chan, starttime=None, endtime=None, fq_range=(), peak_distance=5, peak_thresholds={}):
         """
 
         Return peaks as describes in Melchor et al 2021
@@ -628,9 +682,12 @@ class LTE(object):
         -------
         [Peak object]
         """
+        
+        if chan not in self.stats.channel:
+            raise ValueError(' chan not found')
 
-        if not self.stats.polargram or not self.stats.matrix_return:
-            raise ValueError(' err: No polarization data in LTE')
+        if not self.stats.polar_degree:
+            raise ValueError(' No polarization data in LTE')
 
         self.peak_thresholds = default_peak_thresholds
         
@@ -649,103 +706,110 @@ class LTE(object):
         if not fq_range:
             fq_range = self.stats.fq_band
 
-        # erg = self.get_attr('energy')
-        erg = self.get_dataset('energy', 'energy', index=(0, self.stats.time_bins))
-        sxx, fq = self.get_attr('specgram')
-
-        # do nan when energy in zero
-        sxx[np.where(erg == 0), :] = np.nan
-
-        # polar atributes
-        sxx = 10*np.log10(sxx)
-        pd, _ = self.get_attr('degree')
-        rect, _ = self.get_attr('rect')
-        thetaH, _ = self.get_attr('azm')
-        thetaV, _ = self.get_attr('dip')
-
-        # correct 180 degrees in azimuth
-        thetaH[np.where(thetaH < 0)] = thetaH[np.where(thetaH < 0)] + 180
+        attr_list = ['specgram', 'degree']
+        if self.stats.polar_analysis:
+            attr_list += ['elevation', 'rectlinearity', 'azimuth']
+        
+        time, dout = self.get(attr_list, chan=chan, starttime=starttime, endtime=endtime)
+        sxx, freq = dout['specgram']
+        pd, _ = dout['degree']
 
         # get fq_npts
-        fq0 = np.argmin(np.abs(np.array(fq)-fq_range[0]))
-        fq1 = np.argmin(np.abs(np.array(fq)-fq_range[1]))
+        freq = np.array(freq)
+        fq0 = np.argmin(np.abs(freq-fq_range[0]))
+        fq1 = np.argmin(np.abs(freq-fq_range[1]))
 
-        peaks = []
-        for t in range(sxx.shape[0]):
-            print(f'     getting peaks {int((t+1)*100/sxx.shape[0]):3}%', end='\r')
+        if self.stats.polar_analysis:
+            rect, _ = self.get_attr('rectlinearity')
+            thetaH, _ = self.get_attr('azimuth')
+            thetaV, _ = self.get_attr('elevation')
 
-            sxx_t = sxx[t, fq0:fq1]
+        sxx = 10*np.log10(sxx)
+        total_time = len(time)
+        peaks = {}
+        nro_peaks = 0
+        with tqdm(total=total_time) as pbar:
+            for t in range(total_time):
+                sxx_t = sxx[t, fq0:fq1+1]
+                pd_t = pd[t, fq0:fq1+1]
+                if np.isfinite(sxx_t).all():
+                    sxx_t_norm = MinMaxScaler().fit_transform(sxx_t.reshape(-1,1))
+                    peaks_pos,_ = signal.find_peaks(sxx_t_norm.reshape(-1,), height=self.peak_thresholds['spec_th'], distance=peak_distance)
 
-            if not sxx_t.all() or np.isnan(sxx_t).any() or not np.isfinite(sxx_t).all():
-                peaks.append(None)
-            
-            else:
-                sxx_t_norm = MinMaxScaler().fit_transform(sxx_t.reshape(-1,1))
-                peaks_pos,_ = signal.find_peaks(sxx_t_norm.reshape(-1,), height=self.peak_thresholds['spec_th'], distance=5)
-                peaks_info = dict(fq=[], sp=[], pd=[], r=[], azm=[], dip=[])
+                    peaks[t] = dict(fq=[], sp=[], pd=[])
+                    if self.stats.polar_analysis:
+                        peaks[t]['rect'] = []
+                        peaks[t]['azm'] = []
+                        peaks[t]['elev'] = []
 
-                for p in peaks_pos:
-                    fp = fq[fq0:fq1][p]
-                    sp = sxx_t[p]
-                    peaks_info['fq'] += [fp]
-                    peaks_info['sp'] += [sp]
+                    for p in peaks_pos:
+                        fp = freq[fq0:fq1][p]
 
-                    pd_ans = np.nan
-                    r_ans = np.nan
-                    azm_ans = np.nan
-                    dip_ans = np.nan
+                        # define freq range                        
+                        fp_0 = fp - self.peak_thresholds['fq_delta']
+                        fp_1 = fp + self.peak_thresholds['fq_delta']
+                        fq_0_pos = np.argmin(np.abs(freq-fp_0)) 
+                        fq_1_pos = np.argmin(np.abs(freq-fp_1))
 
-                    fp_0 = fp - self.peak_thresholds['fq_delta']
-                    fp_1 = fp + self.peak_thresholds['fq_delta']
-                    fq_npts = [
-                        np.argmin(np.abs(np.array(fq)-fp_0)), 
-                        np.argmin(np.abs(np.array(fq)-fp_1))
-                        ]
-                    
-                    pd_peak = pd[t, fq_npts[0]:fq_npts[1]]
-                    r_peak = rect[t, fq_npts[0]:fq_npts[1]]
-                    azm_peak = thetaH[t, fq_npts[0]:fq_npts[1]]
-                    dip_peak = thetaV[t, fq_npts[0]:fq_npts[1]]
+                        # compute PSD mean, PD mean and PD std
+                        sp_peak = sxx_t[fq_0_pos:fq_1_pos].mean()
+                        pd_peak = pd_t[fq_0_pos:fq_1_pos]
+                        pd_peak_avg, pd_peak_std = pd_peak.mean(), pd_peak.std()
 
-                    pp_avg, pp_std = pd_peak.mean(), pd_peak.std()
+                        if pd_peak_avg > self.peak_thresholds['pd_th'] and pd_peak_std < self.peak_thresholds['pd_std']:
+                            peaks[t]['fq'] += [fp]
+                            nro_peaks += 1
+                            peaks[t]['sp'] += [sp_peak]
+                            peaks[t]['pd'] += [pd_peak_avg]
 
-                    if pp_avg > self.peak_thresholds['pd_th'] and pp_std < self.peak_thresholds['pd_std']:
-                        pd_ans = pp_avg
-                        r = r_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
-                        azm = azm_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
-                        dip = dip_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
-                        r_avg, r_std = r.mean(), r.std()
+                            if self.stats.polar_analysis:
+                                rect_peak = rect[t, fq_0_pos:fq_1_pos]
+                                tH_peak = thetaH[t, fq_0_pos:fq_1_pos]
+                                tV_peak = thetaV[t, fq_0_pos:fq_1_pos]
+                                
+                                rect_peak_val = None
+                                tH_peak_val = None
+                                tV_peak_val = None
 
-                        if r_std < self.peak_thresholds['r_std']:
-                            r_ans = r_avg
+                                # remove low PD values
+                                rect_peak = rect_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
+                                tH_peak = tH_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
+                                tV_peak = tV_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
+                                
+                                if rect_peak.any():
+                                    rect_peak_avg, rect_peak_std = rect_peak.mean(), rect_peak.std()
 
-                            if r_avg > self.peak_thresholds['rect_th'] and any(r[r > self.peak_thresholds['rect_th']]):
-                                azm_avg = azm[np.where(r > self.peak_thresholds['rect_th'])].mean()
-                                azm_std = azm[np.where(r > self.peak_thresholds['rect_th'])].std()
+                                    if rect_peak_std < self.peak_thresholds['r_std']:
+                                        rect_peak_val = rect_peak_avg
 
-                                if azm_std <= self.peak_thresholds['azm_std']:
-                                    azm_ans = azm_avg
+                                        if rect_peak_std > self.peak_thresholds['rect_th']:
+                                            
+                                            tH_peak = tH_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])]
+                                            tV_peak = tV_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])] 
+                                            
+                                            if tH_peak.any():
+                                                tH_peak_avg, tH_peak_std = tH_peak.mean(), tH_peak.std()
+                                                
+                                                if tH_peak_std <= self.peak_thresholds['azm_std']:
+                                                    tH_peak_val = tH_peak_avg
+                                            
+                                            if tV_peak.any():
+                                                tV_peak_avg, tV_peak_std = tV_peak.mean(), tV_peak.std()
 
-                                dip_avg = dip[np.where(r > self.peak_thresholds['rect_th'])].mean()
-                                dip_std = dip[np.where(r > self.peak_thresholds['rect_th'])].std()
+                                                if tV_peak_std <= self.peak_thresholds['elev_std']:
+                                                    tV_peak_val = tV_peak_avg
+                                
+                                peaks[t]['rect'] += [rect_peak_val]
+                                peaks[t]['azm'] += [tH_peak_val]
+                                peaks[t]['elev'] += [tV_peak_val]
 
-                                if dip_std <= self.peak_thresholds['dip_std']:
-                                    dip_ans = dip_avg
-                    
-                    peaks_info['pd'] += [pd_ans]
-                    peaks_info['r'] += [r_ans]
-                    peaks_info['azm'] += [azm_ans]
-                    peaks_info['dip'] += [dip_ans]
-
-                if not peaks_info['fq']:
-                    peaks.append(None)
-                else:
-                    peaks.append(peaks_info)
-
-        n_pks = len(list(filter(lambda a: a != None, peaks)))
-        print(f'\n     Bins with peaks info: {int(100*n_pks/len(peaks)):3}%')
+                pbar.update()
         
-        return peaks
+        return nro_peaks, peaks
+
+
+    def get_Peaks(self, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}):
+        return Peaks(self, chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
 
     def plot(self, starttime=None, endtime=None, interval=None, plot_attr=[], return_fig=False, **kwargs):
@@ -790,42 +854,6 @@ class LTE(object):
         
         else:
             plot_gui(self, starttime, endtime, interval, list_attr, **kwargs)
-
-
-    def get_pdf(self, attr, starttime=None, endtime=None, bandwidth=0.01, **kwargs):
-        """
-        Compute the PDF
-        """
-
-        y_size = kwargs.get('y_space', 1000)
-
-        if self.is_matrix(attr):
-            matrix, x_space = self.get_attr(attr, starttime=starttime, endtime=endtime)
-            masked_matrix = np.ma.masked_invalid(matrix.T)
-            matrix = np.ma.compress_cols(masked_matrix)
-            
-            if attr == 'specgram':
-                matrix = 10*np.log10(matrix.T)
-            
-            y_min = kwargs.get('y_min', matrix.min())
-            y_max = kwargs.get('y_max', matrix.max())
-            y_space = np.linspace(y_min, y_max, y_size).reshape(y_size, 1)
-            pdf = get_PDF(matrix, y_space, bandwidth, **kwargs)
-
-            return x_space, y_space.reshape(y_size,), pdf
-        
-        else:
-            data = self.get_attr(attr, starttime=starttime, endtime=endtime)
-            y_min = kwargs.get('y_min', data.min())
-            y_max = kwargs.get('y_max', data.max())
-            y_space = np.linspace(y_min, y_max, y_size).reshape(y_size, 1)
-            pdf = get_PDF(data.reshape(-1,1), y_space, bandwidth, **kwargs)
-
-            return y_space.reshape(y_size,), pdf
-
-
-    def get_Peaks(self, fq_range=(), peak_thresholds={}):
-        return Peaks(self, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
 
     @staticmethod
@@ -963,7 +991,7 @@ class LTE(object):
 
 
 class Peaks(LTE):
-    def __init__(self, lte, fq_range=(), peak_thresholds={}):
+    def __init__(self, lte, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}):
 
         if isinstance(lte, str):
             super().__init__(lte)
@@ -973,12 +1001,29 @@ class Peaks(LTE):
         else:
             raise ValueError ('lte should be string with lte file path or lte object')
 
-        self.all_peaks = super().get_peaks(fq_range, peak_thresholds)
-        self.total_dominant_peaks_ = sum([len(i['fq']) for i in self.all_peaks if i])
+        ans = super().__get_peaks__(chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
+
+        self.total_dominant_peaks_, self.dominant_peaks_ = ans
         
+        self.chan = chan
+        self.starttime = starttime
+        self.endtime = endtime
+        self.fq_range = fq_range
+        self.peak_thresholds = peak_thresholds
+
         self.peaks_ = {}
         self.nro_ = 0
         self.df_ = None
+    
+    
+    def __str__(self):
+        print(f'   LTE file   ::: {self.stats.lte_file}')
+        print(f'        channel: {self.chan}')
+        print(f'      starttime: {self.starttime.strftime("%d %B %Y %H:%M")}')
+        print(f'        endtime: {self.endtime.strftime("%d %B %Y %H:%M")}')
+        print(f'       fq_range: {self.fq_range}')
+        print(f' polar_analysis: {self.stats.polar_analysis}')
+        print(f' Nro dom. peaks: {self.stats.total_dominant_peaks_}')
 
 
     def fit(self, threshold=0.0, peak_width='auto', **kwargs):
@@ -1041,25 +1086,22 @@ class Peaks(LTE):
         
         self.__dataframe__()
 
-        return self
-
 
     def __fit_fq_kde__(self, **kwargs):
         # compute KDE for peak distribution weighted by spectral energy
-        
-        fq_l = [item['fq'] for item in self.all_peaks if item]
-        fqa = np.array(list(chain(*fq_l)))
+        all_dominant_peaks = [nd['fq'] for _, nd in self.dominant_peaks_.items()]
+        all_dominant_peaks = np.array(list(chain(*all_dominant_peaks)))
 
         bandwidth = kwargs.get('bandwidth', {})
         self.bandwidth_fc = bandwidth.get('frec', default_bandwidth['frec'])
 
         v_min = kwargs.get('v_min', None)
         if not v_min:
-            v_min = fqa.min()
+            v_min = all_dominant_peaks.min()
             
         v_max = kwargs.get('v_max', None)
         if not v_max:
-            v_max = fqa.max()
+            v_max = all_dominant_peaks.max()
         
         v_space = kwargs.get('v_space', 1000) # fqa.shape[0]*5
         self.fq_space_ = np.linspace(v_min, v_max, v_space).reshape(v_space, 1)
@@ -1072,7 +1114,7 @@ class Peaks(LTE):
         else:
             self.weights = None
 
-        kde = get_KDE(fqa.reshape(-1, 1), self.bandwidth_fc, weight=self.weights)
+        kde = get_KDE(all_dominant_peaks.reshape(-1, 1), self.bandwidth_fc, weight=self.weights)
 
         self.fq_pdf_ = np.exp(kde.score_samples(self.fq_space_))
 
@@ -1099,71 +1141,82 @@ class Peaks(LTE):
 
         print('\n     #peak   attr   bandwidth')
 
-        for f in range(1, self.nro_+1):
-            dfq = self.peaks_[f]['fq']
-            sp, pd, rect, th_H, th_V = [], [], [], [], []
-            for item in self.all_peaks:
-                if item:
-                    for n, fq in enumerate(item['fq']):
-                        if dfq-self.peaks_[f]['width'] <= fq <= dfq+self.peaks_[f]['width']:
-                            sp += [item['sp'][n]]
-                            pd += [item['pd'][n]]
-                            rect += [item['r'][n]]
-                            th_H += [item['azm'][n]]
-                            th_V += [item['dip'][n]]
-            
-            sp = np.array(sp)[np.where(~np.isnan(sp))]
-            
-            if len(sp) < 10*self.n_sample_min:
-                continue
-            
-            sp_kde = get_KDE(sp.reshape(-1,1), self.bandwidth['sp'])
-
-            print(f'     {f:^5}   spec   {sp_kde.bandwidth:.2f}')
-
-            sp_x = np.linspace(sp.min(), sp.max(), 500).reshape(-1,1)
-
-            sp_dist = np.exp(sp_kde.score_samples(sp_x))
-            sp_dist /= sp_dist.max()
-            args = np.where(sp_dist > self.dist_throld)[0]
-            sp_range = (sp_x[args[0]], sp_x[args[-1]])
-            self.peaks_[f]['sp'] = {
-                        'val':sp_x[np.argmax(sp_dist)],
-                        'range':sp_range,
-                        'n':len(sp),
-                        'kde':sp_kde
-                    }
-
-            pd = np.array(pd)[np.where(~np.isnan(pd))]
-            if pd.shape[0] > self.n_sample_min:
-                rect = np.array(rect)[np.where(~np.isnan(rect))]
+        with tqdm(total=self.nro_) as pbar:
+            for f in range(1, self.nro_+1):
+                dfq = self.peaks_[f]['fq'] # characteristic peak
+                sp = []
+                pd = []
                 
-                if rect.shape[0] > self.n_sample_min:
-                    rect_kde = get_KDE(rect.reshape(-1,1), self.bandwidth['rect'])
+                if self.stats.polar_analysis:
+                    rect = [] 
+                    th_H = [] 
+                    th_V = []
 
-                    print(f'     {f:^5}   rect   {rect_kde.bandwidth:.2f}')
+                for _, tdict in self.dominant_peaks_.items():
+                    for n, fq in enumerate(tdict['fq']):
+                        if dfq-self.peaks_[f]['width'] <= fq <= dfq+self.peaks_[f]['width']:
+                            sp += [tdict['sp'][n]]
+                            pd += [tdict['pd'][n]]
 
-                    rect_x = np.linspace(0, 1, 500).reshape(-1,1)
-                    rect_dist = np.exp(rect_kde.score_samples(rect_x))
-                    rect_dist /= rect_dist.max()
-                    args = np.where(rect_dist > self.dist_throld)[0]
-                    rect_range = (rect_x[args[0]], rect_x[args[-1]])
+                            if self.stats.polar_analysis:
+                                rect += [tdict['rect'][n]]
+                                th_H += [tdict['azm'][n]]
+                                th_V += [tdict['elev'][n]]
+                
+                # list sp, pd, etc. may contain None
+                sp = np.array([sp_k for sp_k in sp if sp_k])
+                pd = np.array([pd_k for pd_k in pd if pd_k])
 
-                    # to save
-                    self.peaks_[f]['rect'] = {
-                        'val':rect_x[np.argmax(rect_dist)],
-                        'range':rect_range,
-                        'n':len(rect),
-                        'kde':rect_kde
-                    }
-                    self.peaks_[f]['cp'] = len(rect)/len(sp)
+                if self.stats.polar_analysis:
+                    rect = np.array([rect_k for rect_k in rect if rect_k])
+                    th_H = np.array([th_H_k for th_H_k in th_H if th_H_k])
+                    th_V = np.array([th_V_k for th_V_k in th_V if th_V_k])
+                
+                # first condition: number of dominant peaks.
+                if sp.shape[0] > 10*self.n_sample_min:
+                
+                    sp_kde = get_KDE(sp.reshape(-1,1), self.bandwidth['sp'])
 
-                    if rect_range[1] >= self.peak_thresholds['rect_th']:
-                        th_H = np.array(th_H)[np.where(~np.isnan(th_H))]
-                        th_V = np.array(th_V)[np.where(~np.isnan(th_V))]
+                    print(f'     {f:^5}   spec   {sp_kde.bandwidth:.2f}')
+
+                    sp_x = np.linspace(sp.min(), sp.max(), 500).reshape(-1,1)
+
+                    sp_dist = np.exp(sp_kde.score_samples(sp_x))
+                    sp_dist /= sp_dist.max()
+                    args = np.where(sp_dist > self.dist_throld)[0]
+                    sp_range = (sp_x[args[0]], sp_x[args[-1]])
+                    self.peaks_[f]['sp'] = {
+                                'val':sp_x[np.argmax(sp_dist)],
+                                'range':sp_range,
+                                'n':len(sp),
+                                'kde':sp_kde
+                            }
+
+                    # second condition: number of dominant peaks with high polarization degree.
+                    if rect.shape[0] > self.n_sample_min:
+                        rect_kde = get_KDE(rect.reshape(-1,1), self.bandwidth['rect'])
+
+                        print(f'     {f:^5}   rect   {rect_kde.bandwidth:.2f}')
+
+                        rect_x = np.linspace(0, 1, 500).reshape(-1,1)
+                        rect_dist = np.exp(rect_kde.score_samples(rect_x))
+                        rect_dist /= rect_dist.max()
+                        args = np.where(rect_dist > self.dist_throld)[0]
+                        rect_range = (rect_x[args[0]], rect_x[args[-1]])
+
+                        # to save
+                        self.peaks_[f]['rect'] = {
+                            'val':rect_x[np.argmax(rect_dist)],
+                            'range':rect_range,
+                            'n':len(rect),
+                            'kde':rect_kde
+                        }
+                        self.peaks_[f]['cp'] = len(rect)/len(sp)
+
+                        # third condition: number of dominant peaks with high rectilinearity.
                         if th_H.shape[0] > self.n_sample_min and th_V.shape[0] > self.n_sample_min:
                             
-                            # save Cl
+                            # compute Cl
                             self.peaks_[f]['cl'] = (len(th_H) + len(th_V)) / (2*len(rect))
                         
                             thH_kde = get_KDE(th_H.reshape(-1,1), self.bandwidth['angle'])
@@ -1199,32 +1252,7 @@ class Peaks(LTE):
                                 'n':len(th_V),
                                 'kde':thV_kde
                             }
-
-
-    def plot_time_evo(self, fq_range=(), out='time_evo', format='pdf', spj=5, rj=3, pj=1):
-        sup.plot_lte_peaks_evo(self, fq_range=fq_range, out=out, format=format, spj=spj, rj=rj, pj=pj)
-
-
-    def plot_peak_evo(self, nro, fq_off=0.1, pd_throld=0.8, r_throld=0.75, out=None, out_dir='./', format='pdf', show=False):
-        sup.plot_lte_peak_evo(self, self.peaks[nro]['fq'], fq_off=fq_off, pd_throld=pd_throld, r_throld=r_throld, out=out, out_dir=out_dir, format=format, show=show)
-        
-
-    def plot_spec_pdf(self, plot=True, **kwargs):
-        if self.nro_ == 0:
-            raise ValueError ('no dominant frequencies to plot!')
-
-        fig = sup.plot_peaks_spec_pdf(self, plot=plot, **kwargs)
-
-        return fig
-
-
-    def plot_peak_pdf(self, n, plot=True, **kwargs):
-        if self.nro_ == 0:
-            raise ValueError ('no dominant frequencies to plot!')
-        
-        fig = sup.plot_peaks_pdf(self, n, plot=plot, **kwargs)
-        
-        return fig
+                    pbar.update()
 
 
     def __dataframe__(self):
@@ -1308,3 +1336,71 @@ class Peaks(LTE):
                 os.remove(json_file)
 
             self.df_.to_json(json_file)
+
+
+    def get_dominant_peaks(self, fq_range):
+        
+        dout = {}
+        for t, tdict in self.dominant_peaks_.items():
+            if tdict['fq']:
+                dout[t] = {'fq':[], 'sp':[]} 
+                
+                if self.stats.polar_analysis:
+                    dout[t]['rect'] = []
+                    dout[t]['azm'] = []
+                    dout[t]['elev'] = []
+                
+                for n, fq in enumerate(tdict['fq']):
+                    if fq_range[0] <= fq <= fq_range[1]:
+                        dout[t]['fq'].append(fq)
+                        dout[t]['sp'].append(tdict['sp'][n])
+
+                        if self.stats.polar_analysis:
+                            rect = tdict['rect'][n]
+                            tH = tdict['azm'][n]
+                            tV = tdict['elev'][n]
+
+                            if rect:
+                                dout[t]['rect'].append(rect)
+                            
+                            if tH:
+                                dout[t]['azm'].append(tH)
+                            
+                            if tV:
+                                dout[t]['elev'].append(tV)
+
+        return dout
+
+
+    # PLOTTING
+    def plot_peak_tevo(self, nro, fq_off=0.1, pd_throld=0.8, r_throld=0.75, out=None, out_dir='./', format='pdf', show=False):
+        if self.nro_ == 0:
+            raise ValueError ('no dominant frequencies to plot!')
+        
+        from seisvo.plotting.base.lte import plotPeakTEVO
+            
+        fig = plotPeakTEVO(self, self.peaks[nro]['fq'], fq_off=fq_off, pd_throld=pd_throld, r_throld=r_throld, out=out, out_dir=out_dir, format=format, show=show)
+
+        return fig
+        
+
+    def plot_spec_pdf(self, show=True, **kwargs):
+        if self.nro_ == 0:
+            raise ValueError ('no dominant frequencies to plot!')
+
+        from seisvo.plotting.base.lte import plotPeaksSpecPDF
+
+        fig = plotPeaksSpecPDF(self, show=show, **kwargs)
+
+        return fig
+
+
+    def plot_peak_pdf(self, n, plot=True, **kwargs):
+        if self.nro_ == 0:
+            raise ValueError ('no dominant frequencies to plot!')
+
+        from seisvo.plotting.base.lte import plotPeaksPDF
+        
+        fig = plotPeaksPDF(self, n, plot=plot, **kwargs)
+        
+        return fig
