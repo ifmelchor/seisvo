@@ -20,7 +20,7 @@ from scipy.stats import gaussian_kde
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from obspy.core.util.attribdict import AttribDict
-from antropy import perm_entropy
+from pyentrp import entropy as ent
 
 from seisvo.signal.polarization import PolarAnalysis
 from seisvo.signal.proba import get_PDF, get_KDE
@@ -31,11 +31,11 @@ SCALAR_PARAMS_OPT = ['mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar']
 SCALAR_PARAMS_F = ['rsam_f', 'mf_f', 'hf_f', 'vlf_f', 'lf_f', 'vlar_f', 'lrar_f', 'rmar_f', 'dsar_f']
 
 VECTORAL_PARAMS = ['specgram', 'degree']
-VECTORAL_PARAMS_OPT = ['elevation', 'rectlinearity', 'azimuth']
+VECTORAL_PARAMS_OPT = ['elevation', 'rect', 'azimuth']
 
 AMP_PARAMS = ['pentropy', 'rsam', 'dsar', 'mf', 'hf', 'lf', 'vlf', 'vlar', 'lrar', 'rmar', 'rsam_f', 'dsar_f', 'mf_f', 'hf_f', 'lf_f', 'vlf_f', 'vlar_f', 'lrar_f', 'rmar_f']
 SPEC_PARAMS = ['specgram', 'fq_dominant', 'fq_centroid', 'energy']
-POLAR_PARAMS = ['degree', 'elevation', 'rectlinearity', 'azimuth']
+POLAR_PARAMS = ['degree', 'elevation', 'rect', 'azimuth']
 
 LTE_GROUPS = ['amplitude', 'spectral', 'polar']
 
@@ -55,22 +55,23 @@ def get_group(attr):
 
 
 default_bandwidth = {
-            'frec': 0.01,
-            'sp': 0.05,
+            'freq': 0.01,
+            'specgram': 0.05,
             'rect': 0.25,
-            'angle': 0.5
+            'azimuth': 0.5,
+            'elevation': 0.5
         }
 
 
 default_peak_thresholds = {
     'fq_delta': 0.05,
-    'spec_th': 0.7,
-    'pd_th': 0.8,
+    'specgram_th': 0.7,
+    'degree_th': 0.8,
     'rect_th': 0.7,
-    'pd_std':0.1,
-    'r_std':0.1,
-    'azm_std':10,
-    'elev_std':10
+    'degree_std':0.1,
+    'rect_std':0.1,
+    'azimuth_std':10,
+    'elevation_std':10
 }
 
 
@@ -128,7 +129,7 @@ class LTE(object):
         return self.stats.__str__()
 
 
-    def is_attr(self, attr, only_scalars=False):
+    def is_attr(self, attr, only_scalars=False, only_vectors=False):
         if not isinstance(attr, list):
             list_attr = [attr]
         else:
@@ -140,19 +141,21 @@ class LTE(object):
             not_availabel_attr = np.array(list_attr)[pos]
             print('warn: attributes %s not available' % not_availabel_attr)
 
-            list_attr2 = [attr for attr in list_attr if attr in self.stats.attributes]
+            return_list = [attr for attr in list_attr if attr in self.stats.attributes]
             
-            if not list_attr2:
+            if not return_list:
                 print('available attr: %s' % self.stats.attributes)
 
         else:
-            list_attr2 = list_attr
+            return_list = list_attr
         
         if only_scalars:
-            return [attr for attr in list_attr2 if attr in SCALAR_PARAMS + SCALAR_PARAMS_OPT + SCALAR_PARAMS_F]
+            return_list = [attr for attr in return_list if attr in SCALAR_PARAMS + SCALAR_PARAMS_OPT + SCALAR_PARAMS_F]
         
-        else:
-            return list_attr2
+        if only_vectors:
+            return_list = [attr for attr in return_list if attr in VECTORAL_PARAMS + VECTORAL_PARAMS_OPT]
+            
+        return return_list
 
 
     def is_matrix(self, attr):
@@ -282,7 +285,7 @@ class LTE(object):
             empty_dict['polar'] = {'degree': None}
 
             if self.stats.polar_analysis:
-                empty_dict['polar']['rectlinearity'] = None
+                empty_dict['polar']['rect'] = None
                 empty_dict['polar']['azimuth'] = None
                 empty_dict['polar']['elevation'] = None
         
@@ -379,7 +382,7 @@ class LTE(object):
                         
                         else:
                             data = tr.get_data(starttime=time, endtime=int_endtime, fq_band=self.stats.fq_band)
-                            h = perm_entropy(data, order=self.stats.PE_order, delay=self.stats.PE_tau, normalize=True)
+                            h = ent.permutation_entropy(data, order=self.stats.PE_order, delay=self.stats.PE_tau, normalize=True)
                             rsam = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(2,4.5), abs=True)
                             
                             if not freq_saved:
@@ -473,7 +476,7 @@ class LTE(object):
                             save_dict['polar']['degree'] = pa.polar_dgr
 
                             if self.stats.polar_analysis:
-                                save_dict['polar']['rectilinearity'] = pa.rect
+                                save_dict['polar']['rect'] = pa.rect
                                 save_dict['polar']['azimuth'] = pa.azimuth
                                 save_dict['polar']['elevation'] = pa.elevation
                     
@@ -497,29 +500,7 @@ class LTE(object):
             print(' channel unknown')
             return None
 
-        if not starttime:
-            n_0 = 0
-        
-        else:
-            if starttime < self.stats.starttime:
-                print(' starttime out of bounds')
-                return None
-
-            delta = (starttime - self.stats.starttime).total_seconds()/60
-            n_0 = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
-            n_0 = int(np.ceil(n_0))
-
-        if not endtime:
-            n_f = self.stats.nro_time_bins
-        
-        else:
-            if endtime > self.stats.endtime:
-                print(' endtime out of bounds')
-                return None
-
-            delta = (endtime - self.stats.starttime).total_seconds()/60
-            n_f = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
-            n_f = int(np.ceil(n_f))
+        time, (n_0, n_f) = self.get_time(starttime=starttime, endtime=endtime)
 
         dout = {}
         if len(chan_list) > 1:
@@ -556,10 +537,31 @@ class LTE(object):
                         else:
                             dout[attr] = to_return
     
-        time = np.array([self.stats.starttime + dt.timedelta(minutes=k*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)])
-
         return time, dout
         
+
+    def get_time(self, starttime=None, endtime=None):
+        
+        if not starttime or starttime < self.stats.starttime:
+            n_0 = 0
+        
+        else:
+            delta = (starttime - self.stats.starttime).total_seconds()/60
+            n_0 = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
+            n_0 = int(np.ceil(n_0))
+
+        if not endtime or endtime > self.stats.endtime:
+            n_f = self.stats.nro_time_bins
+        
+        else:
+            delta = (endtime - self.stats.starttime).total_seconds()/60
+            n_f = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
+            n_f = int(np.ceil(n_f))
+
+        time = np.array([self.stats.starttime + dt.timedelta(minutes=k*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)])
+
+        return time, (n_0, n_f)
+
 
     def get_stats(self, attr, chan=None, starttime=None, endtime=None):
         """
@@ -708,7 +710,7 @@ class LTE(object):
 
         attr_list = ['specgram', 'degree']
         if self.stats.polar_analysis:
-            attr_list += ['elevation', 'rectlinearity', 'azimuth']
+            attr_list += ['elevation', 'rect', 'azimuth']
         
         time, dout = self.get(attr_list, chan=chan, starttime=starttime, endtime=endtime)
         sxx, freq = dout['specgram']
@@ -720,9 +722,9 @@ class LTE(object):
         fq1 = np.argmin(np.abs(freq-fq_range[1]))
 
         if self.stats.polar_analysis:
-            rect, _ = self.get_attr('rectlinearity')
-            thetaH, _ = self.get_attr('azimuth')
-            thetaV, _ = self.get_attr('elevation')
+            rect, _ = dout['rect']
+            thetaH, _ = dout['azimuth']
+            thetaV, _ = dout['elevation']
 
         sxx = 10*np.log10(sxx)
         total_time = len(time)
@@ -739,8 +741,8 @@ class LTE(object):
                     peaks[t] = dict(fq=[], sp=[], pd=[])
                     if self.stats.polar_analysis:
                         peaks[t]['rect'] = []
-                        peaks[t]['azm'] = []
-                        peaks[t]['elev'] = []
+                        peaks[t]['azimuth'] = []
+                        peaks[t]['elevation'] = []
 
                     for p in peaks_pos:
                         fp = freq[fq0:fq1][p]
@@ -756,11 +758,11 @@ class LTE(object):
                         pd_peak = pd_t[fq_0_pos:fq_1_pos]
                         pd_peak_avg, pd_peak_std = pd_peak.mean(), pd_peak.std()
 
-                        if pd_peak_avg > self.peak_thresholds['pd_th'] and pd_peak_std < self.peak_thresholds['pd_std']:
+                        if pd_peak_avg > self.peak_thresholds['degree_th'] and pd_peak_std < self.peak_thresholds['degree_std']:
                             peaks[t]['fq'] += [fp]
                             nro_peaks += 1
-                            peaks[t]['sp'] += [sp_peak]
-                            peaks[t]['pd'] += [pd_peak_avg]
+                            peaks[t]['specgram'] += [sp_peak]
+                            peaks[t]['degree'] += [pd_peak_avg]
 
                             if self.stats.polar_analysis:
                                 rect_peak = rect[t, fq_0_pos:fq_1_pos]
@@ -772,14 +774,14 @@ class LTE(object):
                                 tV_peak_val = None
 
                                 # remove low PD values
-                                rect_peak = rect_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
-                                tH_peak = tH_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
-                                tV_peak = tV_peak[np.where(pd_peak > self.peak_thresholds['pd_th'])]
+                                rect_peak = rect_peak[np.where(pd_peak > self.peak_thresholds['degree_th'])]
+                                tH_peak = tH_peak[np.where(pd_peak > self.peak_thresholds['degree_th'])]
+                                tV_peak = tV_peak[np.where(pd_peak > self.peak_thresholds['degree_th'])]
                                 
                                 if rect_peak.any():
                                     rect_peak_avg, rect_peak_std = rect_peak.mean(), rect_peak.std()
 
-                                    if rect_peak_std < self.peak_thresholds['r_std']:
+                                    if rect_peak_std < self.peak_thresholds['rect_std']:
                                         rect_peak_val = rect_peak_avg
 
                                         if rect_peak_std > self.peak_thresholds['rect_th']:
@@ -790,18 +792,18 @@ class LTE(object):
                                             if tH_peak.any():
                                                 tH_peak_avg, tH_peak_std = tH_peak.mean(), tH_peak.std()
                                                 
-                                                if tH_peak_std <= self.peak_thresholds['azm_std']:
+                                                if tH_peak_std <= self.peak_thresholds['azimuth_std']:
                                                     tH_peak_val = tH_peak_avg
                                             
                                             if tV_peak.any():
                                                 tV_peak_avg, tV_peak_std = tV_peak.mean(), tV_peak.std()
 
-                                                if tV_peak_std <= self.peak_thresholds['elev_std']:
+                                                if tV_peak_std <= self.peak_thresholds['elevation_std']:
                                                     tV_peak_val = tV_peak_avg
                                 
                                 peaks[t]['rect'] += [rect_peak_val]
-                                peaks[t]['azm'] += [tH_peak_val]
-                                peaks[t]['elev'] += [tV_peak_val]
+                                peaks[t]['azimuth'] += [tH_peak_val]
+                                peaks[t]['elevation'] += [tV_peak_val]
 
                 pbar.update()
         
@@ -812,48 +814,74 @@ class LTE(object):
         return Peaks(self, chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
 
-    def plot(self, starttime=None, endtime=None, interval=None, plot_attr=[], return_fig=False, **kwargs):
-        from seisvo.gui.glte import plot_gui, get_fig
-
+    def plot(self, chan, list_attr, starttime=None, endtime=None, interval=10, init_gui=False, lde=None, **kwargs):
+        # check times
         if not starttime:
-            starttime = self.stats.starttime
-
-        else:
-            if starttime < self.stats.starttime:
-                starttime = self.stats.starttime
-
-        if not endtime:
-            if interval:
-                endtime = starttime + timedelta(days=interval)
-
-            else:
-                endtime = self.stats.endtime
-                interval = (endtime - starttime).days
-        else:
-            if endtime > self.stats.endtime:
-                endtime = self.stats.endtime
-            interval = (endtime - starttime).days
-
-
-        if not plot_attr:
-            list_attr = ['energy', 'pentropy', 'fq_dominant', 'fq_centroid', 'specgram']
-
-            if self.stats.polargram:
-                list_attr += ['fq_polar', 'degree_max', 'degree_wavg', 'degree']
-
-        else:
-            if set(plot_attr).issubset(set(LIST_ATTR)):
-                list_attr = plot_attr
-            else:
-                raise ValueError(' Error reading attributes.')
-
-        if return_fig:
-            fig, axes = get_fig(self, starttime, endtime, interval, list_attr, **kwargs)
-
-            return fig, axes
+            starttime = self.stats.starttime 
         
+        if starttime < self.stats.starttime:
+            raise ValueError(' start < lte.stats.starttime')
+        
+        if not endtime:
+            endtime = self.stats.endtime
+        
+        if endtime > self.stats.endtime:
+            raise ValueError(' end > lte.stats.endtime')
+
+        # check interval
+        max_int = (endtime - starttime).days
+        if max_int < interval:
+            interval = max_int
+            print(' warn: interval set to %s days' % interval)
+
+        # check attributes
+        list_attr = self.is_attr(list_attr)
+        
+        if not list_attr:
+            raise ValueError('not attr available')
+
+        # check channel 
+        chan_list = self.is_chan(chan)
+
+        if not chan_list:
+            raise ValueError('not chan available')
+            
         else:
-            plot_gui(self, starttime, endtime, interval, list_attr, **kwargs)
+            chan = chan_list[0]
+
+        if init_gui:
+            from seisvo import LDE, default_LDE_dir
+            from seisvo.plotting.gui.glte import plot_gui
+
+            if not lde:
+                lde_file = os.path.join(default_LDE_dir, self.lte.stats.id + '.lde')
+
+                if not os.path.isdir(default_LDE_dir):
+                    os.makedirs(default_LDE_dir)
+
+                lde = LDE(lde_file)
+        
+            else:
+                if isinstance(lde, LDE):
+                    lde = lde
+            
+                elif isinstance(lde, str):
+                    if lde.split('.')[-1] != 'lde':
+                        lde += '.lde'
+                    lde = LDE(lde)
+            
+                else:
+                    raise ValueError('lde should be LDE, string or None')
+
+            plot_gui(chan, self, starttime, endtime, interval, list_attr, lde=lde, **kwargs)
+
+        else:
+            from seisvo.plotting.base.lte import plotLTE, plt
+            
+            fig = plt.figure(figsize=(12,9))
+            plotLTE(chan, fig, self, starttime, endtime, interval, list_attr, **kwargs)
+            
+            return fig
 
 
     @staticmethod
@@ -977,7 +1005,7 @@ class LTE(object):
             polar.create_dataset('degree', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
 
             if headers['polar_analysis']:
-                polar.create_dataset('rectlinearity', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
+                polar.create_dataset('rect', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
                 polar.create_dataset('elevation', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
                 polar.create_dataset('azimuth', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
                 
@@ -1093,7 +1121,7 @@ class Peaks(LTE):
         all_dominant_peaks = np.array(list(chain(*all_dominant_peaks)))
 
         bandwidth = kwargs.get('bandwidth', {})
-        self.bandwidth_fc = bandwidth.get('frec', default_bandwidth['frec'])
+        self.bandwidth_fc = bandwidth.get('freq', default_bandwidth['freq'])
 
         v_min = kwargs.get('v_min', None)
         if not v_min:
@@ -1175,7 +1203,7 @@ class Peaks(LTE):
                 # first condition: number of dominant peaks.
                 if sp.shape[0] > 10*self.n_sample_min:
                 
-                    sp_kde = get_KDE(sp.reshape(-1,1), self.bandwidth['sp'])
+                    sp_kde = get_KDE(sp.reshape(-1,1), self.bandwidth['specgram'])
 
                     print(f'     {f:^5}   spec   {sp_kde.bandwidth:.2f}')
 
@@ -1219,7 +1247,7 @@ class Peaks(LTE):
                             # compute Cl
                             self.peaks_[f]['cl'] = (len(th_H) + len(th_V)) / (2*len(rect))
                         
-                            thH_kde = get_KDE(th_H.reshape(-1,1), self.bandwidth['angle'])
+                            thH_kde = get_KDE(th_H.reshape(-1,1), self.bandwidth['azimuth'])
                             thH_x = np.linspace(0, 180, 500).reshape(-1,1)
 
                             print(f'     {f:^5}   thH    {thH_kde.bandwidth:.2f}')
@@ -1236,7 +1264,7 @@ class Peaks(LTE):
                                 'kde':thH_kde
                             }
 
-                            thV_kde = get_KDE(th_V.reshape(-1,1), self.bandwidth['angle'])
+                            thV_kde = get_KDE(th_V.reshape(-1,1), self.bandwidth['elevation'])
                             thV_x = np.linspace(0, 90, 500).reshape(-1,1)
 
                             print(f'     {f:^5}   thV    {thH_kde.bandwidth:.2f}')
@@ -1343,43 +1371,48 @@ class Peaks(LTE):
         dout = {}
         for t, tdict in self.dominant_peaks_.items():
             if tdict['fq']:
-                dout[t] = {'fq':[], 'sp':[]} 
+                dout[t] = {'fq':[], 'specgram':[]} 
                 
                 if self.stats.polar_analysis:
                     dout[t]['rect'] = []
-                    dout[t]['azm'] = []
-                    dout[t]['elev'] = []
+                    dout[t]['azimuth'] = []
+                    dout[t]['elevation'] = []
                 
                 for n, fq in enumerate(tdict['fq']):
                     if fq_range[0] <= fq <= fq_range[1]:
                         dout[t]['fq'].append(fq)
-                        dout[t]['sp'].append(tdict['sp'][n])
+                        sp = tdict['specgram'][n]
+                        dout[t]['specgram'].append(sp)
 
                         if self.stats.polar_analysis:
                             rect = tdict['rect'][n]
-                            tH = tdict['azm'][n]
-                            tV = tdict['elev'][n]
+                            tH = tdict['azimuth'][n]
+                            tV = tdict['elevation'][n]
 
                             if rect:
                                 dout[t]['rect'].append(rect)
                             
                             if tH:
-                                dout[t]['azm'].append(tH)
+                                dout[t]['azimuth'].append(tH)
                             
                             if tV:
-                                dout[t]['elev'].append(tV)
+                                dout[t]['elevation'].append(tV)
 
         return dout
 
 
     # PLOTTING
-    def plot_peak_tevo(self, nro, fq_off=0.1, pd_throld=0.8, r_throld=0.75, out=None, out_dir='./', format='pdf', show=False):
+    def plot_peak_tevo(self, fq_range_dict, marker_dict, color_dict):
         if self.nro_ == 0:
             raise ValueError ('no dominant frequencies to plot!')
         
-        from seisvo.plotting.base.lte import plotPeakTEVO
+        from seisvo.plotting.base.lte import plotDPeakTEVO
             
-        fig = plotPeakTEVO(self, self.peaks[nro]['fq'], fq_off=fq_off, pd_throld=pd_throld, r_throld=r_throld, out=out, out_dir=out_dir, format=format, show=show)
+        attr_list = self.is_attr(attr_list, only_vectors=True)
+
+        if attr_list:
+            fig = plt.figure()
+            plotDPeakTEVO(self, attr_list, fq_range_dict, fig, marker_dict, color_dict)
 
         return fig
         

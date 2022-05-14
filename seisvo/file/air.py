@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from obspy.core.util.attribdict import AttribDict
 from datetime import datetime, timedelta
-from seisvo.utils.plotting import plot_out_ccorr
+from seisvo.plotting import plot_out_ccorr
 
 
 class AiRstats(AttribDict):

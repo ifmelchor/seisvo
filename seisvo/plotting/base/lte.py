@@ -3,13 +3,11 @@
 
 import numpy as np
 import datetime as dt
-from seisvo.file.lte import VECTORAL_PARAMS, VECTORAL_PARAMS_OPT
 from seisvo.plotting import plot_gram, get_colors
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
-from matplotlib.gridspec import GridSpec
 
 defaultLTE_color = get_colors('zesty')[1]
 
@@ -19,52 +17,53 @@ default_labels = {
     'specgram':'PSD [dB]',
     'degree':'PD',
     'rect':'R',
-    'azm':r'$\Theta_H$ [$\degree$]',
-    'elev':r'$\Theta_V$ [$\degree$]',
+    'azimuth':r'$\Theta_H$ [$\degree$]',
+    'elevation':r'$\Theta_V$ [$\degree$]',
     'pentropy': 'PE',
     'fq_dominant': r'$f_d$'+'[Hz]',
     'fq_centroid': r'$f_c$'+'[Hz]',
+    'dsar': 'DSAR'
 }
 
 
 class plotLTE(object):
-    def __init__(self, fig, lte, start, end, interval, list_attr, **kwargs):
+    def __init__(self, chan, fig, lte, start, end, interval, list_attr, **kwargs):
         self.lte = lte
         self.fig = fig
+        self.chan = chan
         self.plotkwargs = kwargs
         
-        # check times
-        if start < lte.stats.starttime:
-            raise ValueError('warn: start < lte.stats.starttime')
-        
-        if end > lte.stats.endtime:
-            raise ValueError('warn: end > lte.stats.endtime')
-
         self.starttime = start
         self.endtime = end
         self.interval = interval
-
+        
+        self.list_attr = list_attr
+        
         # check that all attr are available of lte!
         self.list_attr = lte.check_list_attr(list_attr, return_list=True)
         if not self.list_attr:
             raise ValueError('not attr available')
 
         self.axes_ = {}
+        self.events_ = {}
 
         # build the frame
         self.set_frame()
         self.plot()
 
 
-    def is_twocolumns(self):
-        a = [attr for attr in self.list_attr if attr in VECTORAL_PARAMS+VECTORAL_PARAMS_OPT]
-        return any(a)
+    def any_vector(self):
+        ans_list = self.lte.is_attr(self.list_attr, only_vectors=True)
+        if ans_list:
+            return True
+        else:
+            return False
     
 
     def set_frame(self):
         grid = {'hspace':0.3, 'left':0.08, 'right':0.92, 'wspace':0.1, 'top':0.95, 'bottom':0.05}
         
-        if self.is_twocolumns():
+        if self.any_vector():
             ncols = 2
             grid['width_ratios'] = [1, 0.01]
             grid['wspace'] = 0.01
@@ -128,11 +127,11 @@ class plotLTE(object):
             v_min = 0
             v_max = 1
 
-        if attr == 'azm':
+        if attr == 'azimuth':
             v_min = 0
             v_max = 180
         
-        if attr == 'dip':
+        if attr == 'elevation':
             v_min = 0
             v_max = 90
         
@@ -172,7 +171,7 @@ class plotLTE(object):
 
 
     def __show_data__(self, i, attr, show_tickslabels, xformat, **kwargs):
-        data = self.lte.get_attr(attr, self.starttime, self.endtime)
+        data = self.ddata[attr]
         ax = self.axes[i, 0]
         self.axes_[attr].append(ax)
         ax.cla()
@@ -213,7 +212,7 @@ class plotLTE(object):
                 y_max = y[np.isfinite(y)].max()
                 ax.set_ylim(y_min, y_max)
             
-            if self.is_twocolumns():
+            if self.any_vector():
                 self.axes_[i, 1].axes.get_xaxis().set_visible(False)
                 self.axes_[i, 1].axes.get_yaxis().set_visible(False)
                 self.axes_[i, 1].set_frame_on(False)
@@ -245,7 +244,6 @@ class plotLTE(object):
 
 
     def show_events(self, lde, col_dict={}):
-        self.events_ = {}
         ids = lde.get_episodes_id(time_interval=(self.starttime, self.endtime))
 
         if ids:
@@ -270,7 +268,7 @@ class plotLTE(object):
 
     def plot(self):
         num_i = len(self.list_attr)-1
-        self.xtime = self.lte.get_time(self.starttime, self.endtime)
+        self.xtime, self.ddata = self.lte.get(self.list_attr, chan=self.chan, starttime=self.starttime, endtime=self.endtime)
         xformat = self.set_xformat()
 
         for i, attr in enumerate(self.list_attr):
@@ -314,6 +312,8 @@ class plotLTE(object):
         idict = self.events_.get(id)
         idict['text'].set_text(txt)
 
+
+# class plotMultiLTE(object)
 
 
 def plotPeaksSpecPDF(peak, show=True, **kwargs):
@@ -446,32 +446,91 @@ def plotPeaksPDF(peak, n, show=True, **kwargs):
 
 
 # revise
+# peak should be a list of peaks asoaicted to a different channel, so you can plot all dominant frequencies found in the three component channel.
 class plotDPeakTEVO(object):
-    def _init__(self, peak, fq_range_dict, marker_dict={}, color_dict={}):
+    def _init__(self, peak, attr_list, fq_range_dict, fig, marker_dict={}, color_dict={}, **kwargs):
         
+        self.fig = fig
         self.peak = peak
+        self.attr_list = peak.is_attr(attr_list, only_vectors=True)
+        self.top_attr = kwargs.get('top_scalar', 'energy')
+        self.top_chan = kwargs.get('top_scalar_chan', peak.stats.channel[0])
+
         self.fq_range_dict = fq_range_dict
         self.marker_dict = marker_dict
         self.color_dict = color_dict
 
         self.set_frame()
+        self.plot()
+
 
     def set_frame(self):
+
         gridspec_dict = {
-            'left':0.1, 
-            'right':0.95, 
-            'height_ratios':[0.75,1,1], 
-            'hspace':0.1, 
+            'left':0.1,
+            'right':0.95,
+            'height_ratios':[0.75,1,1],
+            'hspace':0.1,
             'wspace':0.1
             }
 
-        self.fig, self.axes = plt.subplots(3,1, figsize=(9,6), gridspec_kw=gridspec_dict)
+        nrows = len(self.attr_list) + 1
+        self.axes = self.fig.subplots(nrows, 1, gridspec_kw=gridspec_dict)
 
 
     def plot(self):
 
+        time, dout = self.peak.get(self.top_attr, chan=self.top_chan, starttime=self.peak.starttime, endtime=self.peak.endtime)
+
+        scalar_data = dout[self.top_attr]
+        self.axes[0].plot(time, scalar_data, color='k')
+        self.axes[0].set_ylabel(default_labels.get(self.top_attr, self.top_attr))
+        prc5 = np.percentile(scalar_data, 5)
+        prc95 = np.percentile(scalar_data, 95)
+        self.axes[0].set_ylim(prc5, prc95)
+
+        show_ylabel = False
+
+        for group, fq_range in self.fq_range_dict.items():
+            dpeaks_dict = self.peak.get_dominant_peaks(fq_range)
+            color = self.color_dict.get(group, 'k')
+            marker = self.marker_dict.get(group, 'o')
+
+            for t, data_dict in dpeaks_dict.items():
+                time_t = time[t]
+
+                for n, attr in enumerate(self.attr_list):
+                    data = data_dict[attr]
+                    ax = self.axes[n+1]
+                    ax.scatter([time_t]*len(data), data, color=color, ec='k', marker=marker)
+
+                    if not show_ylabel:
+                        ax.set_ylabel(default_labels.get(attr, attr))
+
+                        if attr == 'azimuth':
+                            ax.set_ylim(0,180)
+                        
+                        if attr in ('degree', 'rect'):
+                            ax.set_ylim(0,1)
+                        
+                        if attr == 'elevation':
+                            ax.set_ylim(0,90)
+                
+                show_ylabel = True
+
         
-        dpeaks_dict = self.peak.get_dominant_peaks(fq_range)
+        [ax.set_xlim(time[0], time[-1]) for ax in self.axes]
+        [ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2)) for ax in self.axes]
+        [ax.xaxis.set_major_formatter(mtick.NullFormatter()) for ax in self.axes[:-1]]
+        [ax.grid(which='both', axis='both', color='k', alpha=0.35, ls='--', zorder=1) for ax in self.axes]
+
+        # add legend
+        for group, fq_range in self.fq_range_dict.items():
+
+
+                    
+
+
 
 
 

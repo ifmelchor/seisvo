@@ -11,15 +11,11 @@ from matplotlib.figure import Figure
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 
-from seisvo import __seisvo__, LDE
-from seisvo.file.lte import SCALAR_PARAMS, SCALAR_OPT_PARAMS, VECTORAL_PARAMS, VECTORAL_OPT_PARAMS
 from seisvo.plotting import plot_gram
 from seisvo.plotting.gui import notify
-from seisvo.plotting.base import plotLTE, defaultLTE_color, default_labels
+from seisvo.plotting.base.lte import plotLTE, defaultLTE_color, default_labels
 from seisvo.plotting.gui.frames import lte_base, lte_pdf
 
-
-default_LDE_dir = os.path.join(__seisvo__, 'database', 'lde')
 
 default_color_dictlabels = {
     'NB':'k',
@@ -31,43 +27,28 @@ default_color_dictlabels = {
 CLICK_COLOR = ('r', 'darkgreen')
 
 
-def plot_gui(lte, starttime, endtime, interval, list_attr, **kwargs):
+def plot_gui(chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent, **kwargs):
     app = QtWidgets.QApplication(sys.argv)
-    lte_window = LTEWindow(lte, starttime, endtime, interval, list_attr, **kwargs)
+    lte_window = LTEWindow(chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent, **kwargs)
     lte_window.show()
     sys.exit(app.exec_())
 
 
 class LTEWindow(QtWidgets.QMainWindow):
-    def __init__(self, lte, starttime, endtime, interval, list_attr, lde=None, lde_parent=None, **kwargs):
+    def __init__(self, chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent, **kwargs):
         QtWidgets.QMainWindow.__init__(self)
         self.ui = lte_base.Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle('LTE: '+ lte.stats.id)
 
         self.lte = lte
+        self.chan = chan
         self.starttime = starttime
         self.endtime = endtime
         self.interval = interval
-        self.list_attr = lte.check_list_attr(list_attr, return_list=True)
+        self.list_attr = list_attr
         self.lde_parent = lde_parent
         self.canvaskwargs = kwargs
-
-        if not lde:
-            lde_file = os.path.join(default_LDE_dir, self.lte.stats.id + '.lde')
-            self.lde = LDE(lde_file)
-        
-        else:
-            if isinstance(lde, LDE):
-                self.lde = lde
-            
-            elif isinstance(lde, str):
-                if lde.split('.')[-1] != 'lde':
-                    lde += '.lde'
-                self.lde = LDE(lde)
-            
-            else:
-                raise ValueError('lde should be LDE, string or None')
             
         self.set_canvas()
 
@@ -224,28 +205,7 @@ class LTECanvas(FigureCanvas):
 
 
     def show_info(self):
-        lte_info = " LTE File: %s\n ID: %s\n Start Time: %s\n End Time: %s\n Time Step: %s\n" % (
-            os.path.basename(self.parent.lte.lte_file), 
-            self.parent.lte.stats.id, 
-            self.parent.lte.stats.starttime.strftime("%Y-%m-%d"),
-            self.parent.lte.stats.endtime.strftime("%Y-%m-%d"),
-            self.parent.lte.stats.time_step
-        )
-
-        lte_info += " Sampling Rate: %s\n Remove Response: %s\n Freq. Band: %s\n Avg. Step: %s\n" % (
-            self.parent.lte.stats.sampling_rate,
-            self.parent.lte.stats.remove_response,
-            self.parent.lte.stats.fq_band,
-            self.parent.lte.stats.avg_step
-        )
-
-        lte_info += " Polargram: %s\n Matrix Return: %s\n PE (d,t): (%s,%s)\n" % (
-            self.parent.lte.stats.polargram,
-            self.parent.lte.stats.matrix_return,
-            self.parent.lte.stats.p_order,
-            self.parent.lte.stats.tau
-        )
-
+        lte_info = self.parent.lte.__str__()
         self.parent.ui.textTickInfo.setText(lte_info)
 
 
@@ -259,7 +219,6 @@ class LTECanvas(FigureCanvas):
 
     def plot(self):
         self.fig.clf()
-
 
         if self.starttime < self.parent.lte.stats.starttime:
             self.starttime = self.parent.lte.stats.starttime
@@ -395,6 +354,8 @@ class LTECanvas(FigureCanvas):
                     self.parent.lte.lte_file
                 )
 
+                notify('New event', 'ID saved')
+
                 with pyqtgraph.BusyCursor():
                     self.plte.clear_events()
                     self.show_events()
@@ -470,11 +431,11 @@ class LTECanvas(FigureCanvas):
         if any(ticktimes):
             if all(ticktimes):
                 hr_dur = (max(ticktimes)-min(ticktimes)).total_seconds()/3600.0
-                dict_ans = self.parent.lte.get_dict_stats(self.parent.list_attr, starttime=min(ticktimes), endtime=max(ticktimes))
+                dict_ans = self.parent.lte.get_stats(self.parent.list_attr, chan=self.chan, starttime=min(ticktimes), endtime=max(ticktimes))
             else:
                 ticktime = list(filter(None, ticktimes))[0]
                 hr_dur = np.nan
-                dict_ans = self.parent.lte.get_dict_stats(self.parent.list_attr, starttime=ticktime, endtime=None)
+                dict_ans = self.parent.lte.get_stats(self.parent.list_attr, chan=self.chan, starttime=ticktime, endtime=None)
         else:
             hr_dur = np.nan
             dict_ans = None
@@ -487,7 +448,7 @@ class LTECanvas(FigureCanvas):
             episode = self.parent.lde.get(eid)
             lticktime, rticktime = episode.starttime, episode.endtime
             hr_dur = episode.duration
-            dict_ans = self.parent.lte.get_dict_stats(self.parent.list_attr, starttime=episode.starttime, endtime=episode.endtime)
+            dict_ans = self.parent.lte.get_stats(self.parent.list_attr, chan=self.chan, starttime=episode.starttime, endtime=episode.endtime)
         
         else:
             lticktime, rticktime, hr_dur, dict_ans = self.get_infoticks()
@@ -502,8 +463,10 @@ class LTECanvas(FigureCanvas):
         text_tick += " Right click : %s\n" % rticktime
         text_tick += " Time delta [hr] : %2.1f hr\n" % hr_dur
 
-        for key in dict_ans.keys():
-            text_tick += " %s : %2.2f\n" % (key, dict_ans[key])
+        for attr, values in dict_ans.items():
+            text_tick += " %s ::\n" % attr
+            for txt, val in zip(['min', 'max', 'mean', 'mode'], values):
+                text_tick += "   %s : %2.2f\n" % (txt, val)
 
         self.parent.ui.textTickInfo.setText(text_tick)
 
@@ -605,9 +568,9 @@ class PDFWindow(QtWidgets.QMainWindow):
         self.starttime = starttime
         self.endtime = endtime
 
-        attrs = self.main.list_attr()
-        self.scalar_attrs = [atr for atr in attrs if atr in SCALAR_PARAMS + SCALAR_OPT_PARAMS]
-        self.vector_attrs = [atr for atr in attrs if atr in VECTORAL_PARAMS + VECTORAL_OPT_PARAMS]
+        attrs = self.main.list_attr
+        self.scalar_attrs = self.main.lte.is_attr(attrs, only_scalars=True)
+        self.vector_attrs = self.main.lte.is_attr(attrs, only_vectors=True)
 
         if self.scalar_attrs:
             self.scalar_canvas = PDFCanvas(self, 1, init_attr=self.scalar_attrs[0])
@@ -705,7 +668,7 @@ class PDFCanvas(FigureCanvas):
             cax = self.axes[0, 1]
             cax.cla()
 
-            x_space, y_space, pdf = self.lte.get_pdf(attr, starttime=self.parent.starttime, endtime=self.parent.endtime)
+            x_space, y_space, pdf = self.lte.pdf(attr, chan=self.parent.main.chan, starttime=self.parent.starttime, endtime=self.parent.endtime)
             
             pltkwargs = {
                 'y_label': r'$f$ [Hz]', 
@@ -720,7 +683,7 @@ class PDFCanvas(FigureCanvas):
 
         else:
             self.axes.cla()
-            x_space, pdf = self.lte.get_pdf(attr, starttime=self.parent.starttime, endtime=self.parent.endtime)
+            x_space, pdf = self.lte.pdf(attr, chan=self.parent.main.chan, starttime=self.parent.starttime, endtime=self.parent.endtime)
             self.axes.plot(x_space, pdf, color='k')
             self.axes.set_xlabel(default_labels.get(attr, attr))
             self.axes.set_ylabel('PDF')

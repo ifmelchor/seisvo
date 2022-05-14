@@ -82,23 +82,25 @@ class RespFile(AttribDict):
             pass
         
         else:
-            print('No information in .resp file for download respfile of this station')
+            print(' STA:%s.%s :: no information in .resp file for download respfile of this station' % (self.code, self.loc))
             return
 
         path_out = RESP_PATH
         if not os.path.isdir(path_out):
             os.makedirs(path_out)
         
-        nrl = NRL()
-        resp = nrl.get_response(
-            sensor_keys=self.sensor_keys,
-            datalogger_keys=self.datalogger_keys
-        )
-
         file_out_name = os.path.join(path_out, self.file)
-        file_out = open(file_out_name, 'wb')
-        pickle.dump(resp, file_out, protocol=pickle.HIGHEST_PROTOCOL)
-        file_out.close()
+
+        if not os.path.isfile(file_out_name):
+            nrl = NRL()
+            resp = nrl.get_response(
+                sensor_keys=self.sensor_keys,
+                datalogger_keys=self.datalogger_keys
+            )
+
+            file_out = open(file_out_name, 'wb')
+            pickle.dump(resp, file_out, protocol=pickle.HIGHEST_PROTOCOL)
+            file_out.close()
 
 
     def load(self):

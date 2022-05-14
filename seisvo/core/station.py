@@ -6,7 +6,7 @@ import utm
 import datetime as dt
 from glob import glob
 
-from seisvo import __seisvo__
+from seisvo import default_LTE_dir
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins, time_bins
@@ -132,8 +132,8 @@ class Station(object):
         datelist.sort()
 
         if datelist:
-            startdate = datetime.strptime(datelist[0], '%Y.%j')
-            enddate = datetime.strptime(datelist[-1], '%Y.%j')
+            startdate = dt.datetime.strptime(datelist[0], '%Y.%j')
+            enddate = dt.datetime.strptime(datelist[-1], '%Y.%j')
 
             sd_st = self.is_file(chan, date=startdate, stream=True)
             ed_st = self.is_file(chan, date=enddate, stream=True)
@@ -216,7 +216,7 @@ class Station(object):
             enddate = self.stats.endtime
 
         day_diff = (enddate - startdate).days
-        date_list = [startdate + timedelta(days=i) for i in range(day_diff+1)]
+        date_list = [startdate + dt.timedelta(days=i) for i in range(day_diff+1)]
         file_list = [self.is_file(chan, date=i) for i in date_list]
 
         return file_list
@@ -240,7 +240,7 @@ class Station(object):
             enddate = self.stats.endtime
 
         day_diff = (enddate - startdate).days
-        date_list = [startdate + timedelta(days=i) for i in range(day_diff+1)]
+        date_list = [startdate + dt.timedelta(days=i) for i in range(day_diff+1)]
 
         npts = []
         sample_rate = []
@@ -487,7 +487,7 @@ class Station(object):
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (lte_header['id'], starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, interval)
         
         if not out_dir:
-            out_dir = os.path.join(__seisvo__, 'lte', self.stats.net)
+            out_dir = os.path.join(default_LTE_dir)
         
         file_name_full = os.path.join(out_dir, file_name)
 

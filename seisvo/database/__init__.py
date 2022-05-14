@@ -10,7 +10,7 @@
 
 from seisvo import __seisvo__
 from seisvo.core.network import Network, iArray
-from events import Event, iEvent, Episode
+from seisvo.database.events import Event, iEvent, Episode
 
 import sqlalchemy as sql
 from sqlalchemy.ext.declarative import declarative_base
