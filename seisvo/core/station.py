@@ -4,9 +4,10 @@
 import os
 import utm
 import datetime as dt
+import numpy as np
 from glob import glob
 
-from seisvo import default_LTE_dir
+from seisvo import LTE_PATH
 from seisvo.core import get_respfile
 from seisvo.core.obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import freq_bins, time_bins
@@ -25,30 +26,30 @@ class Station(object):
 
 
     def __get_channel__(self, channel):
-
-        if not isinstance(channel, (str, list, type(None))):
-            raise ValueError('channel should be list or string')
-
+        
         if isinstance(channel, type(None)):
             channel = self.stats.chan
 
-        else:
-            if isinstance(channel, str):
-                if channel not in self.stats.chan:
-                    raise ValueError('channel %s not available' % channel)
-                
-                else:
-                    true_chan = [channel]
+        else: 
+            if not isinstance(channel, (str, list, np.ndarray)):
+                raise ValueError('channel should be list or string')
+
+        if isinstance(channel, str):
+            if channel not in self.stats.chan:
+                raise ValueError('channel %s not available' % channel)
             
             else:
-                true_chan = []
-                for ch in channel:
-                    if ch in self.stats.chan:
-                        true_chan.append(ch)
-                    else:
-                        print('warn: channel %s not available' % ch)
+                true_chan = [channel]
             
-            channel = true_chan
+        else:
+            true_chan = []
+            for ch in channel:
+                if ch in self.stats.chan:
+                    true_chan.append(ch)
+                else:
+                    print('warn: channel %s not available' % ch)
+        
+        channel = true_chan
         
         if not channel:
             raise ValueError(' no channel defined!')
@@ -298,16 +299,20 @@ class Station(object):
             raise ValueError('endtime not valid')
 
         # most of MSEED files do not start in 00:00:00 and (finish in 23:59:59), this is why we need to define time delta to overcome this lack.
-        time_delta = dt.timedelta(minutes=5)
+        time_delta = dt.timedelta(minutes=10)
 
         if starttime - time_delta > self.starttime:
-            starttime = starttime - time_delta
+            starttime_mod = starttime - time_delta
+        else:
+            starttime_mod = starttime
 
         if endtime + time_delta < self.endtime:
-            endtime = endtime + time_delta
+            endtime_mod = endtime + time_delta
+        else:
+            endtime_mod = endtime
 
-        day_diff = (endtime - starttime).days + 1
-        date_list = [starttime.date() + dt.timedelta(days=i) for i in range(day_diff)]
+        day_diff = (endtime_mod.date() - starttime_mod.date()).days + 1
+        date_list = [starttime_mod.date() + dt.timedelta(days=i) for i in range(day_diff)]
 
         stream = Stream2()
         sample_rate_list = []
@@ -342,7 +347,7 @@ class Station(object):
                 else:
                     print('warn: no responsefile found')
 
-            if isinstance(sample_rate, int):
+            if sample_rate:
                 if sample_rate < sample_rate_list[0]:
                     st = Stream2(st.resample(sample_rate))
 
@@ -431,13 +436,13 @@ class Station(object):
         if endtime > self.endtime:
             raise ValueError('endtime not valid')
         
-        if not (0.0 <= int_olap > 1):
+        if not (0 <= int_olap < 1):
             raise ValueError(' time_olap should be float between 0 and 1')
     
-        if step >= interval:
+        if step > interval:
             raise ValueError(' step is greater than interval')
         
-        if not (0.0 <= step_olap > 1):
+        if not (0 <= step_olap < 1):
             raise ValueError(' step_olap should be float between 0 and 1')
 
         # defining kwargs
@@ -473,7 +478,7 @@ class Station(object):
         nro_time_bins = time_bins(starttime, endtime, interval, int_olap)
         lte_header['nro_time_bins'] = nro_time_bins
 
-        nro_freq_bins = freq_bins(lte_header['sample_rate']*60*step, lte_header['sample_rate'],fq_band=lte_header['fq_band'], nfft='uppest')
+        nro_freq_bins = freq_bins(lte_header['sample_rate']*60*step, lte_header['sample_rate'], fq_band=lte_header['fq_band'], nfft='uppest')
         lte_header['nro_freq_bins'] = nro_freq_bins
 
         if lte_header['polar_analysis']:
@@ -487,7 +492,7 @@ class Station(object):
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (lte_header['id'], starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, interval)
         
         if not out_dir:
-            out_dir = os.path.join(default_LTE_dir)
+            out_dir = os.path.join(LTE_PATH)
         
         file_name_full = os.path.join(out_dir, file_name)
 

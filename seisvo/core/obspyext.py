@@ -9,7 +9,7 @@ from scipy import signal
 import datetime as dt
 
 from obspy import Stream, Trace, read, UTCDateTime
-import obspy.signal.filter as osf
+from obspy.signal import filter as osf
 
 from seisvo.signal.spectrum import power_density_spectrum, cosine_taper
 
@@ -23,7 +23,7 @@ class Trace2(Trace):
         super().__init__(data=trace.data, header=trace.stats)
     
 
-    def get_data(self, starttime=None, endtime=None, detrend=True, fq_band=(), abs=False, **kwargs):
+    def get_data(self, starttime=None, endtime=None, detrend=True, fq_band=(), abs=False, sample_rate=None, **kwargs):
         """
         This code returns a numpy array of the data
         """
@@ -39,18 +39,22 @@ class Trace2(Trace):
             et = self.stats.endtime
 
         tr = self.slice(st, et)
+
+        if sample_rate:
+            tr = self.resample(sample_rate)
+        
         data = tr.data
 
         if detrend:
             data = signal.detrend(data)
 
-        if fq_band:
+        if list(fq_band):
             tr_filt = tr.filter2(fq_band, **kwargs)
             data = tr_filt.data
         
         if abs:
             data = np.abs(data)
-
+        
         return data
 
 
@@ -63,7 +67,7 @@ class Trace2(Trace):
 
         dt = self.stats.delta
         npts = int((endtime-starttime).total_seconds()*self.stats.sampling_rate)+1
-        return [starttime + timedelta(seconds=dt*x) for x in range(npts)]
+        return [starttime + dt.timedelta(seconds=dt*x) for x in range(npts)]
 
 
     def plot_specgram(self, window_length=None, starttime=None, endtime=None, axes=None, fq_band=(), per_lap=0.75, returnfig=False, **kwargs):
@@ -214,26 +218,28 @@ class Trace2(Trace):
             _description_
         """
 
-        if isinstance(starttime, dt.datetime):
-            starttime = UTCDateTime(starttime)
-        
         if not starttime:
             starttime = self.stats.starttime
-        
-        if isinstance(endtime, dt.datetime):
-            endtime = UTCDateTime(endtime)
-        
+
         if not endtime:
             endtime = self.stats.endtime
-        
+
         if starttime < self.stats.starttime:
             raise ValueError(' no data for this dates')
         
         if endtime > self.stats.endtime:
             raise ValueError(' no data for this dates')
 
-        interval_min = (endtime - starttime).total_seconds()/60
+    
+        if isinstance(starttime, dt.datetime):
+            starttime = UTCDateTime(starttime)
+            
+        if isinstance(endtime, dt.datetime):
+            endtime = UTCDateTime(endtime)
+            
         if mov_avg_step:
+            interval_min = int(endtime - starttime)
+
             if interval_min < mov_avg_step:
                 raise ValueError ('interval is less than mov_avg_step!')
         

@@ -4,7 +4,7 @@
 from __future__ import division
 
 import numpy as np
-from mtspec import mtspec
+from multitaper import MTSpec
 from scipy import signal
 
 from obspy.signal.invsim import cosine_taper
@@ -104,8 +104,9 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
                 tap = cosine_taper(npts_step, p=taper_p)
                 data_n = data_n * tap
 
-            spec = mtspec(data=data_n, delta=1/sample_rate, nfft=nfft_n, time_bandwidth=time_bandwidth)
-            psd_n = spec[0][fnptlo:fnpthi]
+            MTSn = MTSpec(data_n, dt=1/sample_rate, nfft=nfft_n, nw=time_bandwidth).spec.reshape(-1,)
+            
+            psd_n = MTSn[fnptlo:fnpthi]
             psd_avg += psd_n
             
             if drm_params:
@@ -129,8 +130,8 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
             tap = cosine_taper(npts, p=taper_p)
             data = data * tap
 
-        y = mtspec(data=data, delta=1/sample_rate, nfft=nfft, time_bandwidth=time_bandwidth)
-        psd = y[0][fnptlo:fnpthi]
+        MTSy = MTSpec(data, dt=1/sample_rate, nfft=nfft, nw=time_bandwidth).spec.reshape(-1,)
+        psd = MTSy[fnptlo:fnpthi]
 
         to_return = [psd, freq]
 
@@ -184,12 +185,15 @@ def cross_spectrum(xdata, ydata, sample_rate, avg_step=None, fq_band=(), **kwarg
             freq_n, (fnptlo, fnpthi), nfft_n = freq_bins(npts_step, sample_rate,
                 fq_band=fq_band, nfft=nfft, get_freq=True)
 
-            x = mtspec(data=xdata_n, delta=delta, nfft=nfft_n, time_bandwidth=time_bandwidth, optional_output=True)
-            y = mtspec(data=ydata_n, delta=delta, nfft=nfft_n, time_bandwidth=time_bandwidth, optional_output=True)
+            MTSx = MTSpec(xdata_n, dt=delta, nfft=nfft_n, nw=time_bandwidth)
+            x = MTSx.yk
+
+            MTSy = MTSpec(ydata_n, dt=delta, nfft=nfft_n, nw=time_bandwidth)
+            y = MTSy.yk
 
             psd_xy_n = np.zeros((len(freq_n),), dtype='complex128')
             for k in range(nro_tapers):
-                psd_xy_n += x[3][fnptlo:fnpthi, k] * np.conj(y[3][fnptlo:fnpthi, k])
+                psd_xy_n += x[fnptlo:fnpthi, k] * np.conj(y[fnptlo:fnpthi, k])
             psd_xy_n = psd_xy_n/nro_tapers
 
             if N == 1:
@@ -217,12 +221,15 @@ def cross_spectrum(xdata, ydata, sample_rate, avg_step=None, fq_band=(), **kwarg
         freq, (fnptlo, fnpthi), nfft = freq_bins(npts, sample_rate,
             fq_band=fq_band, nfft=nfft, get_freq=True)
 
-        x = mtspec(data=xdata, delta=delta, nfft=nfft, time_bandwidth=time_bandwidth, optional_output=True)
-        y = mtspec(data=ydata, delta=delta, nfft=nfft, time_bandwidth=time_bandwidth, optional_output=True)
+        MTSx = MTSpec(xdata, dt=delta, nfft=nfft_n, nw=time_bandwidth)
+        x = MTSx.yk
+
+        MTSy = MTSpec(ydata, dt=delta, nfft=nfft_n, nw=time_bandwidth)
+        y = MTSy.yk
 
         psd_xy = np.zeros((len(freq),), dtype='complex128')
         for k in range(nro_tapers):
-            psd_xy += x[3][fnptlo:fnpthi, k] * np.conj(y[3][fnptlo:fnpthi, k])
+            psd_xy += x[fnptlo:fnpthi, k] * np.conj(y[fnptlo:fnpthi, k])
         
         # Following Prieto et al 2009, no division with K should be applied.
         # psd_xy = psd_xy/nro_tapers

@@ -1,11 +1,12 @@
 #!/usr/bin/python3
 # coding=utf-8
 
+import functools
 import numpy as np
 import cmath as cm
-from itertools import product
+import multiprocessing
 from seisvo.signal import freq_bins
-from seisvo.signal.spectrum import cosine_taper, mtspec
+from seisvo.signal.spectrum import cosine_taper, MTSpec
 
 
 class PolarAnalysis(object):
@@ -21,13 +22,15 @@ class PolarAnalysis(object):
         nfft = kwargs.get("nfft", 'uppest')
         
         if npts_mov_avg:
+            npts_mov_avg = int(npts_mov_avg)
+
             if not isinstance(olap, float) or not 0 <= olap < 1:
                 raise ValueError(' olap must be a float between 0 and 1')
             
-            if not isinstance(npts_mov_avg, int) or not npts_mov_avg < self.npts:
+            if npts_mov_avg > self.npts:
                 raise ValueError(' npts_mov_avg must be an integer lower than npts')
         
-            self.freq, _, self.nfft = freq_bins(npts_mov_avg, sample_rate, fq_band=fq_band, nfft=nfft, get_freq=True)
+            self.freq, self.fq_pos, self.nfft = freq_bins(npts_mov_avg, sample_rate, fq_band=fq_band, nfft=nfft, get_freq=True)
         
         else:
             self.freq, self.fq_pos, self.nfft = freq_bins(self.npts, sample_rate, fq_band=fq_band, nfft=nfft, get_freq=True)
@@ -39,6 +42,7 @@ class PolarAnalysis(object):
         self.taper = kwargs.get('taper', False)
         self.taper_p = kwargs.get('taper_p', 0.05)
         self.time_bandwidth = kwargs.get('time_bandwidth', 3.5)
+        self.njobs = kwargs.get('njobs', multiprocessing.cpu_count()-2)
         self.full_analysis = full_analysis
 
         self.fit()
@@ -85,12 +89,21 @@ class PolarAnalysis(object):
 
     def get_polar_attributes(self, Zdata, Ndata, Edata):
         data = [Zdata, Ndata, Edata]
-        cmatrix = np.zeros((3, 3, len(self.freq)), dtype='complex128')
 
-        index = set(product(set(range(3)), repeat=2))
-        for i, j in list(index):
-            cmatrix[i,j] = self.__cross_spec__(data[i], data[j])
+        # hermitian matrix
+        cmatrix = np.zeros((3, 3, len(self.freq)), dtype='complex128')
         
+        index_list = [(0,0),(1,1),(2,2),(0,1),(0,2),(1,2)]
+        cross_spec_func = functools.partial(self.__cross_spec__, data)
+
+        with multiprocessing.Pool(self.njobs) as p:
+            cross_spec_ans = list(p.map(cross_spec_func, index_list))
+
+        for csa, (i, j) in zip(cross_spec_ans, index_list):
+            cmatrix[i,j,:] = csa
+            if i != j:
+                cmatrix[j,i,:] = np.conj(csa)
+
         polar_dgr = np.empty((len(self.freq),), dtype=np.float32)
 
         z_list = []
@@ -109,31 +122,31 @@ class PolarAnalysis(object):
             return polar_dgr, rect, azimuth, elevation
         
         else:
-            return polar_dgr 
+            return polar_dgr
 
 
-    def __cross_spec__(self, xdata, ydata):
+    def __cross_spec__(self, data, idx):
         delta = float(1/self.sample_rate)
+
+        n, k = idx
+        xdata = data[n]
+        ydata = data[k]
         
-        xdata_mean = np.nanmean(xdata[np.isfinite(xdata)])
-        xdata = xdata - xdata_mean
-
-        ydata_mean = np.nanmean(ydata[np.isfinite(ydata)])
-        ydata = ydata - ydata_mean
-
         if self.taper:
             tap = cosine_taper(self.npts, p=self.taper_p)
             xdata = xdata * tap
             ydata = ydata * tap
 
-        x = mtspec(data=xdata, delta=delta, nfft=self.nfft, time_bandwidth=self.time_bandwidth, optional_output=True)
-        y = mtspec(data=ydata, delta=delta, nfft=self.nfft, time_bandwidth=self.time_bandwidth, optional_output=True)
+        MTSx = MTSpec(xdata, dt=delta, nfft=self.nfft, nw=self.time_bandwidth)
+        x = MTSx.yk
+        MTSy = MTSpec(ydata, dt=delta, nfft=self.nfft, nw=self.time_bandwidth)
+        y = MTSy.yk
 
         psd_xy = np.zeros((len(self.freq),), dtype='complex128')
         
         nro_tapers = int(2* self.time_bandwidth) - 1
         for k in range(nro_tapers):
-            psd_xy += x[3][self.fq_pos[0]:self.fq_pos[1], k] * np.conj(y[3][self.fq_pos[0]:self.fq_pos[1], k])
+            psd_xy += x[self.fq_pos[0]:self.fq_pos[1], k] * np.conj(y[self.fq_pos[0]:self.fq_pos[1], k])
         
         return psd_xy
 

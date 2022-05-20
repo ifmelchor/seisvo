@@ -26,8 +26,8 @@ from seisvo.signal.polarization import PolarAnalysis
 from seisvo.signal.proba import get_PDF, get_KDE
 
 
-SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam', 'dsar']
-SCALAR_PARAMS_OPT = ['mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar']
+SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam']
+SCALAR_PARAMS_OPT = ['mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar_f']
 SCALAR_PARAMS_F = ['rsam_f', 'mf_f', 'hf_f', 'vlf_f', 'lf_f', 'vlar_f', 'lrar_f', 'rmar_f', 'dsar_f']
 
 VECTORAL_PARAMS = ['specgram', 'degree']
@@ -83,7 +83,7 @@ class LTEstats(AttribDict):
         self.attributes = list
 
     def __str__(self):
-        priorized_keys = ['id','channel','starttime','endtime','interval','int_olap','step','step_olap','sample_rate','remove_response','fq_band','nro_time_bins','nro_freq_bins','polar_degree','polar_analysis','f_params', 'opt_params','f_threshold','PE_tau','PE_order','time_bandwidth']
+        priorized_keys = ['id','channel','starttime','endtime','interval','int_olap','step','step_olap','sample_rate','remove_response','fq_band','nro_time_bins','last_time_bin','nro_freq_bins','polar_degree','polar_analysis','f_params', 'opt_params','f_threshold','PE_tau','PE_order','time_bandwidth']
 
         return self._pretty_str(priorized_keys)
 
@@ -159,19 +159,22 @@ class LTE(object):
 
 
     def is_matrix(self, attr):
-        if attr in SCALAR_PARAMS + SCALAR_PARAMS_OPT + SCALAR_PARAMS_F:
-            return False
 
-        if attr in VECTORAL_PARAMS + VECTORAL_PARAMS_OPT:
+        for_matrix = VECTORAL_PARAMS + VECTORAL_PARAMS_OPT
+
+        if attr in for_matrix:
             return True
+
+        else:
+            return False
 
 
     def is_chan(self, chan):
         if isinstance(chan, list):
             chan_list = [ch for ch in chan if ch in self.stats.channel]
         else:
-            if not chan:
-                chan_list = self.stats.channel
+            if isinstance(chan, type(None)):
+                chan_list = list(self.stats.channel)
             else:
                 if chan in self.stats.channel:
                     chan_list = [chan]
@@ -192,6 +195,7 @@ class LTE(object):
                 interval = hdr.attrs['interval'],
                 int_olap = hdr.attrs['int_olap'],
                 nro_time_bins = hdr.attrs['nro_time_bins'],
+                last_time_bin = hdr.attrs['last_time_bin'],
                 step = hdr.attrs['step'],
                 step_olap = hdr.attrs['step_olap'],
                 fq_band = hdr.attrs['fq_band'],
@@ -203,8 +207,8 @@ class LTE(object):
                 f_params = hdr.attrs['f_params'],
                 opt_params = hdr.attrs['opt_params'],
                 f_threshold = hdr.attrs["f_threshold"],
-                PE_tau = hdr.attrs["pe_tau"],
-                PE_order = hdr.attrs["pe_order"],
+                PE_tau = hdr.attrs["PE_tau"],
+                PE_order = hdr.attrs["PE_order"],
                 time_bandwidth = hdr.attrs['time_bandwidth']
                 )
         
@@ -212,22 +216,23 @@ class LTE(object):
 
 
     def __set_attrs__(self):
-        if self.stats.remove_response:
-            attrs = SCALAR_PARAMS
-        else:
-            attrs = SCALAR_PARAMS[:-1]
+        
+        attrs = SCALAR_PARAMS
         
         if self.stats.opt_params:
-            attrs += SCALAR_PARAMS_OPT
-                 
-        if self.stats.f_params:
-            attrs += SCALAR_PARAMS_F[0]
-
             if self.stats.remove_response:
-                attrs += SCALAR_PARAMS_F[-1]
+                attrs += SCALAR_PARAMS_OPT
+            else:
+                attrs += SCALAR_PARAMS[:-1]
+         
+        if self.stats.f_params:
+            attrs += [SCALAR_PARAMS_F[0]]
 
             if self.stats.opt_params:
-                attrs += SCALAR_PARAMS_F[1:-1]
+                if self.stats.remove_response:
+                    attrs += SCALAR_PARAMS_F[1:]
+                else:
+                    attrs += SCALAR_PARAMS_F[1:-1]
 
         if self.stats.polar_degree:
             attrs += VECTORAL_PARAMS
@@ -242,53 +247,22 @@ class LTE(object):
 
 
     def __empty_dict__(self):
-        chan_dict = {
-            'specgram':None,
-            'fq_dominant':None,
-            'fq_centroid':None,
-            'energy':None,
-            'pentropy':None,
-            'rsam':None}
-        
-        if self.stats.remove_response:
-            chan_dict['dsar']=None
-        
-        if self.stats.opt_params:
-            empty_dict['vlf']=None
-            empty_dict['lf']=None
-            empty_dict['mf']=None
-            empty_dict['hf']=None
-            empty_dict['vlar']=None
-            empty_dict['lrar']=None
-            empty_dict['rmar']=None
-        
-        if self.stats.f_params:
-            chan_dict['rsam_f']=None
-
-            if self.stats.remove_response:
-                chan_dict['dsar_f']=None
-            
-            if self.stats.opt_params:
-                chan_dict['vlf_f']=None
-                chan_dict['lf_f']=None
-                chan_dict['mf_f']=None
-                chan_dict['hf_f']=None
-                chan_dict['vlar_f']=None
-                chan_dict['lrar_f']=None
-                chan_dict['rmar_f']=None
         
         empty_dict = {}
         for chan in self.stats.channel:
-            empty_dict[chan] = chan_dict
-
-        if self.stats.polar_degree:
-            empty_dict['polar'] = {'degree': None}
-
-            if self.stats.polar_analysis:
-                empty_dict['polar']['rect'] = None
-                empty_dict['polar']['azimuth'] = None
-                empty_dict['polar']['elevation'] = None
+            empty_dict[chan] = {}
         
+        if self.stats.polar_degree:
+            empty_dict['polar'] = {}
+
+        for attr in self.stats.attributes:
+            if get_group(attr) != 'polar':
+                for chan in self.stats.channel:
+                    empty_dict[chan][attr] = None
+        
+            else:
+                empty_dict['polar'][attr] = None
+
         return empty_dict
 
 
@@ -320,27 +294,27 @@ class LTE(object):
                     
                     dset[tbin, :] = val
             
+            f['header'].attrs.modify('last_time_bin', tbin)
             f.flush()
 
 
-    def __compute__(self, station, days_in_memory=1, **kwargs):
+    def __compute__(self, station, hr_in_memory=10, **kwargs):
 
-        total_day = (self.stats.starttime - self.stats.endtime).total_seconds()/3600/24
-        if total_day < days_in_memory:
-            days_in_memory = -1
-        
-        if days_in_memory > 0:
-            memory_delta = dt.timedelta(days=days_in_memory)
-        else:
-            memory_delta = dt.timedelta(days=total_day)
-        
         total_bins = self.stats.nro_time_bins
-        interval_delta = dt.timedelta(minutes=self.stats.interval)
+        interval_delta = dt.timedelta(minutes=int(self.stats.interval))
         olap_delta = dt.timedelta(minutes=self.stats.interval*self.stats.int_olap)
 
         time = self.stats.starttime
-        m_etime = time + memory_delta
-        m_stream = station.get_stream(time, time + memory_delta, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+        memory_delta = dt.timedelta(hours=hr_in_memory)
+        if time + memory_delta > self.stats.endtime:
+            mtime = self.stats.endtime
+        else:
+            mtime = time + memory_delta
+
+        m_stream = station.get_stream(time, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+        true_mtime = m_stream[0].stats.endtime.datetime
+        
+        print('  Read stream in memory :: %s -- %s ' %(time.strftime('%d %B %Y %H:%M'), true_mtime.strftime('%d %B %Y %H:%M')) )
 
         psdkwargs = {
             'taper':kwargs.get('taper', False),
@@ -352,39 +326,47 @@ class LTE(object):
         with tqdm(total=total_bins) as pbar:
             tbin = 0
             while time + interval_delta <= self.stats.endtime:
-                time_text = time.strftime('%d %B %Y | %H:%M UTC  ::  ')
+                save_dict = self.__empty_dict__()
+                time_text = time.strftime(' >>> %d %B %Y | %H:%M UTC  ::  ')
+                
+                # memory stream
                 int_endtime = time + interval_delta
-                
-                if int_endtime > m_etime:
-                    m_etime = time + memory_delta
+                if int_endtime > true_mtime:
                     try:
-                        m_stream = station.get_stream(time, time + memory_delta, channel=self.stats.channel, remove_response=self.stats.remove_response)
-                    except:
+                        if time + memory_delta > self.stats.endtime:
+                            mtime = self.stats.endtime
+                        else:
+                            mtime = time + memory_delta
+
+                        m_stream = station.get_stream(time, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+                        true_mtime = m_stream[0].stats.endtime.datetime
+                        pbar.write(' >>> Read stream in memory :: %s -- %s ' %(time.strftime('%d %B %Y %H:%M'), true_mtime.strftime('%d %B %Y %H:%M')) )
+                    
+                    except Exception as exc:
                         m_stream = None
-                
-                if not m_stream:
-                    pbar.write('\x1b[0;31;40m' + time_text + 'no data (stream error)' + '\x1b[0m')
-                    # save nan
-
-                else:
-                    save_dict = self.__empty_dict__()
-
+                        true_mtime = time + memory_delta
+                        pbar.write('\x1b[0;31;40m' + time_text + 'no data (stream error)' + '\x1b[0m')
+                        pbar.write('     \x1b[0;31;40m' + exc + '\x1b[0m')
+                        
+                if m_stream:
                     for tr in m_stream:
+                        
+                        # take channel
                         chan = tr.stats.channel
 
                         try:
                             chan_spec_params = tr.psd(starttime=time, endtime=int_endtime, fq_band=self.stats.fq_band, mov_avg_step=self.stats.step, olap_step=self.stats.step_olap, drm_params=True, **psdkwargs)
-                        except:
-                            chan_spec_params = None
-
-                        if not chan_spec_params:
-                            pbar.write('\x1b[0;31;40m' + time_text + tr.stats.channel + '(spectral error)' + '\x1b[0m')
                         
-                        else:
-                            data = tr.get_data(starttime=time, endtime=int_endtime, fq_band=self.stats.fq_band)
+                        except Exception as exc:
+                            chan_spec_params = None
+                            pbar.write('\x1b[0;31;40m' + time_text + tr.stats.channel + '(spectral error)' + '\x1b[0m')
+                            pbar.write('     \x1b[0;31;40m' + exc + '\x1b[0m')
+
+                        if chan_spec_params:
+                            data = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=self.stats.fq_band)
                             h = ent.permutation_entropy(data, order=self.stats.PE_order, delay=self.stats.PE_tau, normalize=True)
                             rsam = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(2,4.5), abs=True)
-                            
+
                             if not freq_saved:
                                 with h5py.File(self.lte_file, "r+") as f:
                                     dset = f.get('freq')
@@ -400,10 +382,10 @@ class LTE(object):
                             save_dict[chan]['rsam'] = rsam.mean()
 
                             if self.stats.opt_params:
-                                vlf = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(.01,.1), abs=True)
-                                lf = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(.1,2), abs=True)
-                                mf = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(4,8), abs=True)
-                                hf = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(8,16), abs=True)
+                                vlf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(.01,.1), abs=True)
+                                lf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(.1,2), abs=True)
+                                mf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(4,8), abs=True)
+                                hf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(8,16), abs=True)
                                 vlar = vlf/lf
                                 lrar = lf/rsam
                                 rmar = rsam/mf
@@ -416,12 +398,12 @@ class LTE(object):
                                 save_dict[chan]['lrar'] = lrar.mean()
                                 save_dict[chan]['rmar'] = rmar.mean()
                             
-                            if self.stats.remove_response:
-                                rr_tr = tr.remove_response2(output='DISP')
-                                dst_mf = rr_tr.get_data(starttime=time, endtime=int_endtime, fq_band=(4,8), abs=True)
-                                dst_hf = rr_tr.get_data(starttime=time, endtime=int_endtime, fq_band=(8,16), abs=True)
-                                dsar = dst_mf/dst_hf
-                                save_dict[chan]['dsar'] = dsar.mean()
+                                if self.stats.remove_response:
+                                    rr_tr = tr.remove_response2(station.resp_, output='DISP')
+                                    dst_mf = rr_tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(4,8), abs=True)
+                                    dst_hf = rr_tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(8,16), abs=True)
+                                    dsar = dst_mf/dst_hf
+                                    save_dict[chan]['dsar'] = dsar.mean()
 
                             if self.stats.f_params:
                                 seg_time_window = kwargs.get('seg_tw', 150)
@@ -446,40 +428,38 @@ class LTE(object):
                                     save_dict[chan]['lrar_f'] = lrar_f.mean()
                                     save_dict[chan]['rmar_f'] = rmar_f.mean()
                                 
-                                if self.stats.remove_response:
-                                    dsar_f = np.array([remove_outlier(dsar, seg_twindow, self.stats.f_threshold)])
-                                    save_dict[chan]['dsar_f'] = dsar_f.mean()
+                                    if self.stats.remove_response:
+                                        dsar_f = np.array([remove_outlier(dsar, seg_twindow, self.stats.f_threshold)])
+                                        save_dict[chan]['dsar_f'] = dsar_f.mean()
                     
                     # polarization parameters
                     if self.stats.polar_degree:
-                        z_data = m_stream.get_component('Z').get_data(starttime=time, endtime=int_endtime, detrend=True)
-                        n_data = m_stream.get_component('N').get_data(starttime=time, endtime=int_endtime, detrend=True)
-                        e_data = m_stream.get_component('E').get_data(starttime=time, endtime=int_endtime, detrend=True)
-
-                        npts_mov_avg = self.stats.sample_rate*self.stats.step*60
-                        pa_kwargs = dict(
-                            taper = kwargs.get('taper', False),
-                            taper_p = kwargs.get('taper_p', 0.05),
-                            time_bandwidth = self.stats.time_bandwidth
-                            )
-                        
                         try:
+                            z_data = m_stream.get_component('Z').get_data(starttime=time, endtime=int_endtime)
+                            n_data = m_stream.get_component('N').get_data(starttime=time, endtime=int_endtime)
+                            e_data = m_stream.get_component('E').get_data(starttime=time, endtime=int_endtime)
+
+                            npts_mov_avg = self.stats.sample_rate*self.stats.step*60
+                            pa_kwargs = dict(
+                                taper = kwargs.get('taper', False),
+                                taper_p = kwargs.get('taper_p', 0.05),
+                                time_bandwidth = self.stats.time_bandwidth
+                                )
                             pa = PolarAnalysis(z_data, n_data, e_data, self.stats.sample_rate, npts_mov_avg=npts_mov_avg, olap=self.stats.step_olap, fq_band=self.stats.fq_band, full_analysis=self.stats.polar_analysis, **pa_kwargs)
                         
-                        except ValueError:
+                        except Exception as exc:
                             pa = None
-                        
-                        if not pa:
                             pbar.write('\x1b[0;31;40m' + time_text + '(polar error)' + '\x1b[0m')
-
-                        else:
+                            pbar.write('     \x1b[0;31;40m' + exc + '\x1b[0m')
+                        
+                        if pa:
                             save_dict['polar']['degree'] = pa.polar_dgr
 
                             if self.stats.polar_analysis:
                                 save_dict['polar']['rect'] = pa.rect
                                 save_dict['polar']['azimuth'] = pa.azimuth
                                 save_dict['polar']['elevation'] = pa.elevation
-                    
+
                 self.__save__(save_dict, tbin)
                 time = time + interval_delta - olap_delta
                 tbin += 1
@@ -489,20 +469,21 @@ class LTE(object):
     def get(self, attr, chan=None, starttime=None, endtime=None):
         
         attr_list = self.is_attr(attr)
-        
+
         if not attr_list:
             print(' attribute unknown')
             return None
         
         chan_list = self.is_chan(chan)
 
-        if not chan_list:
+        if not list(chan_list):
             print(' channel unknown')
             return None
 
         time, (n_0, n_f) = self.get_time(starttime=starttime, endtime=endtime)
 
         dout = {}
+
         if len(chan_list) > 1:
             multichanel = True
             for chan in chan_list:
@@ -528,7 +509,7 @@ class LTE(object):
                             to_return = (data, freq)
                         
                         else:
-                            data = f.get(chan)[group][attr][n_0:n_f,]
+                            data = f.get(chan)[group][attr][n_0:n_f]
                             to_return = data
 
                         if multichanel:
@@ -558,7 +539,7 @@ class LTE(object):
             n_f = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
             n_f = int(np.ceil(n_f))
 
-        time = np.array([self.stats.starttime + dt.timedelta(minutes=k*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)])
+        time = np.array([self.stats.starttime + dt.timedelta(minutes=k*self.stats.interval-(k-1)*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)])
 
         return time, (n_0, n_f)
 
@@ -588,7 +569,7 @@ class LTE(object):
         else:
             multichanel = False
 
-        if attr_list and chan_list:
+        if list(attr_list) and list(chan_list):
             ans = self.get(attr_list, chan=chan_list, starttime=starttime, endtime=endtime)
 
             if isinstance(ans, type(None)):
@@ -814,7 +795,7 @@ class LTE(object):
         return Peaks(self, chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
 
-    def plot(self, chan, list_attr, starttime=None, endtime=None, interval=10, init_gui=False, lde=None, **kwargs):
+    def plot(self, chan, list_attr, starttime=None, endtime=None, interval=None, init_gui=False, lde=None, **kwargs):
         # check times
         if not starttime:
             starttime = self.stats.starttime 
@@ -830,9 +811,9 @@ class LTE(object):
 
         # check interval
         max_int = (endtime - starttime).days
-        if max_int < interval:
+
+        if not interval or max_int < interval:
             interval = max_int
-            print(' warn: interval set to %s days' % interval)
 
         # check attributes
         list_attr = self.is_attr(list_attr)
@@ -906,6 +887,7 @@ class LTE(object):
         hdr.attrs['remove_response'] = headers['remove_response']
         hdr.attrs['fq_band'] = headers['fq_band']
         hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
+        hdr.attrs['last_time_bin'] = -1
         hdr.attrs['nro_freq_bins'] = headers['nro_freq_bins']
         hdr.attrs['polar_degree'] = headers['polar_degree']
         hdr.attrs['polar_analysis'] = headers['polar_analysis']
@@ -945,6 +927,7 @@ class LTE(object):
                 chunk_info = 'none'
 
         # print shape info
+        print('')
         print(' LTE file INFO')
         print(' -------------')
         print(" hdf5_memory info: %s " % lte_file)
@@ -972,8 +955,6 @@ class LTE(object):
             amp.create_dataset('pentropy', (timebins,), chunks=chunk_shape2, dtype=np.float32)
             amp.create_dataset('rsam', (timebins,), chunks=chunk_shape2, dtype=np.float32)
 
-            if headers['remove_response']:
-                amp.create_dataset('dsar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
 
             if headers['opt_params']:
                 amp.create_dataset('vlf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
@@ -984,12 +965,13 @@ class LTE(object):
                 amp.create_dataset('lrar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
                 amp.create_dataset('rmar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
 
+                if headers['remove_response']:
+                    amp.create_dataset('dsar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+
             if headers['f_params']:
                 ampF = chgr.create_group("amplitude_f")
                 ampF.create_dataset('rsam_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
                 
-                if headers['remove_response']:
-                    ampF.create_dataset('dsar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
                 
                 if headers['opt_params']:
                     ampF.create_dataset('mf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
@@ -999,6 +981,9 @@ class LTE(object):
                     ampF.create_dataset('vlar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
                     ampF.create_dataset('lrar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
                     ampF.create_dataset('rmar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+
+                    if headers['remove_response']:
+                        ampF.create_dataset('dsar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
 
         if headers['polar_degree']:
             polar = f.create_group("polar")
@@ -1013,7 +998,8 @@ class LTE(object):
         f.close()
 
         lte = LTE(lte_file)
-        lte.__compute__(station, ltekwargs)
+        print('')
+        lte.__compute__(station, **ltekwargs)
 
         return lte
 

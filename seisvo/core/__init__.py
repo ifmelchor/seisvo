@@ -6,12 +6,12 @@ import pickle
 import datetime as dt
 from obspy.core.util.attribdict import AttribDict
 from obspy.clients.nrl import NRL
-from seisvo import __seisvo__
+
+from seisvo import NET_PATH, RESP_PATH
 from shutil import rmtree
 from importlib.machinery import SourceFileLoader
 
-NET_PATH = '%s/networks' % __seisvo__
-RESP_PATH = '%s/respfiles' % __seisvo__
+
 
 class StaFile(AttribDict):
     def __init__(self, header):

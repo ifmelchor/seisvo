@@ -47,7 +47,7 @@ def freq_bins(npts, sampling_rate, fq_band=[], nfft='uppest', get_freq=False):
     
     freq = np.fft.fftfreq(nfft, d=1/sampling_rate)[:int(nfft/2)]
 
-    if fq_band:
+    if list(fq_band):
         fnptlo = np.argmin(np.abs(freq-fq_band[0]))
         fnpthi = np.argmin(np.abs(freq-fq_band[1]))
         freq = freq[fnptlo:fnpthi]

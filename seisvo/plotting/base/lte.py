@@ -39,11 +39,6 @@ class plotLTE(object):
         
         self.list_attr = list_attr
         
-        # check that all attr are available of lte!
-        self.list_attr = lte.check_list_attr(list_attr, return_list=True)
-        if not self.list_attr:
-            raise ValueError('not attr available')
-
         self.axes_ = {}
         self.events_ = {}
 
@@ -141,7 +136,7 @@ class plotLTE(object):
     def get_ymax(self, attr):
         _, (_, y_max) = self.get_ylim(attr)
         if not y_max:
-            data = self.lte.get_attr(attr, self.starttime, self.endtime)
+            data = self.ddata[attr]
             y = data
             if attr == 'energy':
                 y[np.where(y == 0)] = np.nan
@@ -151,6 +146,8 @@ class plotLTE(object):
 
 
     def get_ylim(self, attr):
+        # vmin, vmax = None, None
+
         if attr == 'energy':
             vmin = self.plotkwargs.get('db_min', None)
             vmax = self.plotkwargs.get('db_max', None)
@@ -213,14 +210,14 @@ class plotLTE(object):
                 ax.set_ylim(y_min, y_max)
             
             if self.any_vector():
-                self.axes_[i, 1].axes.get_xaxis().set_visible(False)
-                self.axes_[i, 1].axes.get_yaxis().set_visible(False)
-                self.axes_[i, 1].set_frame_on(False)
+                self.axes[i, 1].axes.get_xaxis().set_visible(False)
+                self.axes[i, 1].axes.get_yaxis().set_visible(False)
+                self.axes[i, 1].set_frame_on(False)
             
             # show mode values
-            if self.plotkwargs.get('show_mode', True):
-                ans = self.lte.get_stats(attr)
-                ax.axhline(y=ans[3], color='r', lw=0.5, ls='-.', alpha=0.7, zorder=7)
+            if self.plotkwargs.get('show_mode', False):
+                ans = self.lte.get_stats(attr, chan=self.chan)
+                ax.axhline(y=ans[attr][3], color='r', lw=0.5, ls='-.', alpha=0.7, zorder=7)
         
         major_locator, major_formatt = xformat[0]
         minor_locator, minor_formatt = xformat[1]
@@ -288,7 +285,7 @@ class plotLTE(object):
             
             else:
                 (vmin, vmax) = self.get_ylim(attr)
-                self.__show_data__(i, attr, show_tickslabels, xformat, ylim=(vmin, vmax), y_label=ylabel)
+                self.__show_data__(i, attr, show_tickslabels, xformat, ylim=(vmin, vmax), y_label=label)
     
 
     def clear_events(self, id=None):
@@ -525,7 +522,7 @@ class plotDPeakTEVO(object):
         [ax.grid(which='both', axis='both', color='k', alpha=0.35, ls='--', zorder=1) for ax in self.axes]
 
         # add legend
-        for group, fq_range in self.fq_range_dict.items():
+        # for group, fq_range in self.fq_range_dict.items():
 
 
                     

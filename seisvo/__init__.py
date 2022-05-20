@@ -5,8 +5,11 @@ import os
 
 try:
     __seisvo__ = os.environ["seisvo_path"]
-    default_LDE_dir = os.path.join(__seisvo__, 'database', 'lde')
-    default_LTE_dir = os.path.join(__seisvo__, 'lte')
+    LDE_PATH = os.path.join(__seisvo__, 'database', 'lde')
+    LTE_PATH = os.path.join(__seisvo__, 'lte')
+    NET_PATH = os.path.join(__seisvo__, 'networks')
+    RESP_PATH = os.path.join(__seisvo__, 'respfiles')
+    
 except KeyError:
     print('"seisvo_path" not defined in bashrc. Please, see documentation')
     exit()
