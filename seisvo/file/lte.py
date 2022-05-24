@@ -294,27 +294,28 @@ class LTE(object):
                     
                     dset[tbin, :] = val
             
-            f['header'].attrs.modify('last_time_bin', tbin)
+            f['header'].attrs.modify('last_time_bin', tbin+1)
             f.flush()
 
 
     def __compute__(self, station, hr_in_memory=10, **kwargs):
+        
+        # to reduce time in reading stream, the algorithm load into memory 10 hr of data
 
-        total_bins = self.stats.nro_time_bins
+        stime = self.stats.starttime
         interval_delta = dt.timedelta(minutes=int(self.stats.interval))
-        olap_delta = dt.timedelta(minutes=self.stats.interval*self.stats.int_olap)
-
-        time = self.stats.starttime
         memory_delta = dt.timedelta(hours=hr_in_memory)
-        if time + memory_delta > self.stats.endtime:
-            mtime = self.stats.endtime
-        else:
-            mtime = time + memory_delta
 
-        m_stream = station.get_stream(time, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+        if stime + memory_delta + interval_delta > self.stats.endtime:
+            mtime = self.stats.endtime
+
+        else:
+            mtime = stime + memory_delta + interval_delta
+
+        m_stream = station.get_stream(stime, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
         true_mtime = m_stream[0].stats.endtime.datetime
         
-        print('  Read stream in memory :: %s -- %s ' %(time.strftime('%d %B %Y %H:%M'), true_mtime.strftime('%d %B %Y %H:%M')) )
+        print('  >>> Read stream in memory :: %s -- %s ' %(stime.strftime('%d %B %Y %H:%M'), true_mtime.strftime('%d %B %Y %H:%M')) )
 
         psdkwargs = {
             'taper':kwargs.get('taper', False),
@@ -323,30 +324,33 @@ class LTE(object):
         }
 
         freq_saved = False
+        total_bins = self.stats.nro_time_bins
+        olap_delta = dt.timedelta(minutes=self.stats.interval*self.stats.int_olap)
+        
         with tqdm(total=total_bins) as pbar:
             tbin = 0
-            while time + interval_delta <= self.stats.endtime:
+            while stime + interval_delta <= self.stats.endtime:
                 save_dict = self.__empty_dict__()
-                time_text = time.strftime(' >>> %d %B %Y | %H:%M UTC  ::  ')
+                time_text = stime.strftime(' >>> %d %B %Y | %H:%M UTC  ::  ')
                 
                 # memory stream
-                int_endtime = time + interval_delta
+                int_endtime = stime + interval_delta
                 if int_endtime > true_mtime:
                     try:
-                        if time + memory_delta > self.stats.endtime:
+                        if stime + memory_delta + interval_delta > self.stats.endtime:
                             mtime = self.stats.endtime
                         else:
-                            mtime = time + memory_delta
+                            mtime = stime + memory_delta + interval_delta
 
-                        m_stream = station.get_stream(time, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+                        m_stream = station.get_stream(stime, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
                         true_mtime = m_stream[0].stats.endtime.datetime
-                        pbar.write(' >>> Read stream in memory :: %s -- %s ' %(time.strftime('%d %B %Y %H:%M'), true_mtime.strftime('%d %B %Y %H:%M')) )
+                        pbar.write(' >>> Read stream in memory :: %s -- %s ' %(stime.strftime('%d %B %Y %H:%M'), true_mtime.strftime('%d %B %Y %H:%M')) )
                     
                     except Exception as exc:
                         m_stream = None
-                        true_mtime = time + memory_delta
+                        true_mtime = stime + memory_delta
                         pbar.write('\x1b[0;31;40m' + time_text + 'no data (stream error)' + '\x1b[0m')
-                        pbar.write('     \x1b[0;31;40m' + exc + '\x1b[0m')
+                        pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
                         
                 if m_stream:
                     for tr in m_stream:
@@ -355,17 +359,17 @@ class LTE(object):
                         chan = tr.stats.channel
 
                         try:
-                            chan_spec_params = tr.psd(starttime=time, endtime=int_endtime, fq_band=self.stats.fq_band, mov_avg_step=self.stats.step, olap_step=self.stats.step_olap, drm_params=True, **psdkwargs)
+                            chan_spec_params = tr.psd(starttime=stime, endtime=int_endtime, fq_band=self.stats.fq_band, mov_avg_step=self.stats.step, olap_step=self.stats.step_olap, drm_params=True, **psdkwargs)
                         
                         except Exception as exc:
                             chan_spec_params = None
                             pbar.write('\x1b[0;31;40m' + time_text + tr.stats.channel + '(spectral error)' + '\x1b[0m')
-                            pbar.write('     \x1b[0;31;40m' + exc + '\x1b[0m')
+                            pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
 
                         if chan_spec_params:
-                            data = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=self.stats.fq_band)
+                            data = tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=self.stats.fq_band)
                             h = ent.permutation_entropy(data, order=self.stats.PE_order, delay=self.stats.PE_tau, normalize=True)
-                            rsam = tr.get_data(starttime=time, endtime=int_endtime, fq_band=(2,4.5), abs=True)
+                            rsam = tr.get_data(starttime=stime, endtime=int_endtime, fq_band=(2,4.5), abs=True)
 
                             if not freq_saved:
                                 with h5py.File(self.lte_file, "r+") as f:
@@ -382,10 +386,10 @@ class LTE(object):
                             save_dict[chan]['rsam'] = rsam.mean()
 
                             if self.stats.opt_params:
-                                vlf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(.01,.1), abs=True)
-                                lf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(.1,2), abs=True)
-                                mf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(4,8), abs=True)
-                                hf = tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(8,16), abs=True)
+                                vlf = tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=(.01,.1), abs=True)
+                                lf = tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=(.1,2), abs=True)
+                                mf = tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=(4,8), abs=True)
+                                hf = tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=(8,16), abs=True)
                                 vlar = vlf/lf
                                 lrar = lf/rsam
                                 rmar = rsam/mf
@@ -400,8 +404,8 @@ class LTE(object):
                             
                                 if self.stats.remove_response:
                                     rr_tr = tr.remove_response2(station.resp_, output='DISP')
-                                    dst_mf = rr_tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(4,8), abs=True)
-                                    dst_hf = rr_tr.get_data(starttime=time, endtime=int_endtime, detrend=True, fq_band=(8,16), abs=True)
+                                    dst_mf = rr_tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=(4,8), abs=True)
+                                    dst_hf = rr_tr.get_data(starttime=stime, endtime=int_endtime, detrend=True, fq_band=(8,16), abs=True)
                                     dsar = dst_mf/dst_hf
                                     save_dict[chan]['dsar'] = dsar.mean()
 
@@ -435,9 +439,9 @@ class LTE(object):
                     # polarization parameters
                     if self.stats.polar_degree:
                         try:
-                            z_data = m_stream.get_component('Z').get_data(starttime=time, endtime=int_endtime)
-                            n_data = m_stream.get_component('N').get_data(starttime=time, endtime=int_endtime)
-                            e_data = m_stream.get_component('E').get_data(starttime=time, endtime=int_endtime)
+                            z_data = m_stream.get_component('Z').get_data(starttime=stime, endtime=int_endtime)
+                            n_data = m_stream.get_component('N').get_data(starttime=stime, endtime=int_endtime)
+                            e_data = m_stream.get_component('E').get_data(starttime=stime, endtime=int_endtime)
 
                             npts_mov_avg = self.stats.sample_rate*self.stats.step*60
                             pa_kwargs = dict(
@@ -450,7 +454,7 @@ class LTE(object):
                         except Exception as exc:
                             pa = None
                             pbar.write('\x1b[0;31;40m' + time_text + '(polar error)' + '\x1b[0m')
-                            pbar.write('     \x1b[0;31;40m' + exc + '\x1b[0m')
+                            pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
                         
                         if pa:
                             save_dict['polar']['degree'] = pa.polar_dgr
@@ -461,7 +465,7 @@ class LTE(object):
                                 save_dict['polar']['elevation'] = pa.elevation
 
                 self.__save__(save_dict, tbin)
-                time = time + interval_delta - olap_delta
+                stime = stime + interval_delta - olap_delta
                 tbin += 1
                 pbar.update()
 
@@ -659,7 +663,7 @@ class LTE(object):
         fq_range : tuple, optional
             by default stats.fq_band
         peak_thresholds : dict, optional
-            by default {'fq_delta': 0.05, 'spec_th': 0.95, 'pd_th': 0.8, 'rect_th': 0.7, 'pd_std':0.1, 'r_std':0.1, 'azm_std':10, 'dip_std':10}
+            by default {'fq_delta': 0.05, 'specgram_th': 0.95, 'pd_th': 0.8, 'rect_th': 0.7, 'pd_std':0.1, 'r_std':0.1, 'azm_std':10, 'dip_std':10}
 
         Returns
         -------
@@ -717,9 +721,9 @@ class LTE(object):
                 pd_t = pd[t, fq0:fq1+1]
                 if np.isfinite(sxx_t).all():
                     sxx_t_norm = MinMaxScaler().fit_transform(sxx_t.reshape(-1,1))
-                    peaks_pos,_ = signal.find_peaks(sxx_t_norm.reshape(-1,), height=self.peak_thresholds['spec_th'], distance=peak_distance)
+                    peaks_pos,_ = signal.find_peaks(sxx_t_norm.reshape(-1,), height=self.peak_thresholds['specgram_th'], distance=peak_distance)
 
-                    peaks[t] = dict(fq=[], sp=[], pd=[])
+                    peaks[t] = dict(fq=[], specgram=[], degree=[])
                     if self.stats.polar_analysis:
                         peaks[t]['rect'] = []
                         peaks[t]['azimuth'] = []
@@ -765,10 +769,10 @@ class LTE(object):
                                     if rect_peak_std < self.peak_thresholds['rect_std']:
                                         rect_peak_val = rect_peak_avg
 
-                                        if rect_peak_std > self.peak_thresholds['rect_th']:
+                                        if rect_peak_avg > self.peak_thresholds['rect_th']:
                                             
                                             tH_peak = tH_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])]
-                                            tV_peak = tV_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])] 
+                                            tV_peak = tV_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])]
                                             
                                             if tH_peak.any():
                                                 tH_peak_avg, tH_peak_std = tH_peak.mean(), tH_peak.std()
@@ -1018,12 +1022,23 @@ class Peaks(LTE):
         ans = super().__get_peaks__(chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
 
         self.total_dominant_peaks_, self.dominant_peaks_ = ans
-        
         self.chan = chan
-        self.starttime = starttime
-        self.endtime = endtime
-        self.fq_range = fq_range
         self.peak_thresholds = peak_thresholds
+
+        if not fq_range:
+            self.fq_range = lte.stats.fq_band
+        else:
+            self.fq_range = fq_range
+        
+        if not starttime:
+            self.starttime = lte.stats.starttime
+        else:
+            self.starttime = starttime
+
+        if not endtime:
+            self.endtime = lte.stats.endtime
+        else:
+            self.endtime = endtime
 
         self.peaks_ = {}
         self.nro_ = 0
@@ -1031,13 +1046,16 @@ class Peaks(LTE):
     
     
     def __str__(self):
-        print(f'   LTE file   ::: {self.stats.lte_file}')
-        print(f'        channel: {self.chan}')
-        print(f'      starttime: {self.starttime.strftime("%d %B %Y %H:%M")}')
-        print(f'        endtime: {self.endtime.strftime("%d %B %Y %H:%M")}')
-        print(f'       fq_range: {self.fq_range}')
-        print(f' polar_analysis: {self.stats.polar_analysis}')
-        print(f' Nro dom. peaks: {self.stats.total_dominant_peaks_}')
+        txt_to_return =  f'\n   >>LTE file    ::: {self.lte_file}'
+        txt_to_return += f'\n   >channel       : {self.chan}'
+        txt_to_return += f'\n   >starttime     : {self.stats.starttime.strftime("%d %B %Y %H:%M")}'
+        txt_to_return += f'\n   >endtime       : {self.stats.endtime.strftime("%d %B %Y %H:%M")}'
+        txt_to_return += f'\n   >fq_range      : {self.fq_range}'
+        txt_to_return += f'\n   >polar_analysis: {self.stats.polar_analysis}'
+        txt_to_return += f'\n   >Nro dom. peaks: {self.total_dominant_peaks_}'
+        txt_to_return += f'\n   >Nro chr. peaks: {self.nro_}'
+        txt_to_return +=  f'\n'
+        return txt_to_return
 
 
     def fit(self, threshold=0.0, peak_width='auto', **kwargs):
@@ -1099,6 +1117,7 @@ class Peaks(LTE):
             self.__fit_polar__(**kwargs)
         
         self.__dataframe__()
+        print(self.df_)
 
 
     def __fit_fq_kde__(self, **kwargs):
@@ -1135,7 +1154,7 @@ class Peaks(LTE):
 
     def __fit_polar__(self, **kwargs):
         self.dist_throld = kwargs.get('dist_throld', 0.5)
-        self.n_sample_min = kwargs.get('n_sample_min', 10)
+        self.n_sample_min = kwargs.get('n_sample_min', 5)
         
         # default bandwidth
         usr_bandwidth = kwargs.get('bandwidth', {})
@@ -1169,13 +1188,13 @@ class Peaks(LTE):
                 for _, tdict in self.dominant_peaks_.items():
                     for n, fq in enumerate(tdict['fq']):
                         if dfq-self.peaks_[f]['width'] <= fq <= dfq+self.peaks_[f]['width']:
-                            sp += [tdict['sp'][n]]
-                            pd += [tdict['pd'][n]]
+                            sp += [tdict['specgram'][n]]
+                            pd += [tdict['degree'][n]]
 
                             if self.stats.polar_analysis:
                                 rect += [tdict['rect'][n]]
-                                th_H += [tdict['azm'][n]]
-                                th_V += [tdict['elev'][n]]
+                                th_H += [tdict['azimuth'][n]]
+                                th_V += [tdict['elevation'][n]]
                 
                 # list sp, pd, etc. may contain None
                 sp = np.array([sp_k for sp_k in sp if sp_k])

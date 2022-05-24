@@ -73,6 +73,7 @@ def cross_corr(stream, dtimes, nro_srcs, ss, **kwargs):
         press_avg = np.ndarray((1, nro_srcs))
         press_max = np.ndarray((1, nro_srcs))
 
+        # esto se puede paralelizar
         for k in range(nro_srcs):
             matrix = np.ndarray((1, nro_sensors, npt_delta))
 
@@ -88,6 +89,7 @@ def cross_corr(stream, dtimes, nro_srcs, ss, **kwargs):
             press_max[0, k] = np.abs(signal_avg).max()
 
             list_corr = []
+            # esto se puede paralelizar
             for j, i in corr_coeff_index(nro_sensors):
                 mx = np.corrcoef(matrix[0, j], matrix[0, i])[0, 1]
                 if mx < 0:

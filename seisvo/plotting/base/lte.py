@@ -56,7 +56,7 @@ class plotLTE(object):
     
 
     def set_frame(self):
-        grid = {'hspace':0.3, 'left':0.08, 'right':0.92, 'wspace':0.1, 'top':0.95, 'bottom':0.05}
+        grid = {'hspace':0.15, 'left':0.08, 'right':0.92, 'wspace':0.1, 'top':0.95, 'bottom':0.05}
         
         if self.any_vector():
             ncols = 2
@@ -75,36 +75,37 @@ class plotLTE(object):
 
 
     def set_xformat(self):
+        
+        if isinstance(self.xtime[0], dt.datetime):
+            if self.interval <= 1:
+                major_locator = mdates.HourLocator(interval=1)
+                major_formatt = mdates.DateFormatter('%d %b\n%H:%M')
+                minor_locator = mdates.MinuteLocator(byminute=[15, 30, 45])
+                minor_formatt = mtick.NullFormatter()
 
-        if self.interval <= 1:
-            major_locator = mdates.HourLocator(interval=1)
-            major_formatt = mdates.DateFormatter('%d %b\n%H:%M')
-            minor_locator = mdates.MinuteLocator(byminute=[15, 30, 45])
-            minor_formatt = mtick.NullFormatter()
+            elif self.interval <= 10:
+                major_locator = mdates.DayLocator(interval=1)
+                major_formatt = mdates.DateFormatter('%d %b %H:%M')
+                minor_locator = mdates.HourLocator(byhour=[6, 12, 18, 24])
+                minor_formatt = mtick.NullFormatter()
 
-        elif self.interval <= 3:
-            major_locator = mdates.HourLocator(interval=2)
-            major_formatt = mdates.DateFormatter('%d\n%H:%M')
-            minor_locator = mdates.MinuteLocator(byminute=[15, 30, 45])
-            minor_formatt = mtick.NullFormatter()
+            elif 45 >= self.interval > 10 :
+                major_locator = mdates.DayLocator(interval=7)
+                major_formatt = mdates.DateFormatter('%d')
+                minor_locator = mdates.DayLocator(interval=1)
+                minor_formatt = mtick.NullFormatter()
 
-        elif self.interval <= 10:
-            major_locator = mdates.DayLocator(interval=1)
-            major_formatt = mdates.DateFormatter('%d %H')
-            minor_locator = mdates.HourLocator(byhour=[6, 12, 18, 24])
-            minor_formatt = mtick.NullFormatter()
-
-        elif 45 >= self.interval > 10 :
-            major_locator = mdates.DayLocator(interval=7)
-            major_formatt = mdates.DateFormatter('%d')
-            minor_locator = mdates.DayLocator(interval=1)
-            minor_formatt = mtick.NullFormatter()
-
+            else:
+                major_locator = mdates.WeekdayLocator(interval=2)
+                major_formatt = mdates.DateFormatter('%d-%m')
+                minor_locator = mdates.DayLocator(interval=7)
+                minor_formatt = mtick.NullFormatter()
+        
         else:
-            major_locator = mdates.WeekdayLocator(interval=2)
-            major_formatt = mdates.DateFormatter('%d-%m')
-            minor_locator = mdates.DayLocator(interval=7)
-            minor_formatt = mtick.NullFormatter()
+            major_locator = mtick.LinearLocator(10)
+            major_formatt = mtick.FormatStrFormatter('%i')
+            minor_locator = mtick.AutoMinorLocator(2)
+            minor_formatt = None
         
         return (major_locator, major_formatt), (minor_locator, minor_formatt)
 
@@ -189,7 +190,7 @@ class plotLTE(object):
                 z = 10*np.log10(z)
             
             kwargs['axis_bar'] = cax
-            plot_gram(y, z, self.xtime, ax, kwargs)
+            plot_gram(y, z, self.xtime, ax, **kwargs)
             ax.set_ylim(self.lte.stats.fq_band)
                     
         else:
@@ -199,6 +200,7 @@ class plotLTE(object):
                 y = 10*np.log10(y)
 
             ax.plot(self.xtime, y, 'k')
+            ax.set_xlim(self.xtime[0], self.xtime[-1])
             ax.set_ylabel(kwargs.get('y_label'))
             ylim = kwargs.get('ylim', None)
 
@@ -236,8 +238,9 @@ class plotLTE(object):
         ax.yaxis.set_major_formatter(mtick.FormatStrFormatter(fmtt))
 
         if show_tickslabels:
-            ax.xaxis.set_minor_formatter(minor_formatt)
             ax.xaxis.set_major_formatter(major_formatt)
+            if minor_formatt:
+                ax.xaxis.set_minor_formatter(minor_formatt)
 
 
     def show_events(self, lde, col_dict={}):
@@ -266,6 +269,11 @@ class plotLTE(object):
     def plot(self):
         num_i = len(self.list_attr)-1
         self.xtime, self.ddata = self.lte.get(self.list_attr, chan=self.chan, starttime=self.starttime, endtime=self.endtime)
+        
+        if self.plotkwargs.get('xaxis_in_hours', True):
+            total_hr = (self.endtime - self.starttime).total_seconds()/3600
+            self.xtime = np.linspace(0, total_hr, self.lte.stats.nro_time_bins)
+        
         xformat = self.set_xformat()
 
         for i, attr in enumerate(self.list_attr):

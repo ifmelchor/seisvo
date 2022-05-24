@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-from seisvo import __seisvo__
+from seisvo.file.air import AiR
 from seisvo.core import get_network
 from seisvo.core.obspyext import Stream2
 from seisvo.core.station import Station
@@ -19,7 +19,6 @@ class Network(object):
         self.stats = get_network(net_code)
         self.station = [Station(x) for x in self.stats.stations]
 
-
     def __str__(self):
         return self.stats.__str__()
 
@@ -29,7 +28,19 @@ class Network(object):
 
 
     def __getitem__(self, item):
-        return self.station[item]
+
+        if isinstance(item, int):
+            return self.station[item]
+        
+        if isinstance(item, str):
+            sta_code = item.split('.')[0]
+            
+            try:
+                loc = item.split('.')[1]
+            except IndexError:
+                loc = ''
+            
+            return self.get_sta(sta_code, loc=loc)
 
 
     def get_datebound(self, sta_code=None):
@@ -367,10 +378,11 @@ class iArray(Network):
         
         fq_band_ = kwargs.get('fq_band', (0.5, 5))
         air_file = kwargs.get('air', False)
+        sample_rate = kwargs.get('sample_rate', self[0].stats.sample_rate)
 
         info = {}
         info['code'] = '%s.%s' % (self.stats.code, self.sta_code)
-        info['sampling_rate'] = self.sample_rate_
+        info['sampling_rate'] = sample_rate
         info['starttime'] = starttime.strftime('%Y-%m-%d %H:%M:%S')
         info['endtime'] = endtime.strftime('%Y-%m-%d %H:%M:%S')
         info['time_width'] = time_width
@@ -446,7 +458,8 @@ class iArray(Network):
                 start - dt.timedelta(seconds=ss.window_length),
                 end + dt.timedelta(seconds=ss.window_length),
                 prefilt=fq_band_,
-                remove_response=True
+                remove_response=True,
+                sample_rate=sample_rate
                 )
             
             ans = cross_corr(
