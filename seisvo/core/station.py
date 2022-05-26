@@ -342,8 +342,16 @@ class Station(object):
             st = Stream2(st.slice(t1, t2))
 
             if remove_response:
-                if self.resp_:
-                    st = st.remove_response2(resp_dict=self.resp_, **rrkwargs)
+                if self.resp_: # can be list or RespFile
+
+                    if isinstance(self.resp_, list):
+                        for resp in self.resp_:
+                            if resp.endtime > t2:
+                                st = st.remove_response2(resp_dict=resp, **rrkwargs)
+                            
+                    else:
+                        st = st.remove_response2(resp_dict=self.resp_, **rrkwargs)
+                
                 else:
                     print('warn: no responsefile found')
 

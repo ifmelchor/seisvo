@@ -368,7 +368,6 @@ class Stream2(Stream):
     def filter2(self, fq_band, **kwargs):
         st = Stream2()
         for tr in self:
-            tr.detrend()
             st.append(Trace2(tr).filter2(fq_band, **kwargs))
         return st
 
