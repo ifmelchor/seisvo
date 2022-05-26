@@ -47,6 +47,7 @@ class PolarAnalysis(object):
 
         self.fit()
 
+
     def fit(self):
         msize = (len(self.freq),)
         self.polar_dgr = np.zeros(msize, dtype='float64')
@@ -69,7 +70,7 @@ class PolarAnalysis(object):
             Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
             Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
             Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
-            ans = self.get_polar_attributes(Zdata_n, Ndata_n, Edata_n)
+            ans = self.__process__(Zdata_n, Ndata_n, Edata_n)
 
             self.polar_dgr += ans[0]
 
@@ -87,7 +88,7 @@ class PolarAnalysis(object):
         self.elevation /= step
 
 
-    def get_polar_attributes(self, Zdata, Ndata, Edata):
+    def __process__(self, Zdata, Ndata, Edata):
         data = [Zdata, Ndata, Edata]
 
         # hermitian matrix
@@ -104,22 +105,34 @@ class PolarAnalysis(object):
             if i != j:
                 cmatrix[j,i,:] = np.conj(csa)
 
-        polar_dgr = np.empty((len(self.freq),), dtype=np.float32)
+        get_polar_degree = functools.partial(self.__polar_dgr__, cmatrix)
+        index_list = range(len(self.freq))
+        with multiprocessing.Pool(self.njobs) as p:
+            polar_degree_ans = list(p.map(get_polar_degree, list(index_list)))
 
-        z_list = []
-        for fq in range(len(self.freq)):
-            _, s, vh = np.linalg.svd(cmatrix[:,:,fq], full_matrices=False)
-            polar_dgr[fq] = (3 * np.sum(s**2) - np.sum(s) ** 2) / (2 * np.sum(s) ** 2)
-
-            if self.full_analysis:
-                z = vh[0,:]
-                z_list += [rotate(z)]
+        if self.full_analysis:
+            polar_dgr = [ans[0] for ans in polar_degree_ans]
+            z_list = [ans[1] for ans in polar_degree_ans]
+        else:
+            polar_dgr = polar_degree_ans
         
         if self.full_analysis:
             rect = np.array(list(map(get_rectiliniarity, z_list)))
             azimuth = np.array(list(map(get_azimuth, z_list)))
             elevation = np.array(list(map(get_elevation, z_list)))
             return polar_dgr, rect, azimuth, elevation
+        
+        else:
+            return polar_dgr
+
+
+    def __polar_dgr__(self, cmatrix, fq_idx):
+        _, s, vh = np.linalg.svd(cmatrix[:,:,fq_idx], full_matrices=False)
+        polar_dgr = (3 * np.sum(s**2) - np.sum(s) ** 2) / (2 * np.sum(s) ** 2)
+        
+        if self.full_analysis:
+            z = rotate(vh[0,:])
+            return (polar_dgr, z)
         
         else:
             return polar_dgr
@@ -157,9 +170,11 @@ def rotate(z):
         a = np.array([x.real for x in z_rot])
         b = np.array([x.imag for x in z_rot])
         return np.abs(np.vdot(a,b))
-    ans = np.array(list(map(rot_dgr, np.arange(0, np.pi/2, 1e-2))))
-    ans_min = int(np.argmin(ans))
-    phi_min = np.arange(0, np.pi/2, 1e-2)[ans_min]
+
+    all_alpha = np.linspace(0, np.pi*2, 100)
+    ans = np.array(list(map(rot_dgr, all_alpha)))
+    phi_min = all_alpha[np.argmin(ans)]
+
     z_rot = z * (np.cos(phi_min)+1j*np.sin(phi_min))
     return z_rot
 
@@ -172,6 +187,7 @@ def get_rectiliniarity(z):
 
     if a_norm > b_norm:
         minor, major = b_norm, a_norm
+    
     else:
         minor, major = a_norm, b_norm
 
@@ -181,38 +197,83 @@ def get_rectiliniarity(z):
 
 
 def get_azimuth(z):
+    
+    # decompose horizontal comp.
     abs_zN, phyN = cm.polar(z[1])
     abs_zE, phyE = cm.polar(z[2])
-    _ , phyH = cm.polar(z[2]**2+z[1]**2)
-    th_l = -0.5*phyH + np.arange(1,10)*np.pi/2
-    func = abs_zN**2*np.cos(th_l+phyN)**2 + abs_zE**2*np.cos(th_l+phyE)**2
-    th_H = th_l[np.argmin(func)]
+    
+    _ , phyH = cm.polar(z[2]*z[2] + z[1]*z[1])
+    th_l = -0.5*phyH + np.arange(0,5) * np.pi / 2
+    
+    func = abs_zN*abs_zN * np.cos(th_l + phyN)*np.cos(th_l + phyN) + abs_zE*abs_zE * np.cos(th_l+phyE)*np.cos(th_l+phyE)
+
+    th_H = th_l[np.argmax(func)]
     zN_rot = z[1] * np.exp(-1j*th_H)
     zE_rot = z[2] * np.exp(-1j*th_H)
-    tH = np.arctan(np.real(zE_rot)/np.real(zN_rot))*180/np.pi
-    arg = np.real(z[0]*np.conjugate(z[2]))
+    tH = np.arctan(zE_rot.real/zN_rot.real)
+    
+    arg = (z[0]*z[2].conjugate()).real
     if arg < 0:
-        tH += 90
+        if tH < 0:
+            tH += np.pi
     else:
-        tH -= 90
+        if tH > 0:
+            tH -= np.pi
+    
+    # measure clockwise from north
+    tH = (np.pi/2) - tH
     if tH < 0:
-        tH += 180
-    return tH
+      tH += 2 * np.pi
+
+    # we only seek for the direction (no orientation)
+    if tH > np.pi:
+        tH -= np.pi
+
+    # ----------------------------------------------------------
+    
+    ## get phiHH, which is the phase difference between horizontals
+    # phiHH = (phyN - phyE) * 180 /np.pi
+    
+    # if(phiHH > 180.0):
+    #     phiHH -= 360.0
+    
+    # elif (phiHH < -180.0):
+    #     phiHH += 360.0
+
+    ## get phiVH, between -90 and 90
+    # phiVH = (th_H - cm.polar(z[0])[1]) * 180 / np.pi
+    
+    # if phiVH > 90:
+    #     phiVH -= 180.0
+    
+    # if phiVH < -90:
+    #     phiVH += 180.0
+    
+    return tH * 180 / np.pi
 
 
 def get_elevation(z):
+
+    # decompose first component
     abs_zV, phyV = cm.polar(z[0])
-    zH = np.sqrt(z[1]**2 + z[2]**2)
+    
+    # compute horizontal comp
+    zH = np.sqrt(z[1]*z[1] + z[2]*z[2])
     abs_zH, phyH = cm.polar(zH)
-    _ , phyVH = cm.polar(z[0]**2 + zH**2)
-    th_m = -0.5*phyVH + np.arange(1,10)*np.pi/2
-    func = abs_zV**2*np.cos(th_m + phyV)**2 + abs_zH**2*np.cos(th_m + phyH)**2
+    _ , phyVH = cm.polar(z[0]*z[0] + zH*zH)
+
+    th_m = -0.5*phyVH + np.arange(0,5)*np.pi/2
+    func = abs_zV*abs_zV*np.cos(th_m + phyV)*np.cos(th_m + phyV) + abs_zH*abs_zH*np.cos(th_m + phyH)*np.cos(th_m + phyH)
     th_V = th_m[np.argmax(func)]
-    zV_rot = np.real(z[0] * np.exp(-1j*th_V))
-    zH_rot = np.real(zH * np.exp(-1j*th_V))
-    tV = np.arctan(np.abs(zV_rot/zH_rot))
-    return tV*180/np.pi
 
+    if(zH.imag < 0):
+      zH = complex(-1*zH.real,-1*zH.imag)
+    
+    ztmp = complex(np.cos(th_V), -1*np.sin(th_V))
+    tV = np.arctan(np.abs( (z[0]*ztmp).real / (zH*ztmp).real))
+    tV  = np.pi/2 - tV
 
+    # this gives the elevation angle, 0 for vertical, 90 for horizontal
+    return tV * 180/np.pi
 
 

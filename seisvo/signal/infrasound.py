@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
+import functools
 import numpy as np
 import datetime as dt
 
@@ -73,7 +74,6 @@ def cross_corr(stream, dtimes, nro_srcs, ss, **kwargs):
         press_avg = np.ndarray((1, nro_srcs))
         press_max = np.ndarray((1, nro_srcs))
 
-        # esto se puede paralelizar
         for k in range(nro_srcs):
             matrix = np.ndarray((1, nro_sensors, npt_delta))
 
@@ -89,14 +89,18 @@ def cross_corr(stream, dtimes, nro_srcs, ss, **kwargs):
             press_max[0, k] = np.abs(signal_avg).max()
 
             list_corr = []
-            # esto se puede paralelizar
-            for j, i in corr_coeff_index(nro_sensors):
-                mx = np.corrcoef(matrix[0, j], matrix[0, i])[0, 1]
-                if mx < 0:
-                    mx = 0
-                list_corr += [mx]
-
+            
+            # esto se puede paralelizar con multiprocessing si vemos que tarda mucho
+            crosscorr_func = functools.partial(__croscormat__, matrix)
+            list_corr = list(map(crosscorr_func, corr_coeff_index(nro_sensors)))
             array_corr = np.array(list_corr)
+            
+            # for j, i in corr_coeff_index(nro_sensors):
+            #     mx = np.corrcoef(matrix[0, j], matrix[0, i])[0, 1]
+            #     if mx < 0:
+            #         mx = 0
+            #     list_corr += [mx]
+
             if np.count_nonzero(np.isnan(array_corr)) > 1:
                 print(' Warning: NaN in the correlation approach')
 
@@ -126,3 +130,10 @@ def cross_corr(stream, dtimes, nro_srcs, ss, **kwargs):
     if not air_file:
         return (times, cross_time_matrix, press_time_avg, press_time_max)
 
+
+def __croscormat__(matrix, idx):
+    i, j = idx
+    mx = np.corrcoef(matrix[0, j], matrix[0, i])[0, 1]
+    if mx < 0:
+        mx = 0
+    return mx
