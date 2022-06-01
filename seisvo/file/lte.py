@@ -12,8 +12,10 @@ import h5py
 import numpy as np
 import pandas as pd
 import datetime as dt
+import multiprocessing
 
 from itertools import chain
+from functools import partial
 from tqdm import tqdm
 from scipy import signal
 from scipy.stats import gaussian_kde
@@ -298,23 +300,10 @@ class LTE(object):
             f.flush()
 
 
-    def __compute__(self, station, hr_in_memory=2, **kwargs):
+    def __compute__(self, station, **kwargs):
         
-        # to reduce time in reading stream, the algorithm load into memory 10 hr of data
-
         stime = self.stats.starttime
         interval_delta = dt.timedelta(minutes=int(self.stats.interval))
-
-        # memory_delta = dt.timedelta(hours=hr_in_memory)
-        # if stime + memory_delta + interval_delta > self.stats.endtime:
-        #     mtime = self.stats.endtime
-        # else:
-        #     mtime = stime + memory_delta + interval_delta
-
-        # m_stream = station.get_stream(stime, mtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
-        # true_mtime = m_stream[0].stats.endtime.datetime
-        
-        # print('  >>> Read stream in memory :: %s -- %s ' %(stime.strftime('%d %B %Y %H:%M'), mtime.strftime('%d %B %Y %H:%M')) )
 
         psdkwargs = {
             'taper':kwargs.get('taper', False),
@@ -334,29 +323,16 @@ class LTE(object):
                 
                 # memory stream
                 int_endtime = stime + interval_delta
-                m_stream = station.get_stream(stime, int_endtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
-                
-                # if int_endtime > mtime:
-                #     try:
-                #         if stime + memory_delta + interval_delta > self.stats.endtime:
-                #             mtime = self.stats.endtime
-                #         else:
-                #             mtime = stime + memory_delta + interval_delta
 
-                #         pbar.write(' >>> Read stream in memory :: %s -- %s ' %(stime.strftime('%d %B %Y %H:%M'), mtime.strftime('%d %B %Y %H:%M')) )
+                if self.stats.polar_degree:
+                    m_stream = station.get_stream(stime, int_endtime, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+                else:
+                    m_stream = station.get_stream(stime, int_endtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
                     
-                #     except Exception as exc:
-                #         m_stream = None
-                #         mtime = stime + memory_delta + interval_delta
-                #         pbar.write('\x1b[0;31;40m' + time_text + 'no data (stream error)' + '\x1b[0m')
-                #         pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
-                        
                 if m_stream:
-                    for tr in m_stream:
+                    for chan in self.stats.channel:
+                        tr = m_stream.select(channel=chan)[0]
                         
-                        # take channel
-                        chan = tr.stats.channel
-
                         try:
                             chan_spec_params = tr.psd(fq_band=self.stats.fq_band, mov_avg_step=self.stats.step, olap_step=self.stats.step_olap, drm_params=True, **psdkwargs)
                         
@@ -410,30 +386,26 @@ class LTE(object):
 
                             if self.stats.f_params:
                                 seg_time_window = kwargs.get('seg_tw', 150)
-                                seg_twindow = int(seg_time_window*self.stats.sampling_rate)
-                                rsam_f = np.array([remove_outlier(rsam, seg_twindow, self.stats.f_threshold)])
-                                save_dict[chan]['rsam_f'] = rsam_f.mean()
-
+                                seg_twindow = int(seg_time_window*self.stats.sample_rate)
+                                save_dict[chan]['rsam_f'] = remove_outlier(rsam, seg_twindow, self.stats.f_threshold)
+                                
                                 if self.stats.opt_params:
-                                    mf_f = np.array([remove_outlier(mf, seg_twindow, self.stats.f_threshold)])
-                                    hf_f = np.array([remove_outlier(hf, seg_twindow, self.stats.f_threshold)])
-                                    lf_f = np.array([remove_outlier(lf, seg_twindow, self.stats.f_threshold)])
-                                    vlf_f = np.array([remove_outlier(vlf, seg_twindow, self.stats.f_threshold)])
-                                    vlar_f = np.array([remove_outlier(vlar, seg_twindow, self.stats.f_threshold)])
-                                    lrar_f = np.array([remove_outlier(lrar, seg_twindow, self.stats.f_threshold)])
-                                    rmar_f = np.array([remove_outlier(rmar, seg_twindow, self.stats.f_threshold)])
+                                    njobs = kwargs.get('njobs', multiprocessing.cpu_count()-2)
+                                    func_fop = partial(remove_outlier, seg_twindow=seg_twindow, th=self.stats.f_threshold)
                                     
-                                    save_dict[chan]['vlf_f'] = vlf_f.mean()
-                                    save_dict[chan]['lf_f'] = lf_f.mean()
-                                    save_dict[chan]['mf_f'] = mf_f.mean()
-                                    save_dict[chan]['hf_f'] = hf_f.mean()
-                                    save_dict[chan]['vlar_f'] = vlar_f.mean()
-                                    save_dict[chan]['lrar_f'] = lrar_f.mean()
-                                    save_dict[chan]['rmar_f'] = rmar_f.mean()
+                                    with multiprocessing.Pool(njobs) as p:
+                                        opt_ans = list(p.map(func_fop, [mf, hf, lf, vlf, vlar, lrar, rmar]))
+                                    
+                                    save_dict[chan]['mf_f']   = opt_ans[0]
+                                    save_dict[chan]['hf_f']   = opt_ans[1]
+                                    save_dict[chan]['lf_f']   = opt_ans[2]
+                                    save_dict[chan]['vlf_f']  = opt_ans[3]
+                                    save_dict[chan]['vlar_f'] = opt_ans[4]
+                                    save_dict[chan]['lrar_f'] = opt_ans[5]
+                                    save_dict[chan]['rmar_f'] = opt_ans[6]
                                 
                                     if self.stats.remove_response:
-                                        dsar_f = np.array([remove_outlier(dsar, seg_twindow, self.stats.f_threshold)])
-                                        save_dict[chan]['dsar_f'] = dsar_f.mean()
+                                        save_dict[chan]['dsar_f'] = remove_outlier(dsar, seg_twindow, self.stats.f_threshold)
                     
                     # polarization parameters
                     if self.stats.polar_degree:
@@ -472,7 +444,7 @@ class LTE(object):
                 pbar.update()
 
 
-    def get(self, attr, chan=None, starttime=None, endtime=None):
+    def get(self, attr, chan=None, starttime=None, endtime=None, **kwargs):
         
         attr_list = self.is_attr(attr)
 
@@ -486,7 +458,7 @@ class LTE(object):
             print(' channel unknown')
             return None
 
-        time, (n_0, n_f) = self.get_time(starttime=starttime, endtime=endtime)
+        time, (n_0, n_f) = self.get_time(starttime=starttime, endtime=endtime, **kwargs)
 
         dout = {}
 
@@ -527,27 +499,37 @@ class LTE(object):
         return time, dout
         
 
-    def get_time(self, starttime=None, endtime=None):
+    def get_time(self, starttime=None, endtime=None, **kwargs):
         
         if not starttime or starttime < self.stats.starttime:
+            starttime = self.stats.starttime
             n_0 = 0
-        
         else:
             delta = (starttime - self.stats.starttime).total_seconds()/60
             n_0 = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
             n_0 = int(np.ceil(n_0))
 
         if not endtime or endtime > self.stats.endtime:
+            endtime = self.stats.endtime
             n_f = self.stats.nro_time_bins
-        
+
         else:
             delta = (endtime - self.stats.starttime).total_seconds()/60
             n_f = ((delta/self.stats.interval) - self.stats.int_olap) / (1 - self.stats.int_olap)
             n_f = int(np.ceil(n_f))
+        
+        # return datetime or int in hours
 
-        time = np.array([self.stats.starttime + dt.timedelta(minutes=k*self.stats.interval-(k-1)*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)])
+        if kwargs.get('datetime', False):
+            time1 = [starttime]
+            time2 = [starttime + dt.timedelta(minutes=k*self.stats.interval-(k-1)*self.stats.interval*self.stats.int_olap) for k in range(n_0,n_f)]
+            true_time = time1 + time2[1:]
+        
+        else:
+            total_duration = (endtime - starttime).total_seconds()/3600
+            true_time = np.linspace(0, total_duration, n_f-n_0)
 
-        return time, (n_0, n_f)
+        return true_time, (n_0, n_f)
 
 
     def get_stats(self, attr, chan=None, starttime=None, endtime=None):
@@ -737,7 +719,7 @@ class LTE(object):
                         # define freq range                        
                         fp_0 = fp - self.peak_thresholds['fq_delta']
                         fp_1 = fp + self.peak_thresholds['fq_delta']
-                        fq_0_pos = np.argmin(np.abs(freq-fp_0)) 
+                        fq_0_pos = np.argmin(np.abs(freq-fp_0))
                         fq_1_pos = np.argmin(np.abs(freq-fp_1))
 
                         # compute PSD mean, PD mean and PD std
@@ -748,6 +730,8 @@ class LTE(object):
                         if pd_peak_avg > self.peak_thresholds['degree_th'] and pd_peak_std < self.peak_thresholds['degree_std']:
                             peaks[t]['fq'] += [fp]
                             nro_peaks += 1
+
+                            # only when peak is well polairzed we add peak
                             peaks[t]['specgram'] += [sp_peak]
                             peaks[t]['degree'] += [pd_peak_avg]
 
@@ -833,9 +817,6 @@ class LTE(object):
         if not chan_list:
             raise ValueError('not chan available')
             
-        else:
-            chan = chan_list[0]
-
         if init_gui:
             from seisvo import LDE, default_LDE_dir
             from seisvo.plotting.gui.glte import plot_gui
@@ -860,15 +841,39 @@ class LTE(object):
                 else:
                     raise ValueError('lde should be LDE, string or None')
 
-            plot_gui(chan, self, starttime, endtime, interval, list_attr, lde=lde, **kwargs)
+            plot_gui(chan_list, self, starttime, endtime, interval, list_attr, lde=lde, **kwargs)
 
         else:
             from seisvo.plotting.base.lte import plotLTE, plt
             
-            fig = plt.figure(figsize=(12,9))
-            plotLTE(chan, fig, self, starttime, endtime, interval, list_attr, **kwargs)
+            fig = plt.figure(figsize=kwargs.get('figsize',(12,9)))
+            plte = plotLTE(chan_list, fig, self, starttime, endtime, interval, list_attr, **kwargs)
             
-            return fig
+            return plte
+    
+
+    def plot_peak_tevo(self, chan, list_attr, fq_range_dict, marker_dict={}, color_dict={}, starttime=None, endtime=None, fig=None, **kwargs):
+        
+        # example of dictionary inputs:
+        #  > fq_range_dict = dict(fq1:{'width': 
+        #                            ...
+
+        from seisvo.plotting.base.lte import plotDPeakTEVO
+            
+        attr_list = self.is_attr(list_attr, only_vectors=True)
+
+        if attr_list and self.stats.polar_degree:
+            chan_list = self.is_chan(chan)
+
+            if not starttime:
+                starttime = self.stats.starttime
+            
+            if not endtime:
+                endtime = self.stats.endtime
+
+            tevo = plotDPeakTEVO(self, starttime, endtime, chan_list, attr_list, fq_range_dict, fig, **kwargs)
+
+            return tevo.fig
 
 
     @staticmethod
@@ -1025,20 +1030,20 @@ class Peaks(LTE):
 
         self.total_dominant_peaks_, self.dominant_peaks_ = ans
         self.chan = chan
-        self.peak_thresholds = peak_thresholds
+        # self.peak_thresholds_ = self.peak_thresholds
 
         if not fq_range:
-            self.fq_range = lte.stats.fq_band
+            self.fq_range = self.stats.fq_band
         else:
             self.fq_range = fq_range
         
         if not starttime:
-            self.starttime = lte.stats.starttime
+            self.starttime = self.stats.starttime
         else:
             self.starttime = starttime
 
         if not endtime:
-            self.endtime = lte.stats.endtime
+            self.endtime = self.stats.endtime
         else:
             self.endtime = endtime
 
@@ -1376,8 +1381,7 @@ class Peaks(LTE):
             self.df_.to_json(json_file)
 
 
-    def get_dominant_peaks(self, fq_range):
-        
+    def get_dominant_peaks(self, fq_range):     
         dout = {}
         for t, tdict in self.dominant_peaks_.items():
             if tdict['fq']:
@@ -1411,21 +1415,7 @@ class Peaks(LTE):
         return dout
 
 
-    # PLOTTING
-    def plot_peak_tevo(self, fq_range_dict, marker_dict, color_dict):
-        if self.nro_ == 0:
-            raise ValueError ('no dominant frequencies to plot!')
-        
-        from seisvo.plotting.base.lte import plotDPeakTEVO
-            
-        attr_list = self.is_attr(attr_list, only_vectors=True)
-
-        if attr_list:
-            fig = plt.figure()
-            plotDPeakTEVO(self, attr_list, fq_range_dict, fig, marker_dict, color_dict)
-
-        return fig
-        
+    # PLOTTING    
 
     def plot_spec_pdf(self, show=True, **kwargs):
         if self.nro_ == 0:

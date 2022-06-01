@@ -2,6 +2,8 @@
 # coding=utf-8
 
 from __future__ import division
+import functools
+import multiprocessing
 
 import numpy as np
 from multitaper import MTSpec
@@ -10,6 +12,7 @@ from scipy import signal
 from obspy.signal.invsim import cosine_taper
 from seisvo.signal import freq_bins, _nearest_pow_2
 from seisvo.plotting import plot_gram
+from uritemplate import partial
 
 
 
@@ -77,6 +80,7 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
     taper = kwargs.get("taper", False)
     taper_p = kwargs.get("taper_p", 0.05)
     nfft = kwargs.get("nfft", 'uppest')
+    njobs = kwargs.get('njobs', multiprocessing.cpu_count()-2)
     npts = len(data)
 
     if avg_step:
@@ -95,6 +99,7 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
             dominant = 0
             energy = 0
 
+        data_split = []
         while npts_start + npts_step <= npts:
             data_n = data[npts_start:npts_start+npts_step]
             data_n_mean = np.nanmean(data_n[np.isfinite(data_n)])
@@ -103,20 +108,26 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
             if taper:
                 tap = cosine_taper(npts_step, p=taper_p)
                 data_n = data_n * tap
-
-            MTSn = MTSpec(data_n, dt=1/sample_rate, nfft=nfft_n, nw=time_bandwidth).spec.reshape(-1,)
             
-            psd_n = MTSn[fnptlo:fnpthi]
-            psd_avg += psd_n
-            
-            if drm_params:
-                centroid += get_centroid(freq_n, psd_n)
-                dominant += get_dominant(freq_n, psd_n)
-                energy += sum(psd_n)
+            data_split += [data_n]
 
             npts_start += npts_step - npts_olap
             N += 1
         
+        mtspec_func = functools.partial(MTSpec, dt=1/sample_rate, nfft=nfft_n, nw=time_bandwidth)
+
+        with multiprocessing.Pool(njobs) as p:
+            ans = list(p.map(mtspec_func, data_split))
+            
+            for n_ans in ans:
+                psd_n = n_ans.spec.reshape(-1,)[fnptlo:fnpthi]
+                psd_avg += psd_n
+                
+                if drm_params:
+                    centroid += get_centroid(freq_n, psd_n)
+                    dominant += get_dominant(freq_n, psd_n)
+                    energy += sum(psd_n)
+
         to_return = [psd_avg/N, freq_n]
 
         if drm_params:

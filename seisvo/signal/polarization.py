@@ -2,6 +2,7 @@
 # coding=utf-8
 
 import functools
+from lib2to3.pgen2.token import N_TOKENS
 import numpy as np
 import cmath as cm
 import multiprocessing
@@ -65,40 +66,43 @@ class PolarAnalysis(object):
             npts_olap = 0
 
         npts_start = 0
-        step = 0
+
+        data_split = []
+        N = 0
         while npts_start + self.npts_mov_avg <= self.npts:
             Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
             Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
             Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
-            ans = self.__process__(Zdata_n, Ndata_n, Edata_n)
-
-            self.polar_dgr += ans[0]
-
-            if self.full_analysis:
-                self.rect += ans[1]
-                self.azimuth += ans[2]
-                self.elevation += ans[3]
-
+            data_split += [[Zdata_n, Ndata_n, Edata_n]]
             npts_start += self.npts_mov_avg - npts_olap
-            step += 1
+            N += 1
         
-        self.polar_dgr /= step
-        self.rect /= step
-        self.azimuth /= step
-        self.elevation /= step
+        with multiprocessing.Pool(self.njobs) as p:
+            ans = list(p.map(self.__process__, data_split))
+
+            for n_ans in ans:
+                self.polar_dgr += n_ans[0]
+
+                if self.full_analysis:
+                    self.rect += n_ans[1]
+                    self.azimuth += n_ans[2]
+                    self.elevation += n_ans[3]
+
+        self.polar_dgr /= N
+        
+        if self.full_analysis:
+            self.rect /= N
+            self.azimuth /= N
+            self.elevation /= N
 
 
-    def __process__(self, Zdata, Ndata, Edata):
-        data = [Zdata, Ndata, Edata]
-
+    def __process__(self, data):
         # hermitian matrix
         cmatrix = np.zeros((3, 3, len(self.freq)), dtype='complex128')
         
         index_list = [(0,0),(1,1),(2,2),(0,1),(0,2),(1,2)]
         cross_spec_func = functools.partial(self.__cross_spec__, data)
-
-        with multiprocessing.Pool(self.njobs) as p:
-            cross_spec_ans = list(p.map(cross_spec_func, index_list))
+        cross_spec_ans = list(map(cross_spec_func, index_list))
 
         for csa, (i, j) in zip(cross_spec_ans, index_list):
             cmatrix[i,j,:] = csa
@@ -107,8 +111,7 @@ class PolarAnalysis(object):
 
         get_polar_degree = functools.partial(self.__polar_dgr__, cmatrix)
         index_list = range(len(self.freq))
-        with multiprocessing.Pool(self.njobs) as p:
-            polar_degree_ans = list(p.map(get_polar_degree, list(index_list)))
+        polar_degree_ans = list(map(get_polar_degree, list(index_list)))
 
         if self.full_analysis:
             polar_dgr = [ans[0] for ans in polar_degree_ans]
@@ -120,10 +123,10 @@ class PolarAnalysis(object):
             rect = np.array(list(map(get_rectiliniarity, z_list)))
             azimuth = np.array(list(map(get_azimuth, z_list)))
             elevation = np.array(list(map(get_elevation, z_list)))
-            return polar_dgr, rect, azimuth, elevation
+            return [polar_dgr, rect, azimuth, elevation]
         
         else:
-            return polar_dgr
+            return [polar_dgr]
 
 
     def __polar_dgr__(self, cmatrix, fq_idx):
