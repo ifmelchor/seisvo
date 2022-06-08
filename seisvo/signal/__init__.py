@@ -68,6 +68,24 @@ def time_bins(start_time, end_time, interval, olap):
     return int(n)
 
 
+
+def degree_mean(x, ambiguity180=False):
+    # convert to radian an computes sin(x)
+    xrad = np.array(x)*np.pi/180
+    
+    if ambiguity180:
+        xrad_mean = np.arctan(np.sin(xrad).sum()/np.abs(np.cos(xrad)).sum())
+        xrad_std = np.sin(xrad).std()
+
+    else:
+        # the ambiguity is for 360 degree
+        xrad_mean = np.arctan(np.sin(xrad).sum()/np.cos(xrad).sum())
+        xrad_std = np.sin(xrad).std()
+
+    return xrad_mean*180/np.pi, xrad_std*180/np.pi
+
+
+
 class SSteps(object):
     def __init__(self, start_time, end_time, window_length, overlap, **kwargs):
         """Class for fitting intervals in continuous data matching with window_length and overlap

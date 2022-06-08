@@ -77,16 +77,15 @@ class PolarAnalysis(object):
             npts_start += self.npts_mov_avg - npts_olap
             N += 1
         
-        with multiprocessing.Pool(self.njobs) as p:
-            ans = list(p.map(self.__process__, data_split))
+        ans = list(map(self.__process__, data_split))
 
-            for n_ans in ans:
-                self.polar_dgr += n_ans[0]
+        for n_ans in ans:
+            self.polar_dgr += n_ans[0]
 
-                if self.full_analysis:
-                    self.rect += n_ans[1]
-                    self.azimuth += n_ans[2]
-                    self.elevation += n_ans[3]
+            if self.full_analysis:
+                self.rect += n_ans[1]
+                self.azimuth += n_ans[2]
+                self.elevation += n_ans[3]
 
         self.polar_dgr /= N
         
@@ -102,7 +101,9 @@ class PolarAnalysis(object):
         
         index_list = [(0,0),(1,1),(2,2),(0,1),(0,2),(1,2)]
         cross_spec_func = functools.partial(self.__cross_spec__, data)
-        cross_spec_ans = list(map(cross_spec_func, index_list))
+        
+        with multiprocessing.Pool(self.njobs) as p:
+            cross_spec_ans = list(p.map(cross_spec_func, index_list))
 
         for csa, (i, j) in zip(cross_spec_ans, index_list):
             cmatrix[i,j,:] = csa
@@ -111,6 +112,7 @@ class PolarAnalysis(object):
 
         get_polar_degree = functools.partial(self.__polar_dgr__, cmatrix)
         index_list = range(len(self.freq))
+
         polar_degree_ans = list(map(get_polar_degree, list(index_list)))
 
         if self.full_analysis:

@@ -14,8 +14,8 @@ defaultLTE_color = get_colors('zesty')[1]
 
 
 default_labels = {
-    'energy':r'$e$'+r' [$m^2 \cdot s^{-2}$ dB]',
-    'specgram':r'PSD [$m^2 \cdot s^{-2}$/Hz dB]',
+    'energy':'Energy\n' + r' [dB//($m^2 s^{-2}$)]',
+    'specgram':'PSD\n' + r'[dB//($m^2 s^{-2}$/Hz)]',
     'degree':'PD',
     'rect':'R',
     'azimuth':r'$\Theta_H$ [$\degree$]',
@@ -145,7 +145,7 @@ class plotLTE(object):
         if attr == 'elevation':
             v_min = 0
             v_max = 90
-            cmap = 'twilight'
+            cmap = 'Spectral_r'
         
         return cmap, (v_min, v_max)
 
@@ -376,7 +376,7 @@ def plotPeaksSpecPDF(peak, show=True, **kwargs):
     fs = kwargs.get('fs', 10)
     ax.set_xlim(peak.fq_space_.min(), peak.fq_space_.max())
     ax.set_ylim(0, 1.1)
-    ax.set_ylabel('Normalized PDF($\mathcal{P}$)', fontsize=fs)
+    ax.set_ylabel('$P(\mathcal{P}_{wp}$)', fontsize=fs)
     ax.set_xlabel(r'$f$ [Hz]', fontsize=fs)
 
     ax.set_xticks([1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5])
@@ -426,7 +426,7 @@ def plotPeaksPDF(peak, n, show=True, **kwargs):
         print(' nothing to plot')
         return
     
-    grid = {'hspace':0.1, 'wspace':0.1, 'left':0.15, 'right':0.95, 'top':0.90, 'bottom':0.2}
+    grid = {'hspace':0.1, 'wspace':0.3, 'left':0.15, 'right':0.95, 'top':0.90, 'bottom':0.2}
     fig, axis = plt.subplots(1, n_axis, figsize=(n_axis*2,2.5), gridspec_kw=grid)
 
     fs = kwargs.get('fs', 10)
@@ -444,35 +444,39 @@ def plotPeaksPDF(peak, n, show=True, **kwargs):
             ax.fill_between(space[space>rect_th], pdf[np.where(space>rect_th)[0]], alpha=0.1, color='k')
             ax.set_xlim(0,1)
             ax.set_xlabel(r'R', fontsize=fs)
-            ax.set_xticks([0.25, 0.5, 0.75])
+            ax.set_xticks([0, 0.5, 1])
+            ax.set_ylabel(r'$P(\mathcal{R}_%s$)' %n, fontsize=fs)
             ax.set_title(r'$N_R$ = %s' % nPeak['rect']['n'])
         
         elif att == 'thH':
             ax.set_xlim(0,180)
             ax.set_xlabel(r'$\Theta_H$ [$\degree$]', fontsize=fs)
-            ax.set_xticks([45, 90, 135])
+            ax.set_xticks([0, 90, 180])
+            ax.set_ylabel(r'$P(\mathcal{H}_%s$)' %n, fontsize=fs)
             ax.set_title(r'$N_H$ = %s' % nPeak['thH']['n'])
 
         elif att == 'thV':
             ax.set_xlim(0,90)
+            ax.set_ylabel(r'$P(\mathcal{V}_%s$)' %n, fontsize=fs)
             ax.set_xlabel(r'$\Theta_V$ [$\degree$]', fontsize=fs)
-            ax.set_xticks([22, 45, 70])
+            ax.set_xticks([0, 45, 90])
             ax.set_title(r'$N_V$ = %s' % nPeak['thV']['n'])
         
         else:
             ax.set_xlim(-170,-110)
-            ax.set_xlabel(r'PSD [dB]', fontsize=fs)
-            ax.set_title(r'$N_T$ = %s' % nPeak['sp']['n'])
+            ax.set_xlabel('PSD\n' +r'[dB//(m$^2$s$^{-2}$/Hz)]', fontsize=fs)
+            ax.set_ylabel(r'$P(\mathcal{S}_%s$)' %n, fontsize=fs)
+            ax.set_title(r'$N_S$ = %s' % nPeak['sp']['n'])
         
         ax.set_ylim(0,1.1)
         ax.tick_params(axis='x', labelsize=fs)
         ax.set_yticks([0, 0.5, 1])
+        ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
         ax.grid(which='major', axis='both', ls='--', alpha=0.5)
         ax.grid(which='minor', axis='both', ls=':', alpha=0.25)
         
         if ax == axis[0]:
             ax.tick_params(axis='y', labelsize=fs)
-            ax.set_ylabel(r'Normalized PDF', fontsize=fs)
         else:
             ax.yaxis.set_major_formatter(mtick.NullFormatter())
     

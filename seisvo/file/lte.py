@@ -17,15 +17,16 @@ import multiprocessing
 from itertools import chain
 from functools import partial
 from tqdm import tqdm
-from scipy import signal
-from scipy.stats import gaussian_kde
+from scipy import signal, stats
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from obspy.core.util.attribdict import AttribDict
 from pyentrp import entropy as ent
 
+from seisvo.signal import degree_mean
 from seisvo.signal.polarization import PolarAnalysis
 from seisvo.signal.proba import get_PDF, get_KDE
+
 
 
 SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam']
@@ -543,7 +544,7 @@ class LTE(object):
             v_mean = x.mean()
 
             x_range = np.linspace(v_min, v_max, 500)
-            gkde = gaussian_kde(x)
+            gkde = stats.gaussian_kde(x)
             kde = gkde(x_range)
             v_mode = x_range[np.argmax(kde)]
 
@@ -751,7 +752,7 @@ class LTE(object):
                                 
                                 if rect_peak.any():
                                     rect_peak_avg, rect_peak_std = rect_peak.mean(), rect_peak.std()
-
+                                    
                                     if rect_peak_std < self.peak_thresholds['rect_std']:
                                         rect_peak_val = rect_peak_avg
 
@@ -761,7 +762,9 @@ class LTE(object):
                                             tV_peak = tV_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])]
                                             
                                             if tH_peak.any():
-                                                tH_peak_avg, tH_peak_std = tH_peak.mean(), tH_peak.std()
+                                                tH_peak_rad = tH_peak*np.pi/180
+                                                tH_peak_avg = stats.circmean(tH_peak_rad, high=np.pi)*180/np.pi
+                                                tH_peak_std = stats.circstd(tH_peak_rad, high=np.pi)*180/np.pi
                                                 
                                                 if tH_peak_std <= self.peak_thresholds['azimuth_std']:
                                                     tH_peak_val = tH_peak_avg
