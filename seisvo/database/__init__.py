@@ -562,7 +562,7 @@ class LDE(_DataBase):
 
 
     def __getitem__(self, eid):
-        self.get(eid)
+        return self.get(eid)
     
 
     def get(self, eid):

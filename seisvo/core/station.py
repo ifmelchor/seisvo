@@ -3,6 +3,7 @@
 
 import os
 import utm
+import time as ttime
 import datetime as dt
 import numpy as np
 from glob import glob
@@ -346,7 +347,7 @@ class Station(object):
 
                     if isinstance(self.resp_, list):
                         for resp in self.resp_:
-                            if resp.endtime > t2:
+                            if resp.endtime > t2 and resp.starttime < t1:
                                 st = st.remove_response2(resp_dict=resp, **rrkwargs)
                             
                     else:
@@ -401,10 +402,10 @@ class Station(object):
         pa = PolarAnalysis(z_data.get_data(detrend=True), n_data, e_data, sampling_rate, npts_mov_avg=npts_mov_avg, olap=olap, fq_band=fq_band, full_analysis=full_analysis, **pa_kwargs)
 
         if full_analysis:
-            return pa.freq, pa.polar_dgr, pa.rect, pa.azimuth, pa.elevation
+            return pa.freq, pa.degree, pa.rect, pa.azimuth, pa.elevation
         
         else:
-            return pa.freq, pa.polar_dgr
+            return pa.freq, pa.degree
 
 
     def lte(self, starttime, endtime, channel=None, interval=20, int_olap=0.0, step=1, step_olap=0.0, **kwargs):

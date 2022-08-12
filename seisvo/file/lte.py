@@ -23,7 +23,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from obspy.core.util.attribdict import AttribDict
 from pyentrp import entropy as ent
 
-from seisvo.signal import degree_mean
+import time as ttime
 from seisvo.signal.polarization import PolarAnalysis
 from seisvo.signal.proba import get_PDF, get_KDE
 
@@ -69,7 +69,7 @@ default_bandwidth = {
 default_peak_thresholds = {
     'fq_delta': 0.05,
     'specgram_th': 0.7,
-    'degree_th': 0.8,
+    'degree_th': 0.7,
     'rect_th': 0.7,
     'degree_std':0.1,
     'rect_std':0.1,
@@ -421,6 +421,7 @@ class LTE(object):
                                 taper_p = kwargs.get('taper_p', 0.05),
                                 time_bandwidth = self.stats.time_bandwidth
                                 )
+
                             pa = PolarAnalysis(z_data, n_data, e_data, self.stats.sample_rate, npts_mov_avg=npts_mov_avg, olap=self.stats.step_olap, fq_band=self.stats.fq_band, full_analysis=self.stats.polar_analysis, **pa_kwargs)
                         
                         except Exception as exc:
@@ -429,7 +430,7 @@ class LTE(object):
                             pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
                         
                         if pa:
-                            save_dict['polar']['degree'] = pa.polar_dgr
+                            save_dict['polar']['degree'] = pa.degree
 
                             if self.stats.polar_analysis:
                                 save_dict['polar']['rect'] = pa.rect
@@ -470,7 +471,9 @@ class LTE(object):
         
         else:
             multichanel = False
-
+        
+        rout = kwargs.get('remove_outlier')
+        
         for attr in attr_list:
             group = get_group(attr)
 
@@ -478,17 +481,42 @@ class LTE(object):
                 if group == 'polar':
                     data = f.get('polar')[attr][n_0:n_f,:]
                     freq = f.get('freq')[:]
+
+                    # remove outlines
+                    if rout:
+                        for chan in chan_list:
+                            if isinstance(rout, (float, int)):
+                                spikes = self.get_outlier(chan, rout, n_0, n_f)
+                            else:
+                                spikes = None
+                            
+                        if isinstance(spikes, np.ndarray):
+                            data[spikes] = np.nan    
+
                     dout[attr] = (data, freq)
                 
                 else:
                     for chan in chan_list:
+
+                        if isinstance(rout, (float, int)):
+                            spikes = self.get_outlier(chan, rout, n_0, n_f)
+                        else:
+                            spikes = None
+                                
                         if self.is_matrix(attr):
                             data = f.get(chan)[group][attr][n_0:n_f,:]
                             freq = f.get('freq')[:]
+
+                            if isinstance(spikes, np.ndarray):
+                                data[spikes] = np.nan
+
                             to_return = (data, freq)
                         
                         else:
                             data = f.get(chan)[group][attr][n_0:n_f]
+                            if isinstance(spikes, np.ndarray):
+                                data[spikes] = np.nan
+                            
                             to_return = data
 
                         if multichanel:
@@ -497,8 +525,16 @@ class LTE(object):
                         else:
                             dout[attr] = to_return
     
-        return time, dout
+        return time, dout    
+
+
+    def get_outlier(self, chan, threshold, n0, nf):
+        with h5py.File(self.lte_file, "r") as f:
+            erg = 10*np.log10(f.get(chan)['spectral']['energy'][n0:nf])
+            outliers = np.where(erg > threshold)[0]
         
+        return outliers
+
 
     def get_time(self, starttime=None, endtime=None, **kwargs):
         
@@ -608,17 +644,17 @@ class LTE(object):
 
         if self.is_matrix(attr):
             data = dout[attr][0]
-            dmin = kwargs.get('y_min', data.min())
-            dmax = kwargs.get('y_max', data.max())
-
             freq = dout[attr][1]
 
             masked_data = np.ma.masked_invalid(data)
-            data = np.ma.compress_cols(masked_data)
-            
+            data = np.ma.compress_rowcols(masked_data, axis=0)
+
             if attr == 'specgram':
                 data = 10*np.log10(data)
             
+            dmin = kwargs.get('y_min', data.min())
+            dmax = kwargs.get('y_max', data.max())
+
             y_space = np.linspace(dmin, dmax, y_size).reshape(y_size, 1)
             pdf = get_PDF(data, y_space, bandwidth, **kwargs)
         
@@ -638,7 +674,7 @@ class LTE(object):
             return y_space.reshape(y_size,), pdf
 
 
-    def __get_peaks__(self, chan, starttime=None, endtime=None, fq_range=(), peak_distance=5, peak_thresholds={}):
+    def __get_peaks__(self, chan, starttime=None, endtime=None, fq_range=(), peak_distance=5, peak_thresholds={}, **kwargs):
         """
 
         Return peaks as describes in Melchor et al 2021
@@ -682,7 +718,8 @@ class LTE(object):
         if self.stats.polar_analysis:
             attr_list += ['elevation', 'rect', 'azimuth']
         
-        time, dout = self.get(attr_list, chan=chan, starttime=starttime, endtime=endtime)
+        time, dout = self.get(['energy']+attr_list, chan=chan, starttime=starttime, endtime=endtime, **kwargs)
+        erg = dout['energy']
         sxx, freq = dout['specgram']
         pd, _ = dout['degree']
 
@@ -784,8 +821,8 @@ class LTE(object):
         return nro_peaks, peaks
 
 
-    def get_Peaks(self, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}):
-        return Peaks(self, chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
+    def get_Peaks(self, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}, **kwargs):
+        return Peaks(self, chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds, **kwargs)
 
 
     def plot(self, chan, list_attr, starttime=None, endtime=None, interval=None, init_gui=False, lde=None, **kwargs):
@@ -1019,7 +1056,7 @@ class LTE(object):
 
 
 class Peaks(LTE):
-    def __init__(self, lte, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}):
+    def __init__(self, lte, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}, **kwargs):
 
         if isinstance(lte, str):
             super().__init__(lte)
@@ -1029,7 +1066,7 @@ class Peaks(LTE):
         else:
             raise ValueError ('lte should be string with lte file path or lte object')
 
-        ans = super().__get_peaks__(chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds)
+        ans = super().__get_peaks__(chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds, **kwargs)
 
         self.total_dominant_peaks_, self.dominant_peaks_ = ans
         self.chan = chan
@@ -1186,7 +1223,7 @@ class Peaks(LTE):
 
         with tqdm(total=self.nro_) as pbar:
             for f in range(1, self.nro_+1):
-                dfq = self.peaks_[f]['fq'] # characteristic peak
+                dfq = self.peaks_[f]['fq'] # dominant frequency
                 sp = []
                 pd = []
                 
@@ -1215,8 +1252,8 @@ class Peaks(LTE):
                     th_H = np.array([th_H_k for th_H_k in th_H if th_H_k])
                     th_V = np.array([th_V_k for th_V_k in th_V if th_V_k])
                 
-                # first condition: number of dominant peaks.
-                if sp.shape[0] > 10*self.n_sample_min:
+                # if the number of samples is low remove frequency.
+                if sp.shape[0] > self.n_sample_min:
                 
                     sp_kde = get_KDE(sp.reshape(-1,1), self.bandwidth['specgram'])
 
@@ -1234,7 +1271,6 @@ class Peaks(LTE):
                                 'n':len(sp),
                                 'kde':sp_kde
                             }
-
                     # second condition: number of dominant peaks with high polarization degree.
                     if rect.shape[0] > self.n_sample_min:
                         rect_kde = get_KDE(rect.reshape(-1,1), self.bandwidth['rect'])
@@ -1295,6 +1331,9 @@ class Peaks(LTE):
                                 'n':len(th_V),
                                 'kde':thV_kde
                             }
+                else:
+                    del self.peaks_[f]
+
                     pbar.update()
 
 

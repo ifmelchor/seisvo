@@ -7,13 +7,12 @@ import multiprocessing
 
 import numpy as np
 from multitaper import MTSpec
+from mtspec import mtspec
 from scipy import signal
 
 from obspy.signal.invsim import cosine_taper
 from seisvo.signal import freq_bins, _nearest_pow_2
 from seisvo.plotting import plot_gram
-from uritemplate import partial
-
 
 
 def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_band=(), date_list=None, **kwargs):
@@ -114,13 +113,15 @@ def power_density_spectrum(data, sample_rate, fq_band=(), avg_step=None, olap=0,
             npts_start += npts_step - npts_olap
             N += 1
         
-        mtspec_func = functools.partial(MTSpec, dt=1/sample_rate, nfft=nfft_n, nw=time_bandwidth)
+        # mtspec_func = functools.partial(MTSpec, dt=1/sample_rate, nfft=nfft_n, nw=time_bandwidth)
+        mtspec_func = functools.partial(mtspec, delta=1/sample_rate, nfft=nfft_n, time_bandwidth=time_bandwidth)
 
         with multiprocessing.Pool(njobs) as p:
             ans = list(p.map(mtspec_func, data_split))
             
             for n_ans in ans:
-                psd_n = n_ans.spec.reshape(-1,)[fnptlo:fnpthi]
+                # psd_n = n_ans.spec.reshape(-1,)[fnptlo:fnpthi] # this is for MTSpec
+                psd_n = n_ans[0].reshape(-1,)[fnptlo:fnpthi] # this is for mtspec
                 psd_avg += psd_n
                 
                 if drm_params:
