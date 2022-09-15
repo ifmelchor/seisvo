@@ -490,7 +490,7 @@ class plotDPeakTEVO(object):
     def __init__(self, lte, starttime, endtime, chan_list, attr_list, fq_range_dict, fig, **kwargs):
 
         if not fig:
-            self.fig = plt.figure(figsize=(8,9))
+            self.fig = plt.figure(figsize=kwargs.get('figsize', (8,9)))
         else:
             self.fig = fig
         
@@ -508,6 +508,10 @@ class plotDPeakTEVO(object):
 
         self.set_frame()
         self.plot(**kwargs)
+
+        if kwargs.get('title', None):
+            self.axes[0].set_title(kwargs.get('title'))
+
         self.fig.align_ylabels()
 
 
@@ -521,6 +525,7 @@ class plotDPeakTEVO(object):
             }
         nrows = len(self.attr_list) + 1
         self.axes = self.fig.subplots(nrows, 1, gridspec_kw=gridspec_dict)
+        self.axes[-1].set_xlabel('Time [hr]')
 
 
     def plot(self, **kwargs):
@@ -533,13 +538,28 @@ class plotDPeakTEVO(object):
             scalar_data = dout[self.top_attr]
 
         self.axes[0].plot(time, scalar_data, color='k')
-        self.axes[0].set_ylabel(default_labels.get(self.top_attr, self.top_attr))
 
         # define the limits
-        prc5 = np.percentile(scalar_data, 1)
-        prc95 = np.percentile(scalar_data, 99)
-        self.axes[0].set_ylim(prc5, prc95)
+        y_lim = kwargs.get('y_lim', None)
+        y_ticks = kwargs.get('y_ticks', None)
+        y_label = kwargs.get('y_label', True)
 
+        if y_label:
+            self.axes[0].set_ylabel(default_labels.get(self.top_attr, self.top_attr))
+        
+        if y_lim:
+            self.axes[0].set_ylim(y_lim)
+        else:
+            prc5 = np.percentile(scalar_data[np.isfinite(scalar_data)], 1)
+            prc95 = np.percentile(scalar_data[np.isfinite(scalar_data)], 99)
+            self.axes[0].set_ylim(prc5, prc95)
+        
+        if y_ticks:
+            self.axes[0].set_yticks(y_ticks)
+
+        self.axes[0].yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+        self.axes[0].xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+        
         show_ylabel = True
         # add legend
         legend_ = {'h':[], 't':[]}
@@ -547,7 +567,6 @@ class plotDPeakTEVO(object):
                 peak = self.lte.get_Peaks(chan, starttime=self.starttime, endtime=self.endtime, peak_thresholds=kwargs.get('peak_thresholds', {}))
                 
                 for fq, fq_dict in self.fqs.items():
-                    
                     fq_range = [fq-fq_dict['width'], fq+fq_dict['width']]
                     fq_peaksdict = peak.get_dominant_peaks(fq_range)
                     fq_color = fq_dict.get('color', 'k')
@@ -562,24 +581,32 @@ class plotDPeakTEVO(object):
                             ax = self.axes[n+1]
 
                             if data:
-                                h = ax.scatter([time_t]*len(data), data, color=fq_color, ec='k', marker=fq_marker, alpha=0.7)
+                                h = ax.scatter([time_t]*len(data), data, color=fq_color, ec='k', marker=fq_marker, alpha=0.5)
 
                                 if fq_label not in legend_['t']:
                                     legend_['h'] += [h]
                                     legend_['t'] += [fq_label]
 
                             if show_ylabel:
-                                ax.set_ylabel(default_labels.get(attr, attr))
+
+                                if y_label:
+                                    ax.set_ylabel(default_labels.get(attr, attr))
 
                                 if attr == 'azimuth':
                                     ax.set_ylim(0, 180)
                                     ax.invert_yaxis()
+                                    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+                                    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
                             
                                 if attr in ('degree', 'rect'):
                                     ax.set_ylim(0, 1)
+                                    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+                                    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
                             
                                 if attr == 'elevation':
                                     ax.set_ylim(0, 90)
+                                    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+                                    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
                     
                         show_ylabel = False
 
@@ -588,7 +615,7 @@ class plotDPeakTEVO(object):
         [ax.xaxis.set_major_formatter(mtick.NullFormatter()) for ax in self.axes[:-1]]
         [ax.grid(which='both', axis='both', color='k', alpha=0.35, ls='--', zorder=1) for ax in self.axes]
 
-        self.fig.legend(legend_['h'], legend_['t'], ncol=1)
+        self.fig.legend(legend_['h'], legend_['t'], title=r'$f$ [Hz]', ncol=1)
 
 
 

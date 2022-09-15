@@ -221,41 +221,47 @@ class Episode(object):
         self.duration = self.row_.duration
         self.endtime = self.row_.starttime + dt.timedelta(hours=self.row_.duration)
 
-        if os.path.isfile(self.row_.lte_file):
+        if self.row_.lte_file and os.path.isfile(self.row_.lte_file):
             self.main_lte = sfl.LTE(self.row_.lte_file)
         else:
-            print('warn: main lte file not found!')
+            print('warn [ID %i]: main lte file not found' %self.id)
         
-        if os.path.isfile(self.row_.lte_file_sup):
+        if self.row_.lte_file_sup and os.path.isfile(self.row_.lte_file_sup):
             self.sup_lte = sfl.LTE(self.row_.lte_file_sup)
 
 
-    def compute_sup_lte(self, dir_out=None, time_step=1, sample_rate=None, avg_step=None, **ltekwargs):
+    def compute_sup_lte(self, channel, interval, int_olap=0.0, step=1, step_olap=0.0, out_dir=None, replace=True, **ltekwargs):
 
-        if not dir_out:
-            dir_out = os.path.join(__seisvo__, 'database', self.row_.network, 'sup')
+        if not out_dir:
+            out_dir = os.path.join(__seisvo__, 'database', self.row_.network, 'sup')
 
-        if not os.path.isdir(dir_out):
-            os.makedirs(dir_out)
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
             
-        file_name = '%s_%i.lte' % (self.lde.id, self.id)
-        file_name_path = os.path.join(dir_out, file_name)
+        file_name = '%s_%i.lte' % (self.station_.stats.id, self.id)
+        file_name_path = os.path.join(out_dir, file_name)
 
         if os.path.isfile(file_name_path):
-            os.remove(file_name_path)
-            self.lde.__update_lte_sup__(self.id, None)
 
+            if replace:
+                os.remove(file_name_path)
+                self.lde.__update_lte_sup__(self.id, None)
+            else:
+                print('File exist. Do nothing.')
+                return None
+
+        ltekwargs['polar_analysis'] = True
         ltekwargs['file_name'] = file_name
-        ltekwargs['out_dir'] = dir_out
+        ltekwargs['out_dir'] = out_dir
 
         self.station_.lte(
-            self.starttime, 
-            self.endtime, 
-            time_step,
-            polargram=True, 
-            sample_rate=sample_rate, 
-            avg_step=avg_step,
-            polarization_attr=True, 
+            self.starttime,
+            self.endtime,
+            channel=channel,
+            interval=interval,
+            int_olap=int_olap,
+            step=step,
+            step_olap=step_olap,
             **ltekwargs)
 
         self.lde.__update_lte_sup__(self.id, file_name_path)

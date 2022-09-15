@@ -113,12 +113,14 @@ class SSteps(object):
             raise ValueError ('interval must be smaller than total time')
 
         self.overlap = overlap
+        self.prct_overlap = float(overlap/window_length)
+        self.prct_advance = 1 - self.prct_overlap
         self.window_length = window_length
         self.sample_rate = kwargs.get('sample_rate', 100)
         
         # default interval
         self.make_interval(default_interval)
-        self.fit(best_interval=False)
+        self.fit(**kwargs)
     
 
     def make_interval(self, interval):
@@ -200,14 +202,14 @@ class SSteps(object):
                 break
 
 
-    def fit(self, best_interval=True, interval_range=(15,30), verbose=False):
+    def fit(self, fit_interval=(15,30), verbose=False):
         self.steps()
         self.last_interval()
         self.last_intervalsetps()
         self.last_window()
 
-        if best_interval:
-            self.fit_interval(interval_range, verbose)
+        if fit_interval:
+            self.fit_interval(fit_interval, verbose)
 
 
     def total_steps(self):
@@ -221,21 +223,37 @@ class SSteps(object):
 
     def print(self):
         print('')
-        print('    -------------------------------')
+        print(f'{"Start time":>25s} :', self.start_time)
+        print(f'{"End time":>25s} :', self.end_time)
+        print('    --------------------------------------------')
+        
         for k, v in [
-            ('total_time [min]', self.total_time),
-            ('interval [min]', self.interval_.total_seconds()/60),
-            ('nro_intervals', self.nro_intervals),
-            ('window_length [sec]', self.window_length),
-            ('last_window_length [sec]', self.last_window_),
-            ('overlap [sec]', self.overlap),
-            ('steps_per_interval', self.steps_),
-            ('steprest_per_interval', self.rest_),
-            ('last_interval [min]', self.last_interval_.total_seconds()/60),
-            ('last_interval_steps', self.laststeps_),
-            ('last_interval_rest', self.lastrest_),
+            (f'{"total_time [min]":>25s}',         self.total_time),
+            (f'{"interval [min]":>25s}',           self.interval_.total_seconds()/60),
+            (f'{"nro_intervals":>25s}',            self.nro_intervals)]:
+            print(f'{k} :', v)
+        print('    --------------------------------------------')
+        
+        for k, v in [
+            (f'{"window_length [sec]":>25s}',      self.window_length),
+            (f'{"last_window_length [sec]":>25s}', self.last_window_),
+            (f'{"overlap [sec]":>25s}',            self.overlap),
+            (f'{"overlap [%]":>25s}',              self.prct_overlap),
+            (f'{"advance [%]":>25s}',              self.prct_advance)]:
+            print(f'{k} :', v)
+        print('    --------------------------------------------')
+        
+        for k, v in [
+            (f'{"steps_per_interval":>25s}',       self.steps_),
+            (f'{"steprest_per_interval":>25s}',    self.rest_),
+            (f'{"last_interval [min]":>25s}',      self.last_interval_.total_seconds()/60),
+            (f'{"last_interval_steps":>25s}',      self.laststeps_),
+            (f'{"last_interval_rest":>25s}',       self.lastrest_),
             ]:
-            print(f'{k:>25s} :', v)
-        print('    -------------------------------')
+            print(f'{k} :', v)
+        
+        print('    --------------------------------------------')
+        
         print(f'{"total_steps":>25s} :', self.total_steps())
+        
         print('')

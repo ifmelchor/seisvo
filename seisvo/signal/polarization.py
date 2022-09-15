@@ -8,7 +8,8 @@ import cmath as cm
 import multiprocessing
 from seisvo.signal import freq_bins
 from seisvo.signal.spectrum import cosine_taper, MTSpec
-
+from mtspec import mtspec
+import time as ttime
 
 class PolarAnalysis(object):
     def __init__(self, Zdata, Ndata, Edata, sample_rate, npts_mov_avg=None, olap=0.0, fq_band=(0.5, 10),full_analysis=False, **kwargs):
@@ -50,13 +51,13 @@ class PolarAnalysis(object):
 
 
     def fit(self):
-        msize = (len(self.freq),)
-        self.polar_dgr = np.zeros(msize, dtype='float64')
+        # msize = (len(self.freq),)
+        # self.degree = np.zeros(msize, dtype='float64')
         
-        if self.full_analysis:
-            self.azimuth = np.zeros(msize, dtype='float64')
-            self.elevation = np.zeros(msize, dtype='float64')
-            self.rect = np.zeros(msize, dtype='float64')
+        # if self.full_analysis:
+        #     self.azimuth = np.zeros(msize, dtype='float64')
+        #     self.elevation = np.zeros(msize, dtype='float64')
+        #     self.rect = np.zeros(msize, dtype='float64')
 
         if self.npts_mov_avg:
             npts_olap = int(self.npts_mov_avg*self.olap_step)
@@ -68,43 +69,49 @@ class PolarAnalysis(object):
         npts_start = 0
 
         data_split = []
-        N = 0
         while npts_start + self.npts_mov_avg <= self.npts:
             Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
             Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
             Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
             data_split += [[Zdata_n, Ndata_n, Edata_n]]
             npts_start += self.npts_mov_avg - npts_olap
-            N += 1
         
-        ans = list(map(self.__process__, data_split))
+        self.n = len(data_split)
 
-        for n_ans in ans:
-            self.polar_dgr += n_ans[0]
+        # for data in data_split:
+        ans = self.__process__(data_split)
 
-            if self.full_analysis:
-                self.rect += n_ans[1]
-                self.azimuth += n_ans[2]
-                self.elevation += n_ans[3]
+        # for n_ans in ans:
+        self.degree = np.array(ans[0])
 
-        self.polar_dgr /= N
-        
         if self.full_analysis:
-            self.rect /= N
-            self.azimuth /= N
-            self.elevation /= N
+            self.rect = np.array(ans[1])
+            self.azimuth = np.array(ans[2])
+            self.elevation = np.array(ans[3])
+
+        # self.degree /= self.n
+        
+        # if self.full_analysis:
+        #     self.rect /= self.n
+        #     self.azimuth /= self.n
+        #     self.elevation /= self.n
 
 
     def __process__(self, data):
-        # hermitian matrix
-        cmatrix = np.zeros((3, 3, len(self.freq)), dtype='complex128')
-        
-        index_list = [(0,0),(1,1),(2,2),(0,1),(0,2),(1,2)]
+        """
+        This code computes the averaged cross-spectral hermitian matrix and compute polarization attributes.
+
+        data is a list of lists, on which each list contains Z, N, E data.
+        """
+
+        # compute cross-spectral elements
         cross_spec_func = functools.partial(self.__cross_spec__, data)
-        
+        index_list = [(0,0),(1,1),(2,2),(0,1),(0,2),(1,2)]
         with multiprocessing.Pool(self.njobs) as p:
             cross_spec_ans = list(p.map(cross_spec_func, index_list))
 
+        # build hermitian matrix
+        cmatrix = np.zeros((3, 3, len(self.freq)), dtype='complex128')
         for csa, (i, j) in zip(cross_spec_ans, index_list):
             cmatrix[i,j,:] = csa
             if i != j:
@@ -113,7 +120,8 @@ class PolarAnalysis(object):
         get_polar_degree = functools.partial(self.__polar_dgr__, cmatrix)
         index_list = range(len(self.freq))
 
-        polar_degree_ans = list(map(get_polar_degree, list(index_list)))
+        with multiprocessing.Pool(self.njobs) as p:
+            polar_degree_ans = list(p.map(get_polar_degree, list(index_list)))
 
         if self.full_analysis:
             polar_dgr = [ans[0] for ans in polar_degree_ans]
@@ -143,30 +151,48 @@ class PolarAnalysis(object):
             return polar_dgr
 
 
+    def __cross_spec_xy__(self, data_t, n, k):
+            xdata = data_t[n]
+            ydata = data_t[k]
+
+            if self.taper:
+                tap = cosine_taper(self.npts, p=self.taper_p)
+                xdata = xdata * tap
+                ydata = ydata * tap
+
+            # using mtspec is more rapid that MTSpec because it is a fortran wrapper
+
+            # MTSx = MTSpec(xdata, dt=float(1/self.sample_rate), nfft=self.nfft, nw=self.time_bandwidth)
+            # xTrue = MTSx.yk
+            x = mtspec(data=xdata, delta=float(1/self.sample_rate), nfft=self.nfft, time_bandwidth=self.time_bandwidth, optional_output=True)[3]
+            # MTSy = MTSpec(ydata, dt=float(1/self.sample_rate), nfft=self.nfft, nw=self.time_bandwidth)
+            # y = MTSy.yk
+            y = mtspec(data=ydata, delta=float(1/self.sample_rate), nfft=self.nfft, time_bandwidth=self.time_bandwidth, optional_output=True)[3]
+        
+            nro_tapers = int(2* self.time_bandwidth) - 1
+            psd_xy_t = np.zeros((len(self.freq),), dtype='complex128')
+            
+            for nt in range(nro_tapers):
+                psd_xy_t += x[self.fq_pos[0]:self.fq_pos[1], nt] * np.conj(y[self.fq_pos[0]:self.fq_pos[1], nt])
+        
+            return psd_xy_t
+        
+
     def __cross_spec__(self, data, idx):
-        delta = float(1/self.sample_rate)
-
-        n, k = idx
-        xdata = data[n]
-        ydata = data[k]
+        # data is a list os lists
         
-        if self.taper:
-            tap = cosine_taper(self.npts, p=self.taper_p)
-            xdata = xdata * tap
-            ydata = ydata * tap
-
-        MTSx = MTSpec(xdata, dt=delta, nfft=self.nfft, nw=self.time_bandwidth)
-        x = MTSx.yk
-        MTSy = MTSpec(ydata, dt=delta, nfft=self.nfft, nw=self.time_bandwidth)
-        y = MTSy.yk
-
-        psd_xy = np.zeros((len(self.freq),), dtype='complex128')
+        fxy = functools.partial(self.__cross_spec_xy__, n=idx[0], k=idx[1])
+        csans = list(map(fxy, data))
         
-        nro_tapers = int(2* self.time_bandwidth) - 1
-        for k in range(nro_tapers):
-            psd_xy += x[self.fq_pos[0]:self.fq_pos[1], k] * np.conj(y[self.fq_pos[0]:self.fq_pos[1], k])
+        if self.n > 1:
+            psd_xy = np.zeros((len(self.freq),), dtype='complex128')
+            for ans in csans:
+                psd_xy += ans
+            
+            return psd_xy/self.n # mov average cross spectral element
         
-        return psd_xy
+        else:
+            return csans[0] # cross spectral element
 
 
 def rotate(z):

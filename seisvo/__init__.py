@@ -4,7 +4,7 @@
 import os
 
 try:
-    __seisvo__ = os.environ["seisvo_path"]
+    __seisvo__ = os.environ["SEISVO_PATH"]
     LDE_PATH = os.path.join(__seisvo__, 'database', 'lde')
     LTE_PATH = os.path.join(__seisvo__, 'lte')
     NET_PATH = os.path.join(__seisvo__, 'networks')
@@ -19,5 +19,6 @@ from .core.station import Station
 from .file.lte import LTE
 from .file.air import AiR
 from .database import SDE, LDE
+from .signal import SSteps
 
 
