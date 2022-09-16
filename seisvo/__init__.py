@@ -4,7 +4,7 @@
 import os
 
 try:
-    __seisvo__ = os.environ["seisvo_path"]
+    __seisvo__ = os.environ["SEISVO_PATH"]
     LDE_PATH = os.path.join(__seisvo__, 'database', 'lde')
     LTE_PATH = os.path.join(__seisvo__, 'lte')
     NET_PATH = os.path.join(__seisvo__, 'networks')

@@ -760,6 +760,7 @@ class LTE(object):
                         fq_0_pos = np.argmin(np.abs(freq-fp_0))
                         fq_1_pos = np.argmin(np.abs(freq-fp_1))
 
+
                         # compute PSD mean, PD mean and PD std
                         sp_peak = sxx_t[fq_0_pos:fq_1_pos].mean()
                         pd_peak = pd_t[fq_0_pos:fq_1_pos]
