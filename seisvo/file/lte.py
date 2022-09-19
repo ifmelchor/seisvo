@@ -705,11 +705,12 @@ class LTE(object):
                 self.peak_thresholds[key] = peak_thresholds.get(key)
                 
         # plot model parameters
-        print(f'\n  File: {os.path.basename(self.lte_file)}')
-        print('  ----- Model param ------')
-        for key, item in self.peak_thresholds.items():
-            print(f'  {key:>10}     ', item)
-        print('  ------------------------\n')
+        if kwargs.get("verbose", True):
+            print(f'\n  File: {os.path.basename(self.lte_file)}')
+            print('  ----- Model param ------')
+            for key, item in self.peak_thresholds.items():
+                print(f'  {key:>10}     ', item)
+            print('  ------------------------\n')
 
         if not fq_range:
             fq_range = self.stats.fq_band
@@ -736,7 +737,8 @@ class LTE(object):
         sxx = 10*np.log10(sxx)
         total_time = len(time)
         peaks = {}
-        nro_peaks = 0
+        nro_Wpeaks = 0
+        nro_Lpeaks = 0
         with tqdm(total=total_time) as pbar:
             for t in range(total_time):
                 sxx_t = sxx[t, fq0:fq1+1]
@@ -768,7 +770,7 @@ class LTE(object):
 
                         if pd_peak_avg > self.peak_thresholds['degree_th'] and pd_peak_std < self.peak_thresholds['degree_std']:
                             peaks[t]['fq'] += [fp]
-                            nro_peaks += 1
+                            nro_Wpeaks += 1
 
                             # only when peak is well polairzed we add peak
                             peaks[t]['specgram'] += [sp_peak]
@@ -798,6 +800,7 @@ class LTE(object):
                                             
                                             tH_peak = tH_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])]
                                             tV_peak = tV_peak[np.where(rect_peak > self.peak_thresholds['rect_th'])]
+                                            nro_Lpeaks += 1
                                             
                                             if tH_peak.any():
                                                 tH_peak_rad = tH_peak*np.pi/180
@@ -819,11 +822,64 @@ class LTE(object):
 
                 pbar.update()
         
-        return nro_peaks, peaks
+        return (nro_Wpeaks, nro_Lpeaks), peaks
 
 
     def get_Peaks(self, chan, starttime=None, endtime=None, fq_range=(), peak_thresholds={}, **kwargs):
         return Peaks(self, chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds, **kwargs)
+    
+
+    def get_WLpeaks(self, time_length, file_out=None, chan_list=None, starttime=None, endtime=None, fq_range=(), peak_thresholds={}):
+
+        # check starttime and endtime
+        if starttime:
+            start_time = starttime
+            assert start_time >= self.stats.starttime, "start_time error: check lte file"
+        else:
+            start_time = self.stats.starttime
+        
+        if endtime:
+            end_time = endtime
+            assert end_time <= self.stats.endtime, "end_time error: check lte file"
+        else:
+            end_time = self.stats.endtime
+
+        time_window = dt.timedelta(minutes=time_length)
+        nro_intervals = int(((end_time-start_time).total_seconds()/60) / time_length)
+
+        nro_Wpeaks = np.empty(nro_intervals)
+        nro_Lpeaks = np.empty(nro_intervals)
+        time = []
+
+        if not chan_list:
+            chan_list = self.stats.channel
+
+        for n in range(0, nro_intervals):
+            start = start_time + dt.timedelta(minutes=n*time_length)
+            end = start + time_window
+
+            nro_wpeak_n = 0
+            nro_lpeak_n = 0
+            for chan in chan_list:
+                pks, _ = self.__get_peaks__(chan, starttime=start, endtime=end, fq_range=fq_range, peak_thresholds=peak_thresholds, verbose=False)
+                nro_wpeak_n += pks[0]
+                nro_lpeak_n += pks[1]
+            
+            time += [start]
+            nro_Wpeaks[n] = nro_wpeak_n
+            nro_Lpeaks[n] = nro_lpeak_n
+
+        data = {
+            "time":time,
+            "NW": nro_Wpeaks,
+            "NL": nro_Lpeaks
+            }
+
+        if file_out:
+            df = pd.DataFrame(data)
+            df.to_csv(f'{file_out}.csv')
+        
+        return data
 
 
     def plot(self, chan, list_attr, starttime=None, endtime=None, interval=None, init_gui=False, lde=None, **kwargs):
@@ -1069,7 +1125,7 @@ class Peaks(LTE):
 
         ans = super().__get_peaks__(chan, starttime=starttime, endtime=endtime, fq_range=fq_range, peak_thresholds=peak_thresholds, **kwargs)
 
-        self.total_dominant_peaks_, self.dominant_peaks_ = ans
+        self.total_peaks_, self.dominant_peaks_ = ans
         self.chan = chan
         # self.peak_thresholds_ = self.peak_thresholds
 
@@ -1100,7 +1156,7 @@ class Peaks(LTE):
         txt_to_return += f'\n   >endtime       : {self.stats.endtime.strftime("%d %B %Y %H:%M")}'
         txt_to_return += f'\n   >fq_range      : {self.fq_range}'
         txt_to_return += f'\n   >polar_analysis: {self.stats.polar_analysis}'
-        txt_to_return += f'\n   >Nro dom. peaks: {self.total_dominant_peaks_}'
+        txt_to_return += f'\n   >Nro dom. peaks: {self.total_peaks_[0]}'
         txt_to_return += f'\n   >Nro chr. peaks: {self.nro_}'
         txt_to_return +=  f'\n'
         return txt_to_return
