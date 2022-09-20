@@ -2,6 +2,7 @@
 # coding=utf-8
 
 import math, os
+from multiprocessing.sharedctypes import Value
 import numpy as np
 import datetime as dt
 from matplotlib import cm
@@ -244,77 +245,59 @@ def plot_tr_detection(dict_out, tremors=None, figsize=(17,5), plot=True, fill_wh
     return fig
 
 
-def plot_multiple_psd(freq, psd_array, pd_array=None, **kwargs):
+def plot_multiple_psd(freq, psd_array, pd_array, **kwargs):
     fig = kwargs.get('fig', None)
-    figsize = kwargs.get('figsize', (8, 4))
-    dpi = kwargs.get('dpi', 100)
-    plot = kwargs.get('plot', True)
-    plot_prob = kwargs.get('plot_prob', True)
-    log_psd = kwargs.get('log_psd', False)
-    log_fq = kwargs.get('log_fq', False)
-    colors = kwargs.get('colors', [])
+    figsize = kwargs.get('figsize', (9, 4))
 
-    if isinstance(pd_array, np.ndarray):
+    plot = kwargs.get('plot', True)
+    log_fq = kwargs.get('log_fq', False)
+    db_scale = kwargs.get('db_scale', False)
+    colors = kwargs.get('colors', 'k')
+    labels = kwargs.get('labels', None)
+
+    if all(isinstance(pd_array, np.ndarray), isinstance(psd_array, np.ndarray)):
         rows = 2
-    else:
+    elif any(isinstance(pd_array, np.ndarray), isinstance(psd_array, np.ndarray)):
         rows = 1
+    else:
+        raise ValueError("no data to plot")
     
     grid = {'hspace':0.1, 'left':0.12, 'right':0.95, 'wspace':0.1, 'top':0.90, 'bottom':0.1}
 
     if fig:
         axes = fig.subplots(rows, 1, gridspec_kw=grid)
-
     else:
-        fig, axes = plt.subplots(rows, 1, gridspec_kw=grid, figsize=figsize, dpi=dpi)
+        fig, axes = plt.subplots(rows, 1, gridspec_kw=grid, figsize=figsize)
+    
+    axes = np.array([axes]).reshape(rows,)
 
-    if isinstance(pd_array, np.ndarray):
-        psd_axis, pd_axis = axes
-    else:
-        psd_axis = axes
+    n = 0
+    for i, data in enumerate([psd_array, pd_array]):
+        if isinstance(data, np.ndarray):
+            
+            if db_scale and i == 0:
+                data = 10*np.log(data)
+            
+            axes[n].plot(freq, data.T, color=colors, labels=labels)
+            axes[n].set_xlim(freq[0], freq[-1])
+            axes[n].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
+            axes[n].xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
+            axes[n].grid(axis='x', which='major', color='k', linestyle='--', alpha=0.3)
+            axes[n].grid(axis='x', which='minor', color='k', linestyle='--', alpha=0.1)
+            
+            if i == 0:
+                axes[n].set_ylabel('PSD')
+            else:
+                axes[n].set_ylabel('PD')
 
-    # psd_array = 10*np.log(psd_array)
+            if log_fq:
+                axes[n].set_xscale('log')
 
-    if plot_prob:
-        psd_prob = get_max_prob(psd_array)
-        psd_axis.plot(freq, psd_prob, 'r', ls='--', lw=2, zorder=10)
-
-    if colors:
-        for i in range(psd_array.shape[0]):
-            psd_axis.plot(freq, psd_array[i,:], color=colors[i])
-    else:
-        psd_axis.plot(freq, psd_array.T, color='k')
-    psd_axis.set_xlim(min(freq), max(freq))
-
-    if plot_prob:
-        psd_axis.set_ylim(-10, psd_prob.max()+20)
-
-    psd_axis.set_ylabel(r'PSD [$m^2 \cdot s^{-2}/Hz$] dB')
-    psd_axis.set_title('Number of curves: %i' % psd_array.shape[0])
-    psd_axis.yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
-    psd_axis.xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
-    psd_axis.grid(axis='x', which='major', color='k', linestyle='--', alpha=0.3)
-    psd_axis.grid(axis='x', which='minor', color='k', linestyle='--', alpha=0.1)
-
-    # if log_fq:
-    #     psd_axis.set_xscale('log')
-
-    if isinstance(pd_array, np.ndarray):
-        psd_axis.xaxis.set_major_formatter(mtick.NullFormatter())
-
-        if plot_prob:
-            pd_prob = get_max_prob(pd_array)
-            pd_axis.plot(freq, pd_prob, 'r', ls='--', lw=2, zorder=10)
-        
-        pd_axis.plot(freq, pd_array.T, 'k')
-        pd_axis.set_xlim(min(freq), max(freq))
-        pd_axis.set_ylabel('PD')
-        pd_axis.yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
-        pd_axis.xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
-        pd_axis.grid(axis='x', which='major', color='k', linestyle='--', alpha=0.3)
-        pd_axis.grid(axis='x', which='minor', color='k', linestyle='--', alpha=0.1)
-
-        if log_fq:
-            pd_axis.set_xscale('log')
+            n += 1
+    
+    # show legend
+    if labels:
+        axes[0].legend(loc='upper center', ncol=len(labels))
 
     if plot:
         plt.show()
@@ -844,7 +827,7 @@ def plot_sde_event(event, **kwargs):
             if add_sta not in station_list and __check__(add_sta):
                 station_list.append(add_sta)
         
-        elif isinstance(add_sta, list) or isinstance(add_sta, tuple): 
+        elif isinstance(add_sta, (list, tuple)): 
             for s in add_sta:
                 if s not in station_list and __check__(s):
                     station_list.append(s)

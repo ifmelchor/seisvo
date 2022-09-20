@@ -65,9 +65,9 @@ class Trace2(Trace):
         if not endtime:
             endtime = self.stats.endtime.datetime
 
-        dt = self.stats.delta
+        delta = self.stats.delta
         npts = int((endtime-starttime).total_seconds()*self.stats.sampling_rate)+1
-        return [starttime + dt.timedelta(seconds=dt*x) for x in range(npts)]
+        return [starttime + dt.timedelta(seconds=delta*x) for x in range(npts)]
 
 
     def plot_specgram(self, window_length=None, starttime=None, endtime=None, axes=None, fq_band=(), per_lap=0.75, returnfig=False, **kwargs):

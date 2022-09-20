@@ -3,19 +3,17 @@
 
 import os
 import numpy as np
-import matplotlib.colors as mcolor
 
 from matplotlib.figure import Figure
 from matplotlib.backends.qt_compat import QtCore, QtWidgets, QtGui
 from matplotlib.backends.backend_qt5agg import FigureCanvas, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.widgets import AxesWidget
 
-from seisvo.utils.plotting import plot_multiple_psd
-from seisvo.gui.frames import psdfull_gui
+from seisvo.plotting import plot_multiple_psd
+from seisvo.plotting.gui.frames import PSDPDWindow
 
 from pynotifier import Notification
 import pyqtgraph
-import pyautogui
 
 path = os.path.dirname(os.path.realpath(__file__))
 icons_path = os.path.join(path, 'icons')
@@ -390,40 +388,38 @@ class LDEfilter(QtWidgets.QDialog):
 
 
 class PSD_GUI(QtWidgets.QMainWindow):
-    def __init__(self, freq, psd_array, pd_array=None, **kwargs):
+    def __init__(self, freq, **kwargs):
+        
         QtWidgets.QMainWindow.__init__(self)
-        self.ui = psdfull_gui.Ui_MainWindow()
+        self.ui = PSDPDWindow()
         self.ui.setupUi(self)
-        self.canvas = PSDCanvas(freq, psd_array, pd_array, parent=self, **kwargs)
+        
+        self.canvas = PSDCanvas(freq, parent=self, **kwargs)
+        
         self.ui.verticalLayout.addWidget(self.canvas)
         self.ui.pushButton.clicked.connect(self.canvas.logPSD)
         self.ui.pushButton2.clicked.connect(self.canvas.logFreq)
 
-        self.setWindowTitle(kwargs.get('title', 'PSD--PD'))
+        self.setWindowTitle(kwargs.get("title", "PSD_GUI"))
 
 
 class PSDCanvas(FigureCanvas):
-    def __init__(self, freq, psd_array, pd_array=None, parent=None, **kwargs):
+    def __init__(self, freq, parent=None, **kwargs):
 
-        figsize = kwargs.get("figsize", (8, 4))
-        dpi = kwargs.get("dpi", 100)
-        plot_prob = kwargs.get('plot_prob', True)
+        figsize = kwargs.get("figsize", (9, 4))
 
         self.freq = freq
-        self.psd_array = psd_array
-        self.pd_array = pd_array
-        self.log_psd = kwargs.get('log_psd', False)
-        self.log_fq = kwargs.get('log_fq', False)
-        
-        self.plot_kwargs = dict(figsize = figsize,
-                                dpi = dpi,
-                                plot_prob = plot_prob,
-                                log_psd = kwargs.get('log_psd', False),
-                                log_fq = kwargs.get('log_fq', False),
-                                colors = kwargs.get('colors', []),
-                                )
+        self.psd_array = kwargs.get('psds', None)
+        self.pd_array = kwargs.get('pds', None)
 
-        self.fig = Figure(figsize=figsize, dpi=dpi)
+        self.plot_kwargs = {
+            "log_fq":kwargs.get('log_fq', False),
+            "colors":kwargs.get('colors', []),
+            "labels":kwargs.get('labels', []),
+            "plot":False
+            }
+
+        self.fig = Figure(figsize=figsize)
         FigureCanvas.__init__(self, self.fig)
         FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding, 
             QtWidgets.QSizePolicy.Expanding)
@@ -439,9 +435,9 @@ class PSDCanvas(FigureCanvas):
         with pyqtgraph.BusyCursor():
             _, self.axes = plot_multiple_psd(self.freq, self.psd_array, self.pd_array, fig=self.fig, 
                 plot=False, **self.plot_kwargs)
-
         self.nav_n = Navigation(self.axes, parent=self.fig)
         self.draw()
+
 
     def logPSD(self):
         if self.log_psd:
@@ -451,6 +447,7 @@ class PSDCanvas(FigureCanvas):
 
         self.plot_kwargs['log_psd'] = self.log_psd
         self.__plot__()
+
 
     def logFreq(self):
         if self.log_fq:

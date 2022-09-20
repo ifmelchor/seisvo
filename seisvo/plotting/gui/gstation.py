@@ -19,17 +19,12 @@ import datetime as dt
 import pyqtgraph 
 import os
 
-from obspy.clients.fdsn.client import Client
-from obspy.taup import TauPyModel
-from obspy import UTCDateTime
-
-from geopy.distance import geodesic
-
 from seisvo import SDE
-from seisvo.utils.plotting import get_colors
-from seisvo.utils.maps import distance_in_degree
-from seisvo.gui import Navigation, PSD_GUI
-from seisvo.gui.frames.station_gui import Ui_MainWindow
+from seisvo.utils import get_catalog
+from seisvo.plotting import get_colors
+from seisvo.plotting.gui import Navigation, PSD_GUI
+from seisvo.plotting.gui.frames import MainGUI
+
 
 SHORTCUT_COLORS = get_colors('tolb')
 SHORTCUT_LABELS = {
@@ -47,10 +42,9 @@ PHASE_COLORS = {
     'f':get_colors('okabe')[6]
     }
 
-USGSclient = Client("USGS")
-Model_IASP91 = TauPyModel(model="iasp91")
 
-class StationWindow(QtWidgets.QMainWindow, Ui_MainWindow):
+
+class StationWindow(QtWidgets.QMainWindow, MainGUI):
     def __init__(self, station, starttime, channel, delta, sde, **kwargs):
         super(StationWindow, self).__init__()
         self.setupUi(self)
@@ -62,7 +56,7 @@ class StationWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.relabelEID = self.canvas.relabelEID
 
         self.gridLayout.addWidget(self.canvas, 1, 1, 1, 1)
-        self.setWindowTitle(station.info.id + ' [{}]'.format(self.canvas.sde.sql_path))
+        self.setWindowTitle(station.stats.id + ' [{}]'.format(self.canvas.sde.sql_path))
         self.actionOpen.triggered.connect(self.canvas.sde.open)
 
         # add actions of the windows menu
@@ -197,7 +191,7 @@ class StationCanvas(FigureCanvas):
         self.parent.psdButton.clicked.connect(self.plot_psd)
 
         if not sde:
-            sde = './%s' % station.info.id
+            sde = './%s' % station.stats.id
         
         if isinstance(sde, SDE):
             self.sde = sde
@@ -290,7 +284,7 @@ class StationCanvas(FigureCanvas):
             else:
                 info_dict['event_duration'] = None
         
-        row = item['event'].get_row(self.station.info.id)
+        row = item['event'].get_row(self.station.stats.id)
         self.sde.update_row(row.id, info_dict)
         self.__show_events(draw=True)
 
@@ -385,9 +379,9 @@ class StationCanvas(FigureCanvas):
                 
                 event_to_save['starttime'] = min(self.info_dict['right'], self.info_dict['left'])
                 event_to_save['duration'] = self.info_dict['diff']
-                event_to_save['network'] = self.station.info.id.split('.')[0]
-                event_to_save['station'] = self.station.info.id.split('.')[1]
-                event_to_save['location'] = self.station.info.id.split('.')[2]
+                event_to_save['network'] = self.station.stats.id.split('.')[0]
+                event_to_save['station'] = self.station.stats.id.split('.')[1]
+                event_to_save['location'] = self.station.stats.id.split('.')[2]
                 event_to_save['event_id'] = self.sde.last_eid() + 1
 
                 self.sde.add_row(event_to_save)
@@ -446,7 +440,7 @@ class StationCanvas(FigureCanvas):
         if eid_list:
             for eid in eid_list:
                 event = self.sde[eid]
-                row = event.get_row(self.station.info.id)
+                row = event.get_row(self.station.stats.id)
                 
                 if row.time_P:
                     Ptime = {
@@ -821,7 +815,7 @@ class StationCanvas(FigureCanvas):
             else:
                 self.USGSarrivals = {'ticks':[], 'text':[]}
                 off = dt.timedelta(minutes=10)
-                cat = get_catalog(self.starttime-off, self.endtime, receiver=(self.station.info.lat, self.station.info.lon))
+                cat = get_catalog(self.starttime-off, self.endtime, receiver=(self.station.stats.lat, self.station.stats.lon))
                 if cat:
                     for n, c in enumerate(cat):
                         if c[-1]:
@@ -865,12 +859,12 @@ def get_fig(station, starttime, channel, endtime, return_axes=False, **kwargs):
     colors = get_colors(color_name)
     
     if isinstance(specgram, str):
-        if specgram not in station.info.chan:
+        if specgram not in station.stats.chan:
             specgram = None
     
     elif isinstance(specgram, int):
-        if specgram < len(station.info.chan)-1:
-            specgram = station.info.chan[specgram]
+        if specgram < len(station.stats.chan)-1:
+            specgram = station.stats.chan[specgram]
         else:
             specgram = None
     
@@ -879,8 +873,8 @@ def get_fig(station, starttime, channel, endtime, return_axes=False, **kwargs):
 
     # define the stream
     if channel != 'all':
-        if not channel in station.info.chan:
-            raise ValueError('channel %s not in %s' % (channel, station.info.chan))
+        if not channel in station.stats.chan:
+            raise ValueError('channel %s not in %s' % (channel, station.stats.chan))
         else:
             stream = station.get_stream(starttime, endtime, sample_rate=sample_rate, chan=channel, remove_response=remove_response)
             channel_list = [channel]
@@ -1029,47 +1023,4 @@ def plot_station_gui(station, starttime, sde, channel='all', delta=30, app=False
         return sta_frame
 
 
-def get_catalog(startime, endtime, receiver):
-    
-    cat = USGSclient.get_events(
-        starttime=UTCDateTime(startime), 
-        endtime=UTCDateTime(endtime),
-        minmagnitude=1,
-        orderby='time')
-    
-    if len(cat) == 0:
-        return None
-    
-    else:
-        quakes = []
-        for key in cat:
-            lat_s = key.origins[0]['latitude']
-            lon_s = key.origins[0]['longitude']
-            source = (lat_s, lon_s)
-            time = key.origins[0]['time'].datetime
-            distance_to_receiver = geodesic(source, receiver).km
-            dist_degree = distance_in_degree(source, receiver)*180/np.pi
-            depth = float(key.origins[0]['depth'])/1000
-            
-            if key.magnitudes:
-                magnitude = '%.1f %s' % (key.magnitudes[0]['mag'], key.magnitudes[0]['magnitude_type'])
-            
-            else:
-                magnitude = None
-            
-            try:
-                arrivals = Model_IASP91.get_travel_times(
-                    source_depth_in_km=depth,
-                    phase_list=['ttbasic'],
-                    distance_in_degree=dist_degree
-                    )
-                first_arrival = float(arrivals[0].time)
-                time_P = time + dt.timedelta(seconds=first_arrival)
-            except:
-                time_P = None
-
-            quakes.append([time, source, distance_to_receiver, depth, magnitude, dist_degree, time_P])
-    
-        return quakes
-            
 

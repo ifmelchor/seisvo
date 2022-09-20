@@ -3,8 +3,8 @@
 
 import pyqtgraph
 import sys
-from seisvo.utils.plotting import get_colors
-from seisvo.gui import Navigation
+from seisvo.plotting import get_colors
+from seisvo.plotting.gui import Navigation
 from matplotlib.figure import Figure, SubplotParams
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvas

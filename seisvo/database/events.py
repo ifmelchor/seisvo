@@ -75,7 +75,7 @@ class Event(object):
 
 
     def plot(self, **kwargs):
-        from seisvo.utils.plotting import plot_sde_event
+        from seisvo.plotting import plot_sde_event
         
         ans = plot_sde_event(self, **kwargs)
 

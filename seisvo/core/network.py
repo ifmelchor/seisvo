@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # coding=utf-8
 
+from seisvo import DB_PATH
 from seisvo.file.air import AiR
 from seisvo.core import get_network
 from seisvo.core.obspyext import Stream2
@@ -18,6 +19,7 @@ class Network(object):
     def __init__(self, net_code):
         self.stats = get_network(net_code)
         self.station = [Station(x) for x in self.stats.stations]
+
 
     def __str__(self):
         return self.stats.__str__()
@@ -203,6 +205,42 @@ class Network(object):
             sta_id = sta.id
             self.station.remove(sta)
             self.stats.stations_info.remove(sta_id)
+
+
+    def gui(self, starttime, station_list, component="Z", delta=30, sde_file=None, **kwargs):
+
+        from seisvo.plotting.gui.gnetwork import init_network_gui
+
+        # check station_list
+        true_station_list = []
+        for sta in self.station:
+            sta_id = '.'.join([sta.stats.code, sta.stats.loc])
+            if sta_id in station_list:
+                true_station_list += [sta_id]
+
+        if not true_station_list:
+            print(" no stations loaded!. Revise network file!")
+            return
+        
+        if component not in ["Z", "N", "E"]:
+            print(" componente must be Z, N, or E")
+            return
+        
+        if sde_file:
+            if sde_file.split('.')[-1] != '.db':
+                sde_file += '.db'
+
+        else:
+            sde_file = os.path.join(DB_PATH, self.stats.code + '.db')
+        
+        if isinstance(kwargs.get("specgram"), int):
+            specgram = station_list[kwargs.get("specgram")]
+            kwargs["specgram"] = specgram
+        
+        if specgram not in true_station_list:
+            kwargs["specgram"] = None
+
+        init_network_gui(self, true_station_list, starttime, delta, component, sde_file, **kwargs)
 
 
 class iArray(Network):
@@ -654,5 +692,6 @@ class iArray(Network):
         return [np.array(mcorr_max), np.array(azm_max), np.array(pmax), np.array(pavg)]
 
 
+# class sArray(Network)
 
 

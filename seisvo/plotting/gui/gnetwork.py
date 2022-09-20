@@ -1,10 +1,45 @@
-import os
+
+
+import numpy as np
 import datetime as dt
-from seisvo import DB_PATH
+import pyqtgraph
+from functools import partial
+
+from seisvo import SDE
 from seisvo.core.obspyext import Stream2
+from seisvo.plotting import get_colors
+from seisvo.plotting.gui import Navigation, PSD_GUI
+from seisvo.plotting.gui.frames import MainGUI
+
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.ticker as mtick
+from matplotlib.gridspec import GridSpec
+from matplotlib.figure import Figure
+from matplotlib.backends.qt_compat import QtCore, QtWidgets
+from matplotlib.backends.backend_qt5agg import FigureCanvas
+
+SHORTCUT_COLORS = get_colors('tolb')
+
+SHORTCUT_LABELS = {
+    0:'REG',
+    1:'VT',
+    2:'LP',
+    3:'VLP',
+    4:'TR',
+    5:'EXP',
+    6:'UK'
+}
+
+PHASE_COLORS = {
+    'p':get_colors('okabe')[3],
+    's':get_colors('okabe')[0],
+    'f':get_colors('okabe')[6]
+    }
 
 class NetworkCanvas(FigureCanvas):
-    def __init__(self, network, sta_list, starttime, delta, component="Z", sde_file=None, parent=None, **kwargs):
+    def __init__(self, network, sta_list, starttime, delta, component, sde_file, parent=None, **kwargs):
 
         # load objects
         self.network = network
@@ -14,46 +49,61 @@ class NetworkCanvas(FigureCanvas):
         self.delta = delta
         self.parent = parent # mainwindow of the GUI
 
-        # self.endtime = starttime + dt.timedelta(minutes=delta)
-
-        # kwargs        
         self.olap = kwargs.get("delta_olap", 0.2)
-        self.samples = kwargs.get("samples", 50)
-        
         self.plot_kwargs = dict(
-            interval = kwargs.get("interval", 60),
-            fq_band = kwargs.get("fq_band", [0.5, 10]),
-            color_name = kwargs.get("color_name", 'zesty'),
+            fq_band = kwargs.get("fq_band", ()),
+            color_name = kwargs.get("color_name", "tolm"),
             remove_response = kwargs.get("remove_response", False),
-            sample_rate = kwargs.get("sample_rate", 40),
+            sample_rate = kwargs.get("sample_rate", None),
+            specgram = kwargs.get("specgram")
         )
 
-        # load specgram
-        specgram = kwargs.get("specgram", None)
-        if specgram:
-            if specgram not in [st.stats.id for st in station_list]:
-                print(" warn: no specgram loaded")
-                specgram = None
-        self.plot_kwargs["specgram"] = specgram
+        self.sde = SDE(sde_file)
+        
+        self.loadGui()
+        self.setPlot()
 
-        self.psd_frame = None
 
-        self.click_info_dict = {
+    def loadGui(self):
+
+        self.PSDframe = None
+        self.EIDframe = None
+        
+        self.info_dict = {
             'left':None,
             'right':None,
             'diff':None,
             'freq':None,
             'trace':None
         }
-
-        if not sde_file:
-            sde_file = os.path.join(DB_PATH, network.stats.code) + '.db'
-        try:
-            self.sde = SDE(sde_file)
-        except:
-            raise ValueError(f" error loading SDE {sde_file}. Revise file/location")
         
-        # load canvas
+        # navigate
+        self.parent.gotoButton.clicked.connect(self.setStarttime)
+        self.parent.gotoButton.setShortcut('g')
+
+        self.parent.intervalButton.clicked.connect(self.setInterval)
+        self.parent.intervalButton.setShortcut('d')
+
+        self.parent.forwardButton.clicked.connect(self.forwardStep)
+        self.parent.forwardButton.setShortcut('right')
+
+        self.parent.backwardButton.clicked.connect(self.backwardStep)
+        self.parent.backwardButton.setShortcut('left')
+
+        # filter, spectrogam, and response
+        self.parent.specButton.clicked.connect(self.setResponse)
+        self.parent.specButton.setShortcut('backspace')
+
+        self.parent.respButton.clicked.connect(self.setResponse)
+        self.parent.respButton.setShortcut('r')
+        
+        self.parent.filtButton.clicked.connect(self.setFQband)
+        self.parent.filtButton.setShortcut('a')
+
+        # filter, spectrogam, and response
+
+        self.parent.psdButton.clicked.connect(self.plotPSD)
+
         self.fig = Figure(figsize=(20,9))
         FigureCanvas.__init__(self, self.fig)
         FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding, 
@@ -63,40 +113,33 @@ class NetworkCanvas(FigureCanvas):
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setFocus()
 
-        self.mpl_connect('button_release_event', self.on_click)
-        self.mpl_connect('key_press_event', self.on_key)
-        self.setPlot()
-    
+        self.mpl_connect('button_release_event', self.onClick)
+        self.mpl_connect('key_press_event', self.onKey)
+
 
     def setPlot(self):
         self.fig.clf()
         self.parent.plainTextEdit.setText('')
 
+        self.endtime = self.starttime + dt.timedelta(minutes=self.delta)
         with pyqtgraph.BusyCursor():
-            ans = get_fig(
-                self.station, 
-                self.starttime,
-                self.channel,
-                self.starttime + dt.timedelta(minutes=delta),
-                return_axes=True,
-                fig=self.fig,
-                **self.plot_kwargs
-                )
+            (self.trace_axes, self.specgram_axes, self.time, self.trace_list) = network_plot(self.network, self.sta_list, self.starttime, self.component, self.endtime, full_return=True, fig=self.fig, **self.plot_kwargs)
         
-        self.chan_axes, self.specgram_axes, self.time, self.trace_list = ans
-
         if self.specgram_axes:
-            self.nav = Navigation(self.chan_axes, imshow_axes=self.specgram_axes[0], parent=self)
+            self.nav = Navigation(self.trace_axes, imshow_axes=self.specgram_axes[0], parent=self)
         else:
-            self.nav = Navigation(self.chan_axes, parent=self)
+            self.nav = Navigation(self.trace_axes, parent=self)
 
-        self.__eventlist = {}
-        self.__show_events()
-
+        self.eventlist = {}
+        
+        for tr_id in self.trace_list:
+            sta_id = '.'.join([self.network.stats.code, tr_id])
+            self.drawEvents(sta_id)
         self.showCatalog = False
+
         with pyqtgraph.BusyCursor():
             self.draw()
-
+    
 
     def showTickInfo(self):
         text = f" {self.info_dict['trace']}:\n"
@@ -108,9 +151,554 @@ class NetworkCanvas(FigureCanvas):
         
         if self.info_dict['freq']:
             text += f" Freq.: {self.info_dict['freq']:.2f}\n"
+        
         self.parent.plainTextEdit.setText(text)
 
+    # --------------
+    #   DATABASE
+    # --------------
+
+    def drawEvents(self, sta_id, draw=False):
+        self.parent.listWidget.clear()
+        
+        # remove all span
+        if self.eventlist:
+            for _, item in self.eventlist.items():
+                [s.remove() for s in item['span']]
+                item['txt'].remove()
+            self.eventlist = {}
+
+        # create eventlist
+        eid_list = self.sde.get_eid_list(time_interval=(self.starttime, self.endtime))
+        if eid_list:
+            for eid in eid_list:
+                event = self.sde[eid]
+                row = event.get_row(sta_id)
+                
+                if row.time_P:
+                    Ptime = {
+                        'time':event.starttime + dt.timedelta(seconds=row.time_P),
+                        'tick':[],
+                        'txt':None
+                    }
+                else:
+                    Ptime = {
+                        'time':None,
+                        'tick':[],
+                        'txt':None
+                    }
+                
+                if row.time_S:
+                    Stime = {
+                        'time':event.starttime + dt.timedelta(seconds=row.time_S),
+                        'tick':None,
+                        'txt':None
+                    }
+                else:
+                    Stime = {
+                        'time':None,
+                        'tick':[],
+                        'txt':None
+                    }
+                
+                if row.event_duration and row.time_P:
+                    Ftime = {
+                        'time':event.starttime + dt.timedelta(seconds=row.time_P + row.event_duration),
+                        'tick':[],
+                        'txt':None
+                    }
+                else:
+                    Ftime = {
+                        'time':None,
+                        'tick':[],
+                        'txt':None
+                    }
+                
+                self.eventlist[eid] = {
+                    'span': [],
+                    'txt': None,
+                    'event': event,
+                    'phases': {
+                        'p': Ptime,
+                        's': Stime,
+                        'f': Ftime
+                    }
+                }
+
+        # print events
+        for eid, item in self.eventlist.items():
+            st = item['event'].starttime
+            et = item['event'].endtime
+
+            cond_in = st >= self.starttime and et <= self.endtime # start and end in
+            cond_st_in = self.endtime > st > self.starttime and et > self.endtime # start in, end out
+            cond_et_in = self.starttime > st and self.starttime < et < self.endtime # start out, end in
+            # cond_full_in = st < self.starttime and endtime < et # start and end out
+
+            if cond_in:
+                st1 = st
+                et1 = et
+
+            elif cond_st_in:
+                st1 = st
+                et1 = self.endtime
+
+            elif cond_et_in:
+                st1 = self.starttime
+                et1 = et
+
+            else:# cond_full_in:
+                st1 = self.starttime
+                et1 = self.endtime
+
+            for a, ax in enumerate(self.trace_axes):
+                if item['event'].label in [l for _, l in SHORTCUT_LABELS.items()]:
+                    n = [l for _, l in SHORTCUT_LABELS.items()].index(item['event'].label)
+                    c = SHORTCUT_COLORS[n]
+                else:
+                    c = 'teal'
+                self.eventlist[eid]['span'] += [ax.axvspan(st1, et1, color=c, alpha=0.5)]
+
+                if a == 0:
+                    text_pos = mdates.date2num(st1 + dt.timedelta(seconds=0.3))
+                    tx = ax.annotate(
+                        'EID:%s(%s)' % (eid, item['event'].label), 
+                        (text_pos, 1),
+                        color='k',
+                        fontsize=9)
+                    self.eventlist[eid]['txt'] = tx
+            
+            info_evnt = '  %s [%s]' % (eid, item['event'].label)
+            self.parent.listWidget.addItem(info_evnt)
+        
+        # print event phases
+        off = dt.timedelta(seconds=0.25)
+        for eid, item in self.eventlist.items():
+            for n, ax in enumerate(self.trace_axes):
+                if item['phases']['p']['time']:
+                    tick = ax.axvline(item['phases']['p']['time'], color=PHASE_COLORS['p'], lw=1.1)
+                    item['phases']['p']['tick'].append(tick)
+                    if n == 0:
+                        txt = ax.annotate('P', xy=(item['phases']['p']['time'] + off, 0.8), color=PHASE_COLORS['p'], fontsize=9)
+                        item['phases']['p']['txt'] = txt
+                
+                if item['phases']['s']['time']:
+                    tick = ax.axvline(item['phases']['s']['time'], color=PHASE_COLORS['s'], lw=1.1)
+                    item['phases']['s']['tick'].append(tick)
+                    if n == 0:
+                        txt = ax.annotate('S', xy=(item['phases']['s']['time'] + off, 0.8), color=PHASE_COLORS['s'], fontsize=9)
+                        item['phases']['s']['txt'] = txt
+                
+                if item['phases']['f']['time']:
+                    tick = ax.axvline(item['phases']['f']['time'], color=PHASE_COLORS['f'], lw=1.1)
+                    item['phases']['f']['tick'].append(tick)
+                    if n == 0:
+                        txt = ax.annotate('F', xy=(item['phases']['f']['time'] + off, 0.8), color=PHASE_COLORS['f'], fontsize=9)
+                        item['phases']['f']['txt'] = txt
+
+        if draw:
+            self.draw()
+
+
+    def onKey(self, event):
+        if event.inaxes in self.trace_axes and event.key in ('p', 'P', 's', 'S', 'f', 'F') and self.eventlist:
+            time = mdates.num2date(event.xdata).replace(tzinfo=None)
+            list_eid = []
+            for id, item in self.eventlist.items():
+                evnt = item['event']
+                if evnt.starttime < time < evnt.endtime:
+                    list_eid.append(id)
+            
+            if list_eid:
+                if len(list_eid) == 1: # item and id are defined
+                    if event.key in ('p', 's', 'f'): # add/change phase
+                        if item['phases'][event.key]['time']: # change phase
+                            item['phases'][event.key]['time'] = time
+                            [tick.remove() for tick in item['phases'][event.key]['tick']]
+                            item['phases'][event.key]['txt'].remove()
+                        
+                        else: # add phase
+                            item['phases'][event.key]['time'] = time
+                        
+                        self.updatePhase(event.key, item)
+                        
+                    
+                    if event.key in ('P', 'S', 'F'):
+                        if item['phases'][event.key.lower()]['time']: # remove phase
+                            item['phases'][event.key.lower()]['time'] = None
+                            [tick.remove() for tick in item['phases'][event.key.lower()]['tick']]
+                            item['phases'][event.key.lower()]['txt'].remove()
+                        
+                        if event.key == 'P':
+                            item['phases']['f']['time'] = None
+                            [tick.remove() for tick in item['phases']['f']['tick']]
+                            item['phases']['f']['txt'].remove()
+                        
+                        self.updatePhase(event.key.lower(), item)
+                
+                else:
+                    print(' Two IDs found.')
+            
+            return True
+        
+        # relabel event
+        if event.inaxes in self.trace_axes and event.key == 'L' and self.eventlist:
+            time = mdates.num2date(event.xdata).replace(tzinfo=None)
+            id_to_relabel = []
+            for id, item in self.eventlist.items():
+                evnt = item['event']
+                if evnt.starttime < time < evnt.endtime:
+                    id_to_relabel.append(id)
+
+            if id_to_relabel:
+                self.relabelEID(id_to_relabel)
+
+        # remove event
+        if event.inaxes in self.trace_axes and event.key == 'delete' and self.eventlist:
+            time = mdates.num2date(event.xdata).replace(tzinfo=None)
+            id_to_remove = []
+            for id, item in self.eventlist.items():
+                evnt = item['event']
+                if evnt.starttime < time < evnt.endtime:
+                    id_to_remove += [id]
+                    [s.remove() for s in item['span']]
+                    item['txt'].remove()
+            
+            if id_to_remove:
+                self.removeEID(id_to_remove)
+
+
+        # add event
+        if self.info_dict['left'] and self.info_dict['right']:
+            if event.key in map(str, SHORTCUT_LABELS.keys()) or event.key == 'l':
+                event_to_save = {}
+                
+                if event.key == 'l':
+                    lbl, ok = QtWidgets.QInputDialog.getText(self, "Save event", "Label:")
+                    if ok:
+                        event_to_save['label'] = lbl.upper()
+                    else:
+                        return
+                
+                else:
+                    event_to_save['label'] = SHORTCUT_LABELS[int(event.key)]
+                
+                event_to_save['event_type'] = 'S' # only for seismic
+                event_to_save['starttime'] = min(self.info_dict['right'], self.info_dict['left'])
+                event_to_save['duration'] = self.info_dict['diff']
+                event_to_save['network'] = self.network.stats.code
+                event_to_save['station'] = self.info_dict['trace'].split('.')[0]
+                event_to_save['location'] = self.info_dict['trace'].split('.')[1]
+                event_to_save['event_id'] = self.sde.last_eid() + 1
+
+                self.sde.add_row(event_to_save)
+                sta_id = '.'.join([self.network.stats.code, self.info_dict['trace']])
+                self.drawEvents(sta_id, draw=True)
+
+
+    def onClick(self, event):
+        if event.inaxes in self.trace_axes:
+            for ax in self.trace_axes:
+                if ax == event.inaxes:
+                    trace = ax.yaxis.get_label().get_text()
+                    self.info_dict['trace'] = trace
+
+                    if self.nav.ticks['right'][0]:
+                        r_time = mdates.num2date(self.nav.ticks['right'][0]).replace(tzinfo=None)
+                    else:
+                        r_time = None
+                    
+                    self.info_dict['right'] = r_time
+
+                    if self.nav.ticks['left'][0]:
+                        l_time = mdates.num2date(self.nav.ticks['left'][0]).replace(tzinfo=None)
+                    else:
+                        l_time = None
+                    
+                    self.info_dict['left'] = l_time
+                    
+                    if r_time and l_time:
+                        tuple_time = (r_time, l_time)
+                        diff = (max(tuple_time) - min(tuple_time)).total_seconds()
+                    else:
+                        diff = None
+                    
+                    self.info_dict['diff'] = diff
+                    self.show_tickinfo()
+
+        if event.inaxes == self.specgram_axes[0]:
+            freq = event.ydata
+            self.info_dict['freq'] = freq
+            self.show_tickinfo()
+
+
+    def updatePhase(self, sta_id, phase, item):
+        info_dict = {}
+        time = item['phases'][phase]['time']
+        
+        if time:
+            if phase == 'p':
+                info_dict['time_P'] = (time - item['event'].starttime).total_seconds()
+
+            elif phase == 's':
+                info_dict['time_S'] = (time - item['event'].starttime).total_seconds()
+            
+            else:
+                if item['phases']['p']['time']:
+                    info_dict['event_duration'] = (time - item['phases']['p']['time']).total_seconds()
+
+        else:
+            if phase == 'p':
+                info_dict['time_P'] = None 
+                info_dict['event_duration'] = None
+            
+            elif phase == 's':
+                info_dict['time_S'] = None
+            
+            else:
+                info_dict['event_duration'] = None
+        
+        row = item['event'].get_row(sta_id)
+        self.sde.update_row(row.id, info_dict)
+        self.drawEvents(sta_id, draw=True)
+
+
+    def removeEID(self, id_to_remove):
+        for id in id_to_remove:
+            self.sde.remove_event(id)
+            del self.eventlist[id]
+            
+        self.parent.listWidget.clear()
+        for id, item in self.eventlist.items():
+            info_evnt = '  %s [%s]' % (id, item['event'].label)
+            self.parent.listWidget.addItem(info_evnt)
+
+        self.draw()
     
+
+    def relabelEID(self, sta_id, id_to_relabel):
+        for id in id_to_relabel:
+            evnt = self.sde[id]
+            new_label, ok = QtWidgets.QInputDialog.getText(self, "Relabel Event", "Event Label: ", text=evnt.label)
+            
+            if ok and new_label != evnt.label:
+                self.sde.relabel_event(id, new_label.upper())
+        
+        self.drawEvents(sta_id, draw=True)
+    
+    # -------------
+    #   NAVIGATE
+    # -------------
+
+    def forwardStep(self):
+        step = dt.timedelta(minutes=self.delta)
+        olap = dt.timedelta(minutes=self.delta*self.olap)
+        self.starttime = self.starttime - olap + step
+        self.endtime = self.starttime + step
+        self.setPlot()
+
+
+    def backwardStep(self):
+        step = dt.timedelta(minutes=self.delta)
+        olap = dt.timedelta(minutes=self.delta*self.olap)
+        self.starttime = self.starttime + olap - step
+        self.endtime = self.starttime + step
+        self.setPlot()
+
+
+    def setInterval(self):
+        i, ok = QtWidgets.QInputDialog.getInt(self, "Set interval","Interval:", self.delta, 5, 150)
+        if ok and int(i) != self.delta:
+            self.delta = i
+            step = dt.timedelta(minutes=self.delta)
+            self.endtime = self.starttime + step
+            self.setPlot()
+
+
+    def setStarttime(self):
+        current_day = self.starttime.strftime("%Y%m%d%H%M")
+        time, ok = QtWidgets.QInputDialog.getText(self, "Set Starttime", "Time (YYYYMMDDHHMM):", text=current_day)
+        if ok and str(time) != current_day:
+            try:
+                time = dt.datetime.strptime(str(time), "%Y%m%d%H%M")
+                self.starttime = time
+                self.endtime = self.starttime + dt.timedelta(minutes=self.delta)
+                self.setPlot()
+
+            except:
+                return False
+
+    # --------------
+    # CHANGE INPUTS
+    # --------------
+
+    def setResponse(self):
+        if self.plot_kwargs['remove_response']:
+            self.plot_kwargs['remove_response'] = False
+        else:
+            self.plot_kwargs['remove_response'] = True
+        self.setPlot()
+
+
+    def setSpecgram(self):
+        if self.specgram_axes:
+            chn = self.specgram_axes[0].yaxis.get_label().get_text()
+            index = self.trace_list.index(chn)
+            item, ok = QtWidgets.QInputDialog.getItem(self, 
+                "select channel", 
+                "list of channels", 
+                self.trace_list,
+                index, 
+                False
+            )
+            if ok:
+                self.plot_kwargs['specgram'] = item
+                self.setPlot()
+    
+
+    def setFQband(self):
+        if self.plot_kwargs['fq_band']:
+            current_filter = ';'.join(map(str, self.plot_kwargs['fq_band']))
+        else:
+            current_filter = ''
+        
+        filt_text, ok = QtWidgets.QInputDialog.getText(self, "Set filter", "fq_min;fq_max:", text=current_filter)
+        if ok and str(filt_text) != current_filter:
+            fq_min = float(filt_text.split(';')[0])
+            fq_max = float(filt_text.split(';')[1])
+            self.plot_kwargs['fq_band'] = (fq_min, fq_max)
+            self.setPlot()
+
+    # --------------
+    #     UTILS
+    # --------------
+
+    def plotPSD(self, times=[]):
+        if self.PSDframe:
+            self.PSDframe.close()
+            self.PSDframe = None
+
+        tick_times = (self.nav.ticks['right'][0], self.nav.ticks['left'][0])
+        if not times and not all(tick_times):
+            return
+        
+        if times:
+            start = min(times)
+            end = max(times)
+        else:
+            r_time = mdates.num2date(self.nav.ticks['right'][0]).replace(tzinfo=None)
+            l_time = mdates.num2date(self.nav.ticks['left'][0]).replace(tzinfo=None)
+            start = min([r_time, l_time])
+            end = max([r_time, l_time])
+        
+        if (end - start).total_seconds()/60 >= 5:
+                avg_step = 1
+        else:
+            avg_step = None
+        
+        cmap = get_colors(self.plot_kwargs["color_name"])
+
+        with pyqtgraph.BusyCursor():
+            
+            dtrace = {"PSDs":[], "colors":[], "labels":[]}
+
+            for n, tr_id in enumerate(self.trace_list):
+                sta_code = tr_id.split('.')[0]
+                sta_loc = tr_id.split('.')[1]
+                sta = self.network.get_sta(sta_code, loc=sta_loc)
+                channel = sta.get_chan(self.component)
+                trace = sta.get_stream(start, end, channel=channel, remove_response=self.plot_kwargs['remove_response'])[0]
+                psd, freq = trace.psd(fq_band=self.plot_kwargs['fq_band'], avg_step=avg_step, olap=0.25, return_fig=False, plot=False)
+
+                if n == 0:
+                    dtrace["freq"] = freq
+
+                dtrace["PSDs"] += [psd]
+                dtrace["colors"] += [cmap[n]]
+                dtrace["labels"] += [tr_id]
+
+            # add matrix return and rect/dip/azm plots
+            self.PSDframe = PSD_GUI(dtrace["freq"], psds=np.vstack(dtrace["PSDs"]), title='PSD', colors=dtrace["colors"], labels=dtrace["labels"])
+            self.PSDframe.show()
+
+    
+    def plotEID(self, eid):
+
+        station_list = [".".join([self.network.code, i]) for i in self.trace_list]
+
+        self.EIDframe = self.sde.plot_gui(
+            eid=eid, 
+            remove_response=self.plot_kwargs['remove_response'],
+            fq_band=self.plot_kwargs['fq_band'],
+            stations=station_list,
+            app=True)
+
+
+class NetworkWindow(QtWidgets.QMainWindow, MainGUI):
+    def __init__(self, network, sta_list, starttime, delta, component, sde_file, **kwargs):
+        super(NetworkWindow, self).__init__()
+        self.setupUi(self)
+        self.canvas = NetworkCanvas(network, sta_list, starttime, delta, component, sde_file, parent=self, **kwargs)
+        
+        # self.plotPSD = self.canvas.plotPSDeid
+        self.plotEID = self.canvas.plotEID
+        self.removeEID = self.canvas.removeEID
+        self.relabelEID = self.canvas.relabelEID
+
+        self.gridLayout.addWidget(self.canvas, 1, 1, 1, 1)
+        self.setWindowTitle(network.stats.code + ' [{}]'.format(self.canvas.sde.sql_path))
+        self.actionOpen.triggered.connect(self.canvas.sde.open)
+
+        # add actions of the windows menu
+        # self.saveButton.clicked.connect(self.canvas.show_catalog)
+        # self.listWidget.itemClicked.connect(self.canvas.event_selected)
+        self.listWidget.installEventFilter(self)
+
+
+    def eventFilter(self, source, event):
+        if (event.type() == QtCore.QEvent.ContextMenu and
+            source is self.listWidget):
+            item = source.itemAt(event.pos())
+            id_event = int(item.text().split('[')[0].strip())
+            
+            menu = QtWidgets.QMenu()
+
+            # plotPSD_Button = QtWidgets.QAction('PSD', self)
+            # displayPSD = partial(self.plotPSD, id_event)
+            # plotPSD_Button.triggered.connect(displayPSD)
+            # menu.addAction(plotPSD_Button)
+
+            plotButton = QtWidgets.QAction('Plot', self)
+            plotButton.setStatusTip('Plot')
+            displayEID = partial(self.plotEID, id_event)
+            plotButton.triggered.connect(displayEID)
+            menu.addAction(plotButton)
+
+            relabelButton = QtWidgets.QAction('Relabel', self)
+            relabelButton.setStatusTip('Relabel')
+            relabelEID = partial(self.relabelEID, [id_event])
+            relabelButton.triggered.connect(relabelEID)
+            menu.addAction(relabelButton)
+
+            removeButton = QtWidgets.QAction('Remove', self)
+            removeButton.setStatusTip('Remove')
+            removePSD = partial(self.removeEID, [id_event])
+            removeButton.triggered.connect(removePSD)
+            menu.addAction(removeButton)
+            
+            menu.exec_(event.globalPos())
+            return True
+
+        else:
+            return False
+
+
+    def closeEvent(self, event):
+        if self.canvas.PSDframe:
+            self.canvas.PSDframe.close()
+        
+        if self.canvas.EIDframe:
+            self.canvas.EIDframe.close()
 
 
 def get_text(remove_response, x):
@@ -122,7 +710,7 @@ def get_text(remove_response, x):
         return txt + ' cnts'
 
 
-def get_fig(station_list, starttime, component, endtime, return_axes=False, **kwargs):
+def network_plot(network, station_list, starttime, component, endtime, full_return=False, **kwargs):
     """[summary]
 
     Args:
@@ -133,133 +721,111 @@ def get_fig(station_list, starttime, component, endtime, return_axes=False, **kw
     """
 
     # define some variables
-    fq_band = kwargs.get('fq_band')
-    remove_response = kwargs.get('remove_response')
-    sample_rate = kwargs.get('sample_rate')
-    color_name = kwargs.get('color_name')
-    specgram = kwargs.get('specgram')
-
+    fq_band = kwargs.get('fq_band', ())
+    remove_response = kwargs.get('remove_response', False)
+    sample_rate = kwargs.get('sample_rate', None)
+    color_name = kwargs.get('color_name', "tolm")
+    specgram = kwargs.get('specgram', station_list[0])
     colors = get_colors(color_name)
 
     # define the stream
     stream = Stream2()
-    for n, sta in enumerate(station_list):
-        if component in ["Z", "N", "E"]:
-            channel = sta.get_chan(component)
-        else:
-            raise ValueError("multiple channel is under development: use gstation instead")
-        
+    trace_ids = [] # for color index and plot
+    for sta_str in station_list:
+        sta_code = sta_str.split('.')[0]
+        staloc_code = sta_str.split('.')[1]
+        sta = network.get_sta(sta_code, loc=staloc_code)
+        channel = sta.get_chan(component)
         try:
             stream += sta.get_stream(starttime, endtime, sample_rate=sample_rate, chan=channel, remove_response=remove_response)
+            trace_ids += [sta_str]
         except:
             print(f" warn: error loading station {sta.stats.id}")
 
     # define the figure frame
     fig = kwargs.get('fig', None)
-    grid = {'hspace':0.1, 'left':0.08, 'right':0.92, 'wspace':0.05, 'top':0.95, 'bottom':0.05}
+    if not fig:
+        fig = plt.figure(constrained_layout=True)
     
-    nrows = len(stream)
+    true_trace_list = list(set(['.'.join(s.id.split('.')[1:3]) for s in stream]))
+    nrows = len(true_trace_list)
     ncols = 1
-
-    if specgram in ['.'.join(s.id.split('.')[1:3]) for s in stream]:
+    
+    if specgram in true_trace_list:
         nrows += 1
         ncols += 1
-        grid['width_ratios'] = [1, 0.01]
-
-    if not fig:
-        dpi = kwargs.get('dpi', 100)
-        figsize = kwargs.get('figsize', (20,9))
-        fig, axes = plt.subplots(nrows, ncols, gridspec_kw=grid, figsize=figsize, dpi=dpi)
+        gs = GridSpec(nrows, ncols, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05, width_ratios=[1, 0.01])
     else:
-        axes = fig.subplots(nrows, ncols, gridspec_kw=grid)
-    
-    if isinstance(axes, np.ndarray):
-        axes = axes.reshape(nrows, ncols)
-    else:
-        axes = np.array([axes]).reshape(nrows, ncols)
-    
+        gs = GridSpec(nrows, ncols, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05)
+        
     # if specgram, plot first
     i = 0
     spec_return = ()
-    specgram_trace = stream.get_component(component, station=specgram.split('.')[1], loc=specgram.split('.')[2])
+    specgram_trace = stream.get_component(component, station=specgram.split('.')[0], loc=specgram.split('.')[1])
     if specgram_trace:
+        
         if remove_response:
             label = r"[dB cnts$^2$/Hz]"
         else:
             label = r"[dB m$^2$s$^{-2}$/Hz]"
-        spec_ax = axes[i,0]
-        specgram_trace.specgram(
-            axes=spec_ax, 
-            fq_band=fq_band, 
-            per_lap=0.75,
-            xlabel=' ',
-            axis_bar=spec_bar_ax, 
-            axis_bar_label=label
-            )
-        spec_ax.set_ylabel(spectram, fontsize=12, color=colors[specgram])
+        
+        spec_ax = fig.add_subplot(gs[i, 0])
+        spec_bar_ax = fig.add_subplot(gs[i, 1])
+        specgram_trace.plot_specgram(axes=spec_ax, fq_band=fq_band, per_lap=0.75, xlabel="", axis_bar=spec_bar_ax, axis_bar_label=label)
+        spec_ax.set_ylabel(specgram, fontsize=12, color=colors[trace_ids.index(specgram)])
         spec_ax.yaxis.set_major_locator(mtick.MaxNLocator(nbins=4))
         spec_ax.xaxis.set_major_formatter(mtick.NullFormatter())
         spec_return = (spec_ax, spec_bar_ax)
+        
         i += 1
-    else:
-        specgram_trace = stream[0]
 
-    # plot channels, being the first channel the same used for specgram
-    chan_axes = []
-    time = None # read time once
-    trace_list = []
-    while i < len(stream):
-        for trace in stream:
-            sta_id = '.'.join(trace.stats.network, trace.stats.station, trace.stats.location)
-            txt = '.'.join(trace.stats.station, trace.stats.location, trace.stats.channel[-1])
-            trace_list += [txt]
-            color_tr = colors[sta_id]
-            if trace.id == specgram_trace.id:
-                ax = axes[i,0]
-                i += 1
-            else:
-                ax = axes[i,0]
-                i += 1
+        # move the specgram trace to the first position of trace_ids
+        spec_pos = trace_ids.index(specgram)
+        trace_ids.insert(0, trace_ids.pop(spec_pos))
 
-            chan_axes += [ax]
-            
-            if ncols == 2:
-                ax.axes.get_xaxis().set_visible(False)
-                ax.axes.get_yaxis().set_visible(False)
-                ax.set_frame_on(False)
-            
-            if time == None:
-                time = trace.get_time()
+    # plot traces
+    axlist = []
+    for n, tr_id in enumerate(trace_ids):
+        color = colors[n]
+        ax =  fig.add_subplot(gs[i, 0])
+        sta_code = tr_id.split('.')[0]
+        sta_loc = tr_id.split('.')[1]
+        trace = stream.get_component(component, station=sta_code, loc=sta_loc)
+        data = trace.get_data(detrend=True, fq_band=fq_band)
+        max_ampl = np.nanmax(np.abs(data))
+        norm_data = data/max_ampl
 
-            data = trace.get_data(detrend=True, fq_band=fq_band)
-            max_ampl = np.nanmax(np.abs(data))
-            norm_data = data/max_ampl
-            
-            ax.plot(time, norm_data, color=color_tr, lw=1.0)
-            ax.set_ylabel(txt, fontsize=12, color=color_tr)
-            ax.set_ylim(-1, 1)
-
-            ax.annotate(
+        if n == 0:
+            time = trace.get_time()
+        
+        ax.plot(time, norm_data, color=color, lw=1.0)
+        ax.set_ylabel(tr_id, fontsize=12, color=color)
+        ax.set_ylim(-1.05, 1.05)
+        
+        ax.annotate(
                 get_text(remove_response, max_ampl),
                 xy=(-0.01,0.75),
                 xycoords='axes fraction',
-                color=color_tr,
+                color=color,
                 bbox=dict(boxstyle="round", fc="w", alpha=1)
             )
 
-            if i == len(stream):
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            else:
-                ax.xaxis.set_major_formatter(mtick.NullFormatter())
-
-            ax.yaxis.set_major_locator(mtick.NullLocator())
-            ax.grid(axis='x', which='major', color='k', ls='--', alpha=0.4)
-            ax.grid(axis='x', which='minor', color='k', ls='--', alpha=0.2)
-
+        if n == len(tr_id)-1:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        else:
+            ax.xaxis.set_major_formatter(mtick.NullFormatter())
+        
+        ax.yaxis.set_major_locator(mtick.NullLocator())
+        ax.grid(axis='x', which='major', color='k', ls='--', alpha=0.4)
+        ax.grid(axis='x', which='minor', color='k', ls='--', alpha=0.2)
+            
+        axlist.append(ax)
+        i += 1
+    
     if spec_return:
-        xaxis = [spec_ax] + chan_axes
+        xaxis = [spec_ax] + axlist
     else:
-        xaxis = chan_axes
+        xaxis = axlist
     
     [ax.set_xlim(time[0], time[-1]) for ax in xaxis]
     [ax.xaxis.set_major_locator(mtick.MaxNLocator(nbins=6)) for ax in xaxis]
@@ -272,12 +838,24 @@ def get_fig(station_list, starttime, component, endtime, return_axes=False, **kw
     
     fig.align_ylabels()
 
-    if return_axes:
-        return chan_axes, spec_return, time, trace_list
+    if full_return:
+        return (axlist, spec_return, time, trace_ids)
 
     else:
-        return fig, axes
+        return fig
         
 
+def init_network_gui(network, sta_list, starttime, delta, component, sde_file, init_app=True, **kwargs):
+    
+    if init_app:
+        app = QtWidgets.QApplication([])
+    
+    NETframe = NetworkWindow(network, sta_list, starttime, delta, component, sde_file, **kwargs)
+    NETframe.show()
+    
+    if init_app:
+        app.exec_()
+    else:
+        return NETframe
         
 

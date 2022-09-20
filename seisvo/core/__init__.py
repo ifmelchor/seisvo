@@ -181,6 +181,7 @@ def get_respfile(net_code, sta, loc):
     else:
         return None
 
+
 def remove_cache(pathdir):
     cache = '%s/__pycache__' % pathdir
     

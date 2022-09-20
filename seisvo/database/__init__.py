@@ -536,7 +536,7 @@ class SDE(_DataBase):
 
 
     def plot_gui(self, eid=None, label=None, time_interval=(), app=False, **gui_kwargs):
-        from seisvo.gui.gsde import plot_SDE_event
+        from seisvo.plotting.gui.gsde import plot_SDE_event
 
         eid_list = self.get_eid_list(label=label, time_interval=time_interval)
 
