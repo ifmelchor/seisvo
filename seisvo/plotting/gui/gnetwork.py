@@ -6,6 +6,7 @@ import pyqtgraph
 from functools import partial
 
 from seisvo import SDE
+from seisvo.utils import get_times_bounds
 from seisvo.core.obspyext import Stream2
 from seisvo.plotting import get_colors
 from seisvo.plotting.gui import Navigation, PSD_GUI
@@ -22,6 +23,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 SHORTCUT_COLORS = get_colors('tolb')
 
+DEFAULT_LABEL_COLOR = "teal"
 SHORTCUT_LABELS = {
     0:'REG',
     1:'VT',
@@ -37,6 +39,14 @@ PHASE_COLORS = {
     's':get_colors('okabe')[0],
     'f':get_colors('okabe')[6]
     }
+
+def get_label_color(label):
+    if label in [l for _, l in SHORTCUT_LABELS.items()]:
+        n = [l for _, l in SHORTCUT_LABELS.items()].index(label)
+        return SHORTCUT_COLORS[n]
+    else:
+        return DEFAULT_LABEL_COLOR
+
 
 class NetworkCanvas(FigureCanvas):
     def __init__(self, network, sta_list, starttime, delta, component, sde_file, parent=None, **kwargs):
@@ -130,13 +140,12 @@ class NetworkCanvas(FigureCanvas):
         else:
             self.nav = Navigation(self.trace_axes, parent=self)
 
+        self._sta_ids = '.'.join([self.network.stats.code, tr_id] for tr_id in self.trace_list)
         self.eventlist = {}
         
-        for tr_id in self.trace_list:
-            sta_id = '.'.join([self.network.stats.code, tr_id])
-            self.drawEvents(sta_id)
+        self.drawEvents()
         self.showCatalog = False
-
+        
         with pyqtgraph.BusyCursor():
             self.draw()
     
@@ -158,144 +167,66 @@ class NetworkCanvas(FigureCanvas):
     #   DATABASE
     # --------------
 
-    def drawEvents(self, sta_id, draw=False):
+    def getEIDforTime(self, time, sta_id):
+        eid_list = []
+        for eid, item in self.eventlist.items():
+            event = item['event']
+            if sta_id not in event.stations:
+                if event.starttime <= time <= event.endtime:
+                    eid_list += [eid]
+        
+        if len(eid_list) == 1:
+            return eid_list[0]
+        
+        elif len(eid_list) > 1:
+            return eid_list
+        
+        else:
+            return None
+        
+
+    def drawEvents(self, draw=False):
         self.parent.listWidget.clear()
         
-        # remove all span
+        # clean previous eventlist
         if self.eventlist:
             for _, item in self.eventlist.items():
                 [s.remove() for s in item['span']]
                 item['txt'].remove()
             self.eventlist = {}
-
-        # create eventlist
+            
+        # get the EID list
         eid_list = self.sde.get_eid_list(time_interval=(self.starttime, self.endtime))
         if eid_list:
             for eid in eid_list:
                 event = self.sde[eid]
-                row = event.get_row(sta_id)
+                # create empty dict for eid
+                self.eventlist[eid] = {'span': [], 'txt': None, 'event': event} 
+                # define the times
+                st1, et1 = get_times_bounds(self.starttime, self.endtime, event.starttime, event.endtime)
+                # define the color
+                c = get_label_color(event.label)
+
+                n = 0
+                for sta_id in event.stations:
+                    if sta_id in self._sta_ids:
+                        ax = self.trace_axes[self._sta_ids.index(sta_id)]
+                        self.eventlist[eid]['span'] += [ax.axvspan(st1, et1, color=c, alpha=0.5)]
+
+                        if n == 0:
+                            text_pos = mdates.date2num(st1 + dt.timedelta(seconds=0.3))
+                            tx = ax.annotate(
+                                'EID:%s(%s)' % (eid, event.label), 
+                                (text_pos, 1),
+                                color='k',
+                                fontsize=9)
+                            self.eventlist[eid]['txt'] = tx
+                        
+                        n += 1
                 
-                if row.time_P:
-                    Ptime = {
-                        'time':event.starttime + dt.timedelta(seconds=row.time_P),
-                        'tick':[],
-                        'txt':None
-                    }
-                else:
-                    Ptime = {
-                        'time':None,
-                        'tick':[],
-                        'txt':None
-                    }
-                
-                if row.time_S:
-                    Stime = {
-                        'time':event.starttime + dt.timedelta(seconds=row.time_S),
-                        'tick':None,
-                        'txt':None
-                    }
-                else:
-                    Stime = {
-                        'time':None,
-                        'tick':[],
-                        'txt':None
-                    }
-                
-                if row.event_duration and row.time_P:
-                    Ftime = {
-                        'time':event.starttime + dt.timedelta(seconds=row.time_P + row.event_duration),
-                        'tick':[],
-                        'txt':None
-                    }
-                else:
-                    Ftime = {
-                        'time':None,
-                        'tick':[],
-                        'txt':None
-                    }
-                
-                self.eventlist[eid] = {
-                    'span': [],
-                    'txt': None,
-                    'event': event,
-                    'phases': {
-                        'p': Ptime,
-                        's': Stime,
-                        'f': Ftime
-                    }
-                }
-
-        # print events
-        for eid, item in self.eventlist.items():
-            st = item['event'].starttime
-            et = item['event'].endtime
-
-            cond_in = st >= self.starttime and et <= self.endtime # start and end in
-            cond_st_in = self.endtime > st > self.starttime and et > self.endtime # start in, end out
-            cond_et_in = self.starttime > st and self.starttime < et < self.endtime # start out, end in
-            # cond_full_in = st < self.starttime and endtime < et # start and end out
-
-            if cond_in:
-                st1 = st
-                et1 = et
-
-            elif cond_st_in:
-                st1 = st
-                et1 = self.endtime
-
-            elif cond_et_in:
-                st1 = self.starttime
-                et1 = et
-
-            else:# cond_full_in:
-                st1 = self.starttime
-                et1 = self.endtime
-
-            for a, ax in enumerate(self.trace_axes):
-                if item['event'].label in [l for _, l in SHORTCUT_LABELS.items()]:
-                    n = [l for _, l in SHORTCUT_LABELS.items()].index(item['event'].label)
-                    c = SHORTCUT_COLORS[n]
-                else:
-                    c = 'teal'
-                self.eventlist[eid]['span'] += [ax.axvspan(st1, et1, color=c, alpha=0.5)]
-
-                if a == 0:
-                    text_pos = mdates.date2num(st1 + dt.timedelta(seconds=0.3))
-                    tx = ax.annotate(
-                        'EID:%s(%s)' % (eid, item['event'].label), 
-                        (text_pos, 1),
-                        color='k',
-                        fontsize=9)
-                    self.eventlist[eid]['txt'] = tx
-            
-            info_evnt = '  %s [%s]' % (eid, item['event'].label)
-            self.parent.listWidget.addItem(info_evnt)
+                info_evnt = '  %s [%s]' % (eid, event.label)
+                self.parent.listWidget.addItem(info_evnt)
         
-        # print event phases
-        off = dt.timedelta(seconds=0.25)
-        for eid, item in self.eventlist.items():
-            for n, ax in enumerate(self.trace_axes):
-                if item['phases']['p']['time']:
-                    tick = ax.axvline(item['phases']['p']['time'], color=PHASE_COLORS['p'], lw=1.1)
-                    item['phases']['p']['tick'].append(tick)
-                    if n == 0:
-                        txt = ax.annotate('P', xy=(item['phases']['p']['time'] + off, 0.8), color=PHASE_COLORS['p'], fontsize=9)
-                        item['phases']['p']['txt'] = txt
-                
-                if item['phases']['s']['time']:
-                    tick = ax.axvline(item['phases']['s']['time'], color=PHASE_COLORS['s'], lw=1.1)
-                    item['phases']['s']['tick'].append(tick)
-                    if n == 0:
-                        txt = ax.annotate('S', xy=(item['phases']['s']['time'] + off, 0.8), color=PHASE_COLORS['s'], fontsize=9)
-                        item['phases']['s']['txt'] = txt
-                
-                if item['phases']['f']['time']:
-                    tick = ax.axvline(item['phases']['f']['time'], color=PHASE_COLORS['f'], lw=1.1)
-                    item['phases']['f']['tick'].append(tick)
-                    if n == 0:
-                        txt = ax.annotate('F', xy=(item['phases']['f']['time'] + off, 0.8), color=PHASE_COLORS['f'], fontsize=9)
-                        item['phases']['f']['txt'] = txt
-
         if draw:
             self.draw()
 
@@ -366,34 +297,36 @@ class NetworkCanvas(FigureCanvas):
             
             if id_to_remove:
                 self.removeEID(id_to_remove)
+        
+        # add station to eid
+        if event.inaxes in self.trace_axes and event.key == '+' and self.eventlist:
+            trace = ax.yaxis.get_label().get_text()
+            sta_id = '.'.join([self.network.stats.code, trace])
+            time = mdates.num2date(event.xdata).replace(tzinfo=None)
+            eid = self.getEIDforTime(time, sta_id)
+            # if isinstance(eid, list): choose eid
+            if eid:
+                self.addStaEID(eid, sta_id)
+
+        # remove station to eid
+        if event.inaxes in self.trace_axes and event.key == '-' and self.eventlist:
+            trace = ax.yaxis.get_label().get_text()
+            sta_id = '.'.join([self.network.stats.code, trace])
+            time = mdates.num2date(event.xdata).replace(tzinfo=None)
 
 
         # add event
         if self.info_dict['left'] and self.info_dict['right']:
             if event.key in map(str, SHORTCUT_LABELS.keys()) or event.key == 'l':
-                event_to_save = {}
-                
                 if event.key == 'l':
                     lbl, ok = QtWidgets.QInputDialog.getText(self, "Save event", "Label:")
                     if ok:
-                        event_to_save['label'] = lbl.upper()
+                        label = lbl.upper()
                     else:
                         return
-                
                 else:
-                    event_to_save['label'] = SHORTCUT_LABELS[int(event.key)]
-                
-                event_to_save['event_type'] = 'S' # only for seismic
-                event_to_save['starttime'] = min(self.info_dict['right'], self.info_dict['left'])
-                event_to_save['duration'] = self.info_dict['diff']
-                event_to_save['network'] = self.network.stats.code
-                event_to_save['station'] = self.info_dict['trace'].split('.')[0]
-                event_to_save['location'] = self.info_dict['trace'].split('.')[1]
-                event_to_save['event_id'] = self.sde.last_eid() + 1
-
-                self.sde.add_row(event_to_save)
-                sta_id = '.'.join([self.network.stats.code, self.info_dict['trace']])
-                self.drawEvents(sta_id, draw=True)
+                    label = SHORTCUT_LABELS[int(event.key)]
+                self.addEID(label)
 
 
     def onClick(self, event):
@@ -432,35 +365,29 @@ class NetworkCanvas(FigureCanvas):
             self.show_tickinfo()
 
 
-    def updatePhase(self, sta_id, phase, item):
-        info_dict = {}
-        time = item['phases'][phase]['time']
-        
-        if time:
-            if phase == 'p':
-                info_dict['time_P'] = (time - item['event'].starttime).total_seconds()
+    def addEID(self, label):
+        event_to_save = {}
+        event_to_save['event_type'] = 'S' # only for seismic
+        event_to_save['label'] = label
+        event_to_save['starttime'] = min(self.info_dict['right'], self.info_dict['left'])
+        event_to_save['duration'] = self.info_dict['diff']
+        event_to_save['network'] = self.network.stats.code
+        event_to_save['station'] = self.info_dict['trace'].split('.')[0]
+        event_to_save['location'] = self.info_dict['trace'].split('.')[1]
+        event_to_save['event_id'] = self.sde.last_eid() + 1
+        self.sde.add_row(event_to_save)
+        self.drawEvents(draw=True)
 
-            elif phase == 's':
-                info_dict['time_S'] = (time - item['event'].starttime).total_seconds()
-            
-            else:
-                if item['phases']['p']['time']:
-                    info_dict['event_duration'] = (time - item['phases']['p']['time']).total_seconds()
 
-        else:
-            if phase == 'p':
-                info_dict['time_P'] = None 
-                info_dict['event_duration'] = None
-            
-            elif phase == 's':
-                info_dict['time_S'] = None
-            
-            else:
-                info_dict['event_duration'] = None
-        
-        row = item['event'].get_row(sta_id)
-        self.sde.update_row(row.id, info_dict)
-        self.drawEvents(sta_id, draw=True)
+    def addStaEID(self, eid, sta_id):
+        network  = sta_id.split('.')[0]
+        station  = sta_id.split('.')[1]
+        location = sta_id.split('.')[2]
+        self.sde.append_station(eid, network, station, location, "S")
+        self.drawEvents(draw=True)
+
+    
+    def removeStaEID(self, eid, sta_id):
 
 
     def removeEID(self, id_to_remove):
@@ -484,7 +411,7 @@ class NetworkCanvas(FigureCanvas):
             if ok and new_label != evnt.label:
                 self.sde.relabel_event(id, new_label.upper())
         
-        self.drawEvents(sta_id, draw=True)
+        self.drawEvents(draw=True)
     
     # -------------
     #   NAVIGATE

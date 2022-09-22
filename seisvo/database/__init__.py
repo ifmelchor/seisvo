@@ -400,7 +400,7 @@ class SDE(_DataBase):
             stations = Event(eid, self).stations
             if len(stations) != len(set(stations)):
                 # it exist repeated items
-                raise ValueError(' Duplicate stations with same Event ID found.\n SDE database should be revised manually.')
+                raise ValueError(' Duplicate stations with same Event ID found.\n SDE database must be revised.')
             # correct automatically
 
 
@@ -426,7 +426,7 @@ class SDE(_DataBase):
         event_to_save['event_id'] = self.last_eid() + 1
 
         id = self.add_row(event_to_save)
-        self.update_row(id, kwargs)
+        self.update_row(id, **kwargs)
     
 
     def get_eid_list(self, label=None, time_interval=(), nro_station=None):
@@ -523,9 +523,15 @@ class SDE(_DataBase):
                     self.update_row(e.id, info)
 
 
-    def append_event(self, eid, info):
+    def append_station(self, eid, network, station, location, etype):
         if self.is_eid(eid):
-            id = self.add_row(info)
+            sta_to_save = {}
+            sta_to_save["event_id"]   = eid
+            sta_to_save["event_type"] = etype
+            sta_to_save["network"]    = network
+            sta_to_save["station"]    = station
+            sta_to_save["location"]   = location
+            id = self.add_row(dict_info)
             return id
     
 

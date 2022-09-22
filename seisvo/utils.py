@@ -74,4 +74,24 @@ def get_catalog(startime, endtime, receiver):
             quakes.append([time, source, distance_to_receiver, depth, magnitude, dist_degree, time_P])
     
         return quakes
-            
+
+
+def get_times_bounds(starttime_bound, endtime_bound, st, et):
+    
+    in_in = st >= starttime_bound and et <= endtime_bound # start and end in
+    st_in = endtime_bound > st > starttime_bound and et > endtime_bound # start in, end out
+    et_in = starttime_bound > st and starttime_bound < et < endtime_bound # start out, end in
+    out = st < starttime_bound and endtime < et # start and end out
+
+    if in_in:
+        return (st, et)
+
+    if st_in:
+        return (st, endtime_bound)
+
+    if et_in:
+        return (starttime_bound, et)
+
+    if out:
+        return(starttime_bound, endtime_bound)
+
