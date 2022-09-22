@@ -480,14 +480,14 @@ class SDE(_DataBase):
             print(' event_id must be an integer')
     
 
-    def get_row(self, eid, network, station, location):
+    def get_row(self, eid, network, station, location, return_row=False):
         rows = self.get_id(with_info=False)
         events_filt = list(filter(lambda e: e.event_id == eid and e.network == network and e.station == station and e.location == location, rows))
         if events_filt:
             events_filt = [e.id for e in events_filt]
             if len(events_filt) > 1:
                 print( 'warn: more than one id found')
-            return events_filt[0]
+            return self.get_id(id=events_filt[0])
         else:
             return None
 
@@ -517,10 +517,9 @@ class SDE(_DataBase):
 
     def relabel_event(self, eid, new_label):
         if self.is_eid(eid):
-            for e in self.get_event(eid):
-                if e.label:
-                    info = dict(label=new_label)
-                    self.update_row(e.id, info)
+            for row in self.get_event(eid):
+                if row.label:
+                    self.update_row(row.id, dict(label=new_label))
 
 
     def append_station(self, eid, network, station, location, etype):
@@ -531,14 +530,36 @@ class SDE(_DataBase):
             sta_to_save["network"]    = network
             sta_to_save["station"]    = station
             sta_to_save["location"]   = location
-            id = self.add_row(dict_info)
+            id = self.add_row(sta_to_save)
             return id
-    
+
+
+    def remove_station(self, eid, network, station, location):
+        if self.is_eid(eid):
+            all_row = self.get_event(eid)
+            row = self.get_row(eid, network, station, location, return_row=True)
+            
+            if len(all_row) == 1:
+                self.remove_event(eid)
+                return
+            
+            else:
+                if row.label:
+                    # you are removing the row with basic metadata.
+                    # move the metadata to another row entry before delete row
+                    for meta_row in all_row:
+                        if meta_row.id != row.id:
+                            # update metadata
+                            info = dict(starttime=row.starttime, duration=row.duration, label=row.label)
+                            self.update_row(meta_row.id, info)
+                
+                self.remove_row(row.id)
+
 
     def remove_event(self, eid):
         if self.is_eid(eid):
-            for e in self.get_event(eid):
-                self.remove_row(e.id)
+            for row in self.get_event(eid):
+                self.remove_row(row.id)
 
 
     def plot_gui(self, eid=None, label=None, time_interval=(), app=False, **gui_kwargs):

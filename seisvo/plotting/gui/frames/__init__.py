@@ -23,6 +23,9 @@ class PSDPDWindow(object):
         self.pushButton = QtWidgets.QPushButton(self.frame)
         self.pushButton.setObjectName("pushButton")
         self.horizontalLayout.addWidget(self.pushButton)
+        self.pushButton3 = QtWidgets.QPushButton(self.frame)
+        self.pushButton3.setObjectName("pushButton3")
+        self.horizontalLayout.addWidget(self.pushButton3)
         self.pushButton2 = QtWidgets.QPushButton(self.frame)
         self.pushButton2.setObjectName("pushButton2")
         self.horizontalLayout.addWidget(self.pushButton2)
@@ -48,6 +51,7 @@ class PSDPDWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.pushButton.setText(_translate("MainWindow", "Log PSD"))
+        self.pushButton3.setText(_translate("MainWindow", "Norm PSD"))
         self.pushButton2.setText(_translate("MainWindow", "Log Freq."))
 
 

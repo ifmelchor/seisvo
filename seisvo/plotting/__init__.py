@@ -252,12 +252,13 @@ def plot_multiple_psd(freq, psd_array, pd_array, **kwargs):
     plot = kwargs.get('plot', True)
     log_fq = kwargs.get('log_fq', False)
     db_scale = kwargs.get('db_scale', False)
+    fqnorm = kwargs.get('norm', False)
     colors = kwargs.get('colors', 'k')
     labels = kwargs.get('labels', None)
 
-    if all(isinstance(pd_array, np.ndarray), isinstance(psd_array, np.ndarray)):
+    if all([isinstance(pd_array, np.ndarray), isinstance(psd_array, np.ndarray)]):
         rows = 2
-    elif any(isinstance(pd_array, np.ndarray), isinstance(psd_array, np.ndarray)):
+    elif any([isinstance(pd_array, np.ndarray), isinstance(psd_array, np.ndarray)]):
         rows = 1
     else:
         raise ValueError("no data to plot")
@@ -275,10 +276,18 @@ def plot_multiple_psd(freq, psd_array, pd_array, **kwargs):
     for i, data in enumerate([psd_array, pd_array]):
         if isinstance(data, np.ndarray):
             
-            if db_scale and i == 0:
-                data = 10*np.log(data)
+            if i == 0:
+                if db_scale:
+                    data = 10*np.log(data)
+
+                if fqnorm:
+                    psdmax = data.max(axis=1)
             
-            axes[n].plot(freq, data.T, color=colors, labels=labels)
+            for j in range(data.shape[0]):
+                if fqnorm:
+                    axes[n].plot(freq, data[j,:]/psdmax[j], color=colors[j], label=labels[j])
+                else:
+                    axes[n].plot(freq, data[j,:], color=colors[j], label=labels[j])
             axes[n].set_xlim(freq[0], freq[-1])
             axes[n].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
             axes[n].xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
