@@ -44,7 +44,7 @@ class PolarAnalysis(object):
         self.taper = kwargs.get('taper', False)
         self.taper_p = kwargs.get('taper_p', 0.05)
         self.time_bandwidth = kwargs.get('time_bandwidth', 3.5)
-        self.njobs = kwargs.get('njobs', multiprocessing.cpu_count()-2)
+        self.njobs = kwargs.get('njobs', multiprocessing.cpu_count())
         self.full_analysis = full_analysis
 
         self.fit()
@@ -73,21 +73,37 @@ class PolarAnalysis(object):
             Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
             Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
             Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
-            data_split += [[Zdata_n, Ndata_n, Edata_n]]
+            data_split += [(Zdata_n, Ndata_n, Edata_n)]
             npts_start += self.npts_mov_avg - npts_olap
-        
         self.n = len(data_split)
 
         # for data in data_split:
-        ans = self.__process__(data_split)
 
-        # for n_ans in ans:
-        self.degree = np.array(ans[0])
+        if self.n > 1:
+            self.degree = np.empty(shape=(len(self.freq), self.n))
+            if self.full_analysis:
+                self.rect = np.empty(shape=(len(self.freq), self.n))
+                self.azimuth = np.empty(shape=(len(self.freq), self.n))
+                self.elevation = np.empty(shape=(len(self.freq), self.n))
 
-        if self.full_analysis:
-            self.rect = np.array(ans[1])
-            self.azimuth = np.array(ans[2])
-            self.elevation = np.array(ans[3])
+            for n, data in enumerate(data_split):
+                ans = self.__process__([data])
+         
+                # for n_ans in ans:
+                self.degree[:,n] = ans[0]
+
+                if self.full_analysis:
+                    self.rect[:,n] = ans[1]
+                    self.azimuth[:,n] = ans[2]
+                    self.elevation[:,n] = ans[3]
+
+        else:
+            ans = self.__process__(data_split)
+            self.degree = np.array(ans[0])
+            if self.full_analysis:
+                    self.rect = np.array(ans[1])
+                    self.azimuth = np.array(ans[2])
+                    self.elevation = np.array(ans[3])
 
         # self.degree /= self.n
         
@@ -133,10 +149,10 @@ class PolarAnalysis(object):
             rect = np.array(list(map(get_rectiliniarity, z_list)))
             azimuth = np.array(list(map(get_azimuth, z_list)))
             elevation = np.array(list(map(get_elevation, z_list)))
-            return [polar_dgr, rect, azimuth, elevation]
+            return (polar_dgr, rect, azimuth, elevation)
         
         else:
-            return [polar_dgr]
+            return polar_dgr
 
 
     def __polar_dgr__(self, cmatrix, fq_idx):
