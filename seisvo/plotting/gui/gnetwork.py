@@ -62,7 +62,7 @@ class NetworkCanvas(FigureCanvas):
         self.olap = kwargs.get("delta_olap", 0.2)
         self.plot_kwargs = dict(
             fq_band = kwargs.get("fq_band", ()),
-            color_name = kwargs.get("color_name", "tolm"),
+            color_name = kwargs.get("color_name", "okabe"),
             remove_response = kwargs.get("remove_response", False),
             sample_rate = kwargs.get("sample_rate", None),
             specgram = kwargs.get("specgram")
@@ -101,7 +101,7 @@ class NetworkCanvas(FigureCanvas):
         self.parent.backwardButton.setShortcut('left')
 
         # filter, spectrogam, and response
-        self.parent.specButton.clicked.connect(self.setResponse)
+        self.parent.specButton.clicked.connect(self.setSpecgram)
         self.parent.specButton.setShortcut('backspace')
 
         self.parent.respButton.clicked.connect(self.setResponse)
@@ -140,7 +140,7 @@ class NetworkCanvas(FigureCanvas):
         else:
             self.nav = Navigation(self.trace_axes, parent=self)
 
-        self._sta_ids = '.'.join([self.network.stats.code, tr_id] for tr_id in self.trace_list)
+        self._sta_ids = ['.'.join([self.network.stats.code, tr_id]) for tr_id in self.trace_list]
         self.eventlist = {}
         
         self.drawEvents()
@@ -167,19 +167,20 @@ class NetworkCanvas(FigureCanvas):
     #   DATABASE
     # --------------
 
-    def getEIDforTime(self, time, sta_id):
+    def getEIDforTime(self, time):
         eid_list = []
+        stations = []
         for eid, item in self.eventlist.items():
             event = item['event']
-            if sta_id not in event.stations:
-                if event.starttime <= time <= event.endtime:
-                    eid_list += [eid]
+            if event.starttime <= time <= event.endtime:
+                eid_list += [eid]
+                stations += [(event.stations)]
         
         if len(eid_list) == 1:
-            return eid_list[0]
+            return (eid_list[0], stations[0])
         
         elif len(eid_list) > 1:
-            return eid_list
+            return (eid_list, stations)
         
         else:
             return None
@@ -232,101 +233,57 @@ class NetworkCanvas(FigureCanvas):
 
 
     def onKey(self, event):
-        if event.inaxes in self.trace_axes and event.key in ('p', 'P', 's', 'S', 'f', 'F') and self.eventlist:
-            time = mdates.num2date(event.xdata).replace(tzinfo=None)
-            list_eid = []
-            for id, item in self.eventlist.items():
-                evnt = item['event']
-                if evnt.starttime < time < evnt.endtime:
-                    list_eid.append(id)
-            
-            if list_eid:
-                if len(list_eid) == 1: # item and id are defined
-                    if event.key in ('p', 's', 'f'): # add/change phase
-                        if item['phases'][event.key]['time']: # change phase
-                            item['phases'][event.key]['time'] = time
-                            [tick.remove() for tick in item['phases'][event.key]['tick']]
-                            item['phases'][event.key]['txt'].remove()
-                        
-                        else: # add phase
-                            item['phases'][event.key]['time'] = time
-                        
-                        self.updatePhase(event.key, item)
-                        
-                    
-                    if event.key in ('P', 'S', 'F'):
-                        if item['phases'][event.key.lower()]['time']: # remove phase
-                            item['phases'][event.key.lower()]['time'] = None
-                            [tick.remove() for tick in item['phases'][event.key.lower()]['tick']]
-                            item['phases'][event.key.lower()]['txt'].remove()
-                        
-                        if event.key == 'P':
-                            item['phases']['f']['time'] = None
-                            [tick.remove() for tick in item['phases']['f']['tick']]
-                            item['phases']['f']['txt'].remove()
-                        
-                        self.updatePhase(event.key.lower(), item)
+        if event.inaxes in self.trace_axes:
+            if self.eventlist:
+                # relabel event
+                if event.key == 'L':
+                    time = mdates.num2date(event.xdata).replace(tzinfo=None)
+                    ans = self.getEIDforTime(time)
+                    if ans:
+                        self.relabelEID(ans[0])
+
+                # remove event
+                if event.key == 'delete':
+                    time = mdates.num2date(event.xdata).replace(tzinfo=None)
+                    ans = self.getEIDforTime(time)
+                    if ans:
+                        self.removeEID(ans[0])
                 
-                else:
-                    print(' Two IDs found.')
-            
-            return True
-        
-        # relabel event
-        if event.inaxes in self.trace_axes and event.key == 'L' and self.eventlist:
-            time = mdates.num2date(event.xdata).replace(tzinfo=None)
-            id_to_relabel = []
-            for id, item in self.eventlist.items():
-                evnt = item['event']
-                if evnt.starttime < time < evnt.endtime:
-                    id_to_relabel.append(id)
+                # add/remove station to eid
+                if event.key in ('+', '-', 'a', 'r'):
+                    trace = event.inaxes.yaxis.get_label().get_text()
+                    sta_id = '.'.join([self.network.stats.code, trace])
+                    time = mdates.num2date(event.xdata).replace(tzinfo=None)
+                    ans = self.getEIDforTime(time)
+                    
+                    if ans:
+                        if isinstance(ans[0], int):
+                            # add station
+                            if event.key in ('+', 'a'):
+                                if sta_id not in ans[1]:
+                                    self.addStaEID(ans[0], sta_id)
 
-            if id_to_relabel:
-                self.relabelEID(id_to_relabel)
-
-        # remove event
-        if event.inaxes in self.trace_axes and event.key == 'delete' and self.eventlist:
-            time = mdates.num2date(event.xdata).replace(tzinfo=None)
-            id_to_remove = []
-            for id, item in self.eventlist.items():
-                evnt = item['event']
-                if evnt.starttime < time < evnt.endtime:
-                    id_to_remove += [id]
-                    [s.remove() for s in item['span']]
-                    item['txt'].remove()
-            
-            if id_to_remove:
-                self.removeEID(id_to_remove)
-        
-        # add station to eid
-        if event.inaxes in self.trace_axes and event.key == '+' and self.eventlist:
-            trace = ax.yaxis.get_label().get_text()
-            sta_id = '.'.join([self.network.stats.code, trace])
-            time = mdates.num2date(event.xdata).replace(tzinfo=None)
-            eid = self.getEIDforTime(time, sta_id)
-            # if isinstance(eid, list): choose eid
-            if eid:
-                self.addStaEID(eid, sta_id)
-
-        # remove station to eid
-        if event.inaxes in self.trace_axes and event.key == '-' and self.eventlist:
-            trace = ax.yaxis.get_label().get_text()
-            sta_id = '.'.join([self.network.stats.code, trace])
-            time = mdates.num2date(event.xdata).replace(tzinfo=None)
+                            # remove station
+                            if event.key in ('-', 'd'):
+                                print(sta_id, ans[1], sta_id in ans[1])
+                                if sta_id in ans[1]:
+                                    self.removeStaEID(ans[0], sta_id)
+                        
+                        # else is a list and you have to choose what to do
 
 
-        # add event
-        if self.info_dict['left'] and self.info_dict['right']:
-            if event.key in map(str, SHORTCUT_LABELS.keys()) or event.key == 'l':
-                if event.key == 'l':
-                    lbl, ok = QtWidgets.QInputDialog.getText(self, "Save event", "Label:")
-                    if ok:
-                        label = lbl.upper()
+            # add event
+            if self.info_dict['left'] and self.info_dict['right']:
+                if event.key in map(str, SHORTCUT_LABELS.keys()) or event.key == 'l':
+                    if event.key == 'l':
+                        lbl, ok = QtWidgets.QInputDialog.getText(self, "Save event", "Label:")
+                        if ok:
+                            label = lbl.upper()
+                        else:
+                            return
                     else:
-                        return
-                else:
-                    label = SHORTCUT_LABELS[int(event.key)]
-                self.addEID(label)
+                        label = SHORTCUT_LABELS[int(event.key)]
+                    self.addEID(label)
 
 
     def onClick(self, event):
@@ -357,12 +314,12 @@ class NetworkCanvas(FigureCanvas):
                         diff = None
                     
                     self.info_dict['diff'] = diff
-                    self.show_tickinfo()
+                    self.showTickInfo()
 
         if event.inaxes == self.specgram_axes[0]:
             freq = event.ydata
             self.info_dict['freq'] = freq
-            self.show_tickinfo()
+            self.showTickInfo()
 
 
     def addEID(self, label):
@@ -388,14 +345,35 @@ class NetworkCanvas(FigureCanvas):
 
     
     def removeStaEID(self, eid, sta_id):
+        network  = sta_id.split('.')[0]
+        station  = sta_id.split('.')[1]
+        location = sta_id.split('.')[2]
+        self.sde.remove_station(eid, network, station, location)
+        self.drawEvents(draw=True)
 
 
-    def removeEID(self, id_to_remove):
-        for id in id_to_remove:
+    def removeEID(self, eid):
+
+        if isinstance(eid, int):
+            # remove single eid
+            item = self.eventlist[eid]
+            
+            # 1: remove span and txt
+            [s.remove() for s in item['span']]
+            item['txt'].remove()
+
+            # 2: remove from database and eventlist
             self.sde.remove_event(id)
             del self.eventlist[id]
-            
+
+        else:
+            # else you have to chose what to do
+            return
+        
+        # clear list
         self.parent.listWidget.clear()
+
+        # add remaining items
         for id, item in self.eventlist.items():
             info_evnt = '  %s [%s]' % (id, item['event'].label)
             self.parent.listWidget.addItem(info_evnt)
@@ -403,15 +381,16 @@ class NetworkCanvas(FigureCanvas):
         self.draw()
     
 
-    def relabelEID(self, sta_id, id_to_relabel):
-        for id in id_to_relabel:
-            evnt = self.sde[id]
-            new_label, ok = QtWidgets.QInputDialog.getText(self, "Relabel Event", "Event Label: ", text=evnt.label)
-            
-            if ok and new_label != evnt.label:
-                self.sde.relabel_event(id, new_label.upper())
-        
-        self.drawEvents(draw=True)
+    def relabelEID(self, eid):
+        if isinstance(eid, int):
+            event = self.sde[eid]
+            label, ok = QtWidgets.QInputDialog.getText(self, "Relabel Event", "Event Label: ", text=event.label)
+            if ok and label != event.label:
+                self.sde.relabel_event(eid, label.upper())
+                self.drawEvents(draw=True)
+        else:
+            # else you have to chose what to do
+            return
     
     # -------------
     #   NAVIGATE
@@ -535,7 +514,7 @@ class NetworkCanvas(FigureCanvas):
                 sta = self.network.get_sta(sta_code, loc=sta_loc)
                 channel = sta.get_chan(self.component)
                 trace = sta.get_stream(start, end, channel=channel, remove_response=self.plot_kwargs['remove_response'])[0]
-                psd, freq = trace.psd(fq_band=self.plot_kwargs['fq_band'], avg_step=avg_step, olap=0.25, return_fig=False, plot=False)
+                psd, freq = trace.psd(fq_band=self.plot_kwargs['fq_band'], mov_avg_step=avg_step, olap_step=0.25)
 
                 if n == 0:
                     dtrace["freq"] = freq
@@ -651,7 +630,7 @@ def network_plot(network, station_list, starttime, component, endtime, full_retu
     fq_band = kwargs.get('fq_band', ())
     remove_response = kwargs.get('remove_response', False)
     sample_rate = kwargs.get('sample_rate', None)
-    color_name = kwargs.get('color_name', "tolm")
+    color_name = kwargs.get('color_name', "okabe")
     specgram = kwargs.get('specgram', station_list[0])
     colors = get_colors(color_name)
 
@@ -690,6 +669,9 @@ def network_plot(network, station_list, starttime, component, endtime, full_retu
     spec_return = ()
     specgram_trace = stream.get_component(component, station=specgram.split('.')[0], loc=specgram.split('.')[1])
     if specgram_trace:
+        # move the specgram trace to the first position of trace_ids
+        spec_pos = trace_ids.index(specgram)
+        trace_ids.insert(0, trace_ids.pop(spec_pos))
         
         if remove_response:
             label = r"[dB cnts$^2$/Hz]"
@@ -705,10 +687,6 @@ def network_plot(network, station_list, starttime, component, endtime, full_retu
         spec_return = (spec_ax, spec_bar_ax)
         
         i += 1
-
-        # move the specgram trace to the first position of trace_ids
-        spec_pos = trace_ids.index(specgram)
-        trace_ids.insert(0, trace_ids.pop(spec_pos))
 
     # plot traces
     axlist = []
@@ -737,7 +715,7 @@ def network_plot(network, station_list, starttime, component, endtime, full_retu
                 bbox=dict(boxstyle="round", fc="w", alpha=1)
             )
 
-        if n == len(tr_id)-1:
+        if n == len(trace_ids)-1:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         else:
             ax.xaxis.set_major_formatter(mtick.NullFormatter())

@@ -398,6 +398,7 @@ class PSD_GUI(QtWidgets.QMainWindow):
         
         self.ui.verticalLayout.addWidget(self.canvas)
         self.ui.pushButton.clicked.connect(self.canvas.logPSD)
+        self.ui.pushButton3.clicked.connect(self.canvas.normPSD)
         self.ui.pushButton2.clicked.connect(self.canvas.logFreq)
 
         self.setWindowTitle(kwargs.get("title", "PSD_GUI"))
@@ -413,7 +414,9 @@ class PSDCanvas(FigureCanvas):
         self.pd_array = kwargs.get('pds', None)
 
         self.plot_kwargs = {
+            "db_scale":kwargs.get('db_scale', False),
             "log_fq":kwargs.get('log_fq', False),
+            "norm":kwargs.get('norm', False),
             "colors":kwargs.get('colors', []),
             "labels":kwargs.get('labels', []),
             "plot":False
@@ -433,36 +436,29 @@ class PSDCanvas(FigureCanvas):
     def __plot__(self):
         self.fig.clf()
         with pyqtgraph.BusyCursor():
-            _, self.axes = plot_multiple_psd(self.freq, self.psd_array, self.pd_array, fig=self.fig, 
-                plot=False, **self.plot_kwargs)
+            _, self.axes = plot_multiple_psd(self.freq, self.psd_array, self.pd_array, fig=self.fig, **self.plot_kwargs)
         self.nav_n = Navigation(self.axes, parent=self.fig)
         self.draw()
 
 
     def logPSD(self):
-        if self.log_psd:
-            self.log_psd = False
-        else:
-            self.log_psd = True
+        self.plot_kwargs['db_scale'] = np.invert(self.plot_kwargs['db_scale'])
+        self.__plot__()
 
-        self.plot_kwargs['log_psd'] = self.log_psd
+    def normPSD(self):
+        self.plot_kwargs['norm'] = np.invert(self.plot_kwargs['norm'])
         self.__plot__()
 
 
     def logFreq(self):
-        if self.log_fq:
-            self.log_fq = False
-        else:
-            self.log_fq = True
-
-        self.plot_kwargs['log_fq'] = self.log_fq
+        self.plot_kwargs['log_fq'] = np.invert(self.plot_kwargs['log_fq'])
         self.__plot__()
 
 
     def print_tickinfo(self, event):
         if isinstance(self.axes, np.ndarray):
             if event.inaxes == self.axes[0]:
-                print('--------Tick-Info---------')
+                print('\n\n\n--------Tick-Info---------')
                 try:
                     bfq = self.nav_n.ticks['left'][0]
                     print('   Black tick: %2.2f Hz' % bfq)

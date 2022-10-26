@@ -44,7 +44,7 @@ class PolarAnalysis(object):
         self.taper = kwargs.get('taper', False)
         self.taper_p = kwargs.get('taper_p', 0.05)
         self.time_bandwidth = kwargs.get('time_bandwidth', 3.5)
-        self.njobs = kwargs.get('njobs', multiprocessing.cpu_count()-2)
+        self.njobs = kwargs.get('njobs', multiprocessing.cpu_count())
         self.full_analysis = full_analysis
 
         self.fit()
@@ -73,9 +73,8 @@ class PolarAnalysis(object):
             Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
             Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
             Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
-            data_split += [[Zdata_n, Ndata_n, Edata_n]]
+            data_split += [(Zdata_n, Ndata_n, Edata_n)]
             npts_start += self.npts_mov_avg - npts_olap
-        
         self.n = len(data_split)
 
         if self.n > 1:
@@ -144,10 +143,10 @@ class PolarAnalysis(object):
             rect = np.array(list(map(get_rectiliniarity, z_list)))
             azimuth = np.array(list(map(get_azimuth, z_list)))
             elevation = np.array(list(map(get_elevation, z_list)))
-            return [polar_dgr, rect, azimuth, elevation]
+            return (polar_dgr, rect, azimuth, elevation)
         
         else:
-            return [polar_dgr]
+            return polar_dgr
 
 
     def __polar_dgr__(self, cmatrix, fq_idx):
