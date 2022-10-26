@@ -1514,6 +1514,22 @@ class Peaks(LTE):
         return dout
 
 
+    def get_fq_area(self, fq, fqtol=0.5, linearly_peaks=False):
+
+        area = np.zeros((self.stats.nro_time_bins,))
+        for i in range(self.stats.nro_time_bins):
+            if i in self.dominant_peaks_:
+                d = self.dominant_peaks_[i]
+                for f, pd, r in zip(d['fq'], d['degree'], d['rect']):
+                    if (f-fqtol<fq) and (f+fqtol>fq):
+                        if pd and pd > self.peak_thresholds['degree_th']:
+                            if not linearly_peaks:
+                                area[i] = 1
+                            else:
+                                if r and r > self.peak_thresholds['rect_th']:
+                                    area[i] = 1
+        return area
+
     # PLOTTING    
 
     def plot_spec_pdf(self, show=True, **kwargs):

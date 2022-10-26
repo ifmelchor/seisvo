@@ -78,23 +78,34 @@ class PolarAnalysis(object):
         
         self.n = len(data_split)
 
-        # for data in data_split:
-        ans = self.__process__(data_split)
+        if self.n > 1:
+            self.degree = np.empty(shape=(len(self.freq), self.n))
+            if self.full_analysis:
+                self.rect = np.empty(shape=(len(self.freq), self.n))
+                self.azimuth = np.empty(shape=(len(self.freq), self.n))
+                self.elevation = np.empty(shape=(len(self.freq), self.n))
 
-        # for n_ans in ans:
-        self.degree = np.array(ans[0])
+            for n, data in enumerate(data_split):
+                ans = self.__process__([data])
+         
+                # for n_ans in ans:
+                self.degree[:,n] = ans[0]
 
-        if self.full_analysis:
-            self.rect = np.array(ans[1])
-            self.azimuth = np.array(ans[2])
-            self.elevation = np.array(ans[3])
+                if self.full_analysis:
+                    self.rect[:,n] = ans[1]
+                    self.azimuth[:,n] = ans[2]
+                    self.elevation[:,n] = ans[3]
 
-        # self.degree /= self.n
-        
-        # if self.full_analysis:
-        #     self.rect /= self.n
-        #     self.azimuth /= self.n
-        #     self.elevation /= self.n
+        else:
+            # for data in data_split:
+            ans = self.__process__(data_split)
+
+            # for n_ans in ans:
+            self.degree = np.array(ans[0])
+            if self.full_analysis:
+                self.rect = np.array(ans[1])
+                self.azimuth = np.array(ans[2])
+                self.elevation = np.array(ans[3])
 
 
     def __process__(self, data):

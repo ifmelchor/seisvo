@@ -394,7 +394,7 @@ class Station(object):
             time_bandwidth = kwargs.get('time_bandwidth', 3.5)
         )
 
-        if isinstance(step_sec, float):
+        if isinstance(step_sec, (int, float)):
             npts_mov_avg = step_sec*sampling_rate
         else:
             npts_mov_avg = None
