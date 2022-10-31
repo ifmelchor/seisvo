@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-from seisvo import DB_PATH
+from seisvo import DB_PATH, CC8_PATH
 from seisvo.file.air import AiR
+from seisvo.file.cc8 import CC8
 from seisvo.core import get_network
 from seisvo.core.obspyext import Stream2
 from seisvo.core.station import Station
@@ -30,7 +31,6 @@ class Network(object):
 
 
     def __getitem__(self, item):
-
         if isinstance(item, int):
             return self.station[item]
         
@@ -43,6 +43,26 @@ class Network(object):
                 loc = ''
             
             return self.get_sta(sta_code, loc=loc)
+    
+
+    def __setstacode__(self, sta_code, channel):
+        sta_to_remove = []
+        for sta in self.station:
+            if sta.stats.code == sta_code:
+                for ch in sta.stats.chan:
+                    if ch[-1] != channel:
+                        sta.stats.chan.remove(ch)
+                if not sta.stats.chan:
+                    sta_to_remove += [sta]
+            else:
+                sta_to_remove += [sta]
+        
+        id_list = [sta.stats.id for sta in sta_to_remove]
+        for sta in self.station:
+            if sta.stats.id in id_list:
+                self.station.remove(sta)
+        
+        self.stations_info = [sta.stats.id for sta in self.station]
 
 
     def get_datebound(self, sta_code=None):
@@ -243,37 +263,82 @@ class Network(object):
         init_network_gui(self, true_station_list, starttime, delta, component, sde_file, **kwargs)
 
 
+class sArray(Network):
+    def __init__(self, net_code, sta_code, chan='Z', **kwargs):
+        super().__init__(net_code)
+        self.sta_code = sta_code
+        self.chan = chan
+        self.__setstacode__(sta_code, chan)
+
+
+    def cc8(self, start_time, window_length, overlap, end_time=None, interval=15, **kwargs):
+
+        if not end_time:
+            end_time = start_time + dt.timedelta(days=interval)
+
+        ss = SSteps(start_time, end_time, window_length, overlap, **kwargs)
+        npts_per_interval = ss.interval_.seconds * ss.sample_rate
+
+        # calculate the number of samples to avoid end-of-file 
+        pmax = kwargs.get("pmax", [])
+        pinc = kwargs.get("pinc", [])
+        nmas_npts = max([10 + 1.41421*distan*pmax_i*ss.sample_rate for pmax_i in pmax])
+        nini = int(np.ceil(nmas_npts/ss.sample_rate)*ss.sample_rate)
+
+        # prepare the header of the hdf file
+        cc8_hdr = dict(
+            id = '.'.join(self.stats.net_code, self.sta_code, self.chan),
+            starttime = start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            endtime = end_time.strftime('%Y-%m-%d %H:%M:%S'),
+            window_length = window_length,
+            overlap = overlap,
+            nro_time_bins = ss.total_steps(),
+            sample_rate = ss.sample_rate,
+            fq_band = kwargs.get("fq_band", [1.,15.]),
+            pmax = pmax,
+            pinc = pinc,
+            np = len(pmax),
+            nini = nini,
+            nwin = ss.steps_,
+            nadv = ss.prct_advance,
+            ccerr = kwargs.get("ccerr", ),
+            sup_file = kwargs.get("sup_file", False)
+        )
+
+        # define name
+        if not filename:
+            filename = "%s.%s%03d-%s%03d.cc8" % (cc8_hdr["id"], start_time.year, start_time.timetuple().tm_yday, end_time.year, end_time.timetuple().tm_yday)
+        else:
+            if filename.split('.')[-1] != "cc8":
+                filename += ".cc8"
+
+        if not outdir:
+            outdir = os.path.join(CC8_PATH)
+        
+        filenamef = os.path.join(outdir, filename)
+
+        if os.path.isfile(filenamef):
+            os.remove(filenamef)
+            print(' file %s removed.' % filenamef)
+        
+
+        cc8 = CC8.new(self, filenamef, cc8_hdr, **kwargs)
+
+        return cc8
+
+
 class iArray(Network):
     def __init__(self, net_code, sta_code, chan='P', **kwargs):
         super().__init__(net_code)
         self.sta_code = sta_code
         self.central_sta = None
         self.chan = chan
-        self.__setstacode__()
+
+        self.__setstacode__(sta_code, chan)
         self.__check__()
         self.set_central(sta_code=kwargs.get('central_sta'))
         self.set_model(model=kwargs.get('model', None))
 
-
-    def __setstacode__(self):
-        sta_to_remove = []
-        for sta in self.station:
-            if sta.stats.code == self.sta_code:
-                for ch in sta.stats.chan:
-                    if ch[-1] != self.chan:
-                        sta.stats.chan.remove(ch)
-                if not sta.stats.chan:
-                    sta_to_remove += [sta]
-            else:
-                sta_to_remove += [sta]
-        
-        id_list = [sta.stats.id for sta in sta_to_remove]
-        for sta in self.station:
-            if sta.stats.id in id_list:
-                self.station.remove(sta)
-        
-        self.stations_info = [sta.stats.id for sta in self.station]
-    
 
     def __check__(self):
         # check sample rate
