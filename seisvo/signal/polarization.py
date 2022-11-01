@@ -73,7 +73,7 @@ class PolarAnalysis(object):
             Zdata_n = self.data[0][npts_start:npts_start + self.npts_mov_avg]
             Ndata_n = self.data[1][npts_start:npts_start + self.npts_mov_avg]
             Edata_n = self.data[2][npts_start:npts_start + self.npts_mov_avg]
-            data_split += [(Zdata_n, Ndata_n, Edata_n)]
+            data_split += [[Zdata_n, Ndata_n, Edata_n]]
             npts_start += self.npts_mov_avg - npts_olap
         self.n = len(data_split)
 
@@ -84,16 +84,14 @@ class PolarAnalysis(object):
                 self.azimuth = np.empty(shape=(len(self.freq), self.n))
                 self.elevation = np.empty(shape=(len(self.freq), self.n))
 
-            for n, data in enumerate(data_split):
-                ans = self.__process__([data])
-         
-                # for n_ans in ans:
-                self.degree[:,n] = ans[0]
+            ans = list(map(self.__process__, data_split))
+            for n in range(self.n):
+                self.degree[:,n] = ans[n][0]
 
                 if self.full_analysis:
-                    self.rect[:,n] = ans[1]
-                    self.azimuth[:,n] = ans[2]
-                    self.elevation[:,n] = ans[3]
+                    self.rect[:,n] = ans[n][1]
+                    self.azimuth[:,n] = ans[n][2]
+                    self.elevation[:,n] = ans[n][3]
 
         else:
             # for data in data_split:
@@ -113,6 +111,9 @@ class PolarAnalysis(object):
 
         data is a list of lists, on which each list contains Z, N, E data.
         """
+
+        if len(data) > 1:
+            data = [data]
 
         # compute cross-spectral elements
         cross_spec_func = functools.partial(self.__cross_spec__, data)
