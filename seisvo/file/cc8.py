@@ -23,7 +23,7 @@ class cc8stats(AttribDict):
         self.attributes = list
 
     def __str__(self):
-        priorized_keys = ['id','starttime','endtime','window_length','overlap','nro_time_bins','last_time_bin','sample_rate','fq_band','pmax','pinc','np', 'nini', 'nwin', 'nadv', 'ccerr','sup_file']
+        priorized_keys = ['id','starttime','endtime','window_length','overlap','nro_time_bins','last_time_bin','sample_rate','fq_band','np','pmax','pinc', 'ccerr','sup_file']
 
         return self._pretty_str(priorized_keys)
 
@@ -53,19 +53,24 @@ class CC8(object):
     def __set_stats__(self):
         with h5py.File(self.file_, "r") as f:
             hdr = f['header']
-            lte_stats = dict(
+            self.stats = cc8stats(
+                dict(
                 id = hdr.attrs['id'],
                 starttime = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
                 endtime = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
-                ...
+                window_length = hdr.attrs['window_length'],
+                overlap = hdr.attrs['overlap'],
                 nro_time_bins = hdr.attrs['nro_time_bins'],
                 last_time_bin = hdr.attrs['last_time_bin'],
-                fq_band = hdr.attrs['fq_band'],
                 sample_rate = hdr.attrs['sample_rate'],
-                ...
+                fq_band = hdr.attrs['fq_band'],
+                np = hdr.attrs['np'],
+                pmax = hdr.attrs['pmax'],
+                pinc = hdr.attrs['pinc'],
+                ccerr = hdr.attrs['ccerr'],
+                sup_file = hdr.attrs['sup_file']
                 )
-        
-        self.stats = cc8stats(lte_stats)
+            )
     
 
     @staticmethod
@@ -78,12 +83,23 @@ class CC8(object):
         hdr.attrs['id'] = headers['id']
         hdr.attrs['starttime'] = headers['starttime']
         hdr.attrs['endtime'] = headers['endtime']
-        hdr.attrs[''] = headers['']
+        hdr.attrs['window_length'] = headers['window_length']
+        hdr.attrs['overlap'] = headers['overlap']
+        hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
+        hdr.attrs['last_time_bin'] = -1
         hdr.attrs['sample_rate'] = headers['sample_rate']
         hdr.attrs['fq_band'] = headers['fq_band']
-        hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
-        hdr.attrs['time_bandwidth'] = headers['time_bandwidth']
-        hdr.attrs['last_time_bin'] = -1
+        hdr.attrs['np'] = headers['np']
+        hdr.attrs['pmax'] = headers['pmax']
+        hdr.attrs['pinc'] = headers['pinc']
+        hdr.attrs['ccerr'] = headers['ccerr']
+        hdr.attrs['sup_file'] = headers['sup_file']
+
+        # other params for running the code
+        nini = headers['nini']
+        nwin = headers['nwin']
+        nadv = headers['nadv']
+
         timebins = headers['nro_time_bins']
 
         # set chunks 
