@@ -27,27 +27,35 @@ class cc8stats(AttribDict):
 
         return self._pretty_str(priorized_keys)
 
+# class CC8s(object):
+    # class for supfile
+
 
 class CC8(object):
     def __init__(self, filename, sup_path=None):
-
         if not os.path.isfile(filename):
             return ValueError(' file not found')
-
+        
         self.file_ = filename
-
+        
         try:
             self.__set_stats__()
         except:
             return ValueError(' file %s cannot be read' %filename)
-
+        
         # search for supfiles
-        if sup_path and self.stats.sup_file:
-            
-            sup_file = os.path.join(cc8_sup_path, )
-
-            if os.path.isfile(sup_file):
-            # try to read
+        if self.stats.sup_file:
+            self.supfiles_ = []
+            for n in range(self.stats.np):
+                supfile_n = filename + f'.{n}'
+                
+                if sup_path and os.path.isdir(sup_path):
+                    supfile_n = os.path.join(sup_path, supfile_n)
+                
+                if os.path.isfile(supfile_n):
+                    # read supfile
+                    sfilen = CC8s(supfile_n)
+                    self.supfiles_.append(sfilen)
 
 
     def __set_stats__(self):
@@ -72,13 +80,45 @@ class CC8(object):
                 )
             )
     
+    def __compute__(self, sarray, headers):
+
+        # loop over the intervals
+        interval = headers["interval"]
+        start_time = self.stats.starttime
+        end_time = self.stats.endtime
+        nini = headers['nini']
+        nwin = headers['nwin']
+        nadv = headers['nadv']
+
+        start = start_time
+        while start + interval <= end_time:
+            end = start + interval
+            mdata, stats = sarray.get_mdata(start, end, toff=nini*self.stats.sample_rate, sample_rate=self.stats.sample_rate, fq_band=self.stats.fq_band, return_stats=True)
+
+            # prepare parameters
+            
+            # run cc8
+
+            start += interval
+
+    
 
     @staticmethod
-    def __new__(filename, headers, sup_file=False, sup_file_path=None, kwargs**):
+    def new(sarray, filename, headers, sup_path=None):
+        
+        # print info
+        print('')
+        print(' CC8 file INFO')
+        print(' -------------')
+        print('  file   ::  %s ' % filename)
+        for key in ['id', 'starttime', 'endtime' ,'window_length' ,'overlap' ,'nro_time_bins' ,'sample_rate' ,'fq_band' , 'np', 'pmax', 'pinc', 'ccer', 'sup_file']:
+            print(f'  {key}  ::  {headers[key]}')
+        print('')
 
+        # create file
         cc8main = h5py.File(filename, "w-")
         
-        # header dataset
+        # add header
         hdr = cc8main.create_dataset('header',(1,))
         hdr.attrs['id'] = headers['id']
         hdr.attrs['starttime'] = headers['starttime']
@@ -95,13 +135,37 @@ class CC8(object):
         hdr.attrs['ccerr'] = headers['ccerr']
         hdr.attrs['sup_file'] = headers['sup_file']
 
-        # other params for running the code
-        nini = headers['nini']
-        nwin = headers['nwin']
-        nadv = headers['nadv']
-
+        # add datasets
         timebins = headers['nro_time_bins']
 
-        # set chunks 
-        chunk_shape1 = chunk_shape2 = True
-        chunk_info = 'auto'
+        for n in range(headers['np']):
+            np_n = cc8main.create_group(str(n))
+            np_n.create_dataset('slow', (timebins,), chunks='auto', dtype=np.float32)
+            np_n.create_dataset('baz', (timebins,), chunks='auto', dtype=np.float32)
+            np_n.create_dataset('cc_max', (timebins,), chunks='auto', dtype=np.float32)
+            
+            bds_n = np_n.create_group('bounds')
+            bds_n.create_dataset('baz_min', (timebins,), chunks='auto', dtype=np.float32)
+            bds_n.create_dataset('baz_max', (timebins,), chunks='auto', dtype=np.float32)
+            bds_n.create_dataset('slo_min', (timebins,), chunks='auto', dtype=np.float32)
+            bds_n.create_dataset('slo_max', (timebins,), chunks='auto', dtype=np.float32)
+        
+        cc8main.flush()
+        cc8main.close()
+
+        if headers['sup_file']:
+            for n in range(headers['np']):
+                # create supfiles
+                supfile_n = filename + f'.{n}'
+                cc8s_n = h5py.File(supfile_n, "w-")
+                
+                nite = 2*int(header["pmax"][n]/header["pinc"][n]) + 1
+                cc8main.create_dataset('sumap',(timebins,nite,nite), chunks='auto', dtype=np.float32)
+
+                cc8s_n.flush()
+                cc8s_n.close()
+
+        cc8 = CC8(filename, sup_path=sup_path)
+        cc8.__compute__(sarray, headers)
+
+        return cc8

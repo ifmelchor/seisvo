@@ -269,10 +269,34 @@ class sArray(Network):
         self.sta_code = sta_code
         self.chan = chan
         self.__setstacode__(sta_code, chan)
+    
+
+    def get_mdata(self, start_time, end_time, toff=0., sample_rate=None, fq_band=(), return_stats=False):
+        if toff > 0:
+            toff = dt.timedelta(seconds=toff)
+            start_time -= toff
+            end_time += toff
+
+        st = self.get_stream(start_time, end_time, sample_rate=sample_rate)
+        for n, tr in enumerate(st):
+            tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
+            if n == 0:
+                mdata = np.empty(len(st),len(tr_dat))
+            mdata[n,:] = tr_dat
+
+            if return_stats:
+                if n == 0:
+                    stats = []
+                sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
+                stats.append(sta.stats)
+
+        if return_stats:
+            return mdata, stats
+        else:
+            return mdata    
 
 
     def cc8(self, start_time, window_length, overlap, end_time=None, interval=15, **kwargs):
-
         if not end_time:
             end_time = start_time + dt.timedelta(days=interval)
 
@@ -282,8 +306,9 @@ class sArray(Network):
         # calculate the number of samples to avoid end-of-file 
         pmax = kwargs.get("pmax", [])
         pinc = kwargs.get("pinc", [])
-        nmas_npts = max([10 + 1.41421*distan*pmax_i*ss.sample_rate for pmax_i in pmax])
-        nini = int(np.ceil(nmas_npts/ss.sample_rate)*ss.sample_rate)
+        dist = kwargs.get("dist", .5)
+        nmas_npts = max([10 + 1.41421*dist*pmax_i*ss.sample_rate for pmax_i in pmax])
+        nini = 1 + int(np.ceil(nmas_npts/ss.sample_rate)*ss.sample_rate)
 
         # prepare the header of the hdf file
         cc8_hdr = dict(
@@ -293,6 +318,7 @@ class sArray(Network):
             window_length = window_length,
             overlap = overlap,
             nro_time_bins = ss.total_steps(),
+            interval = ss.interval_,
             sample_rate = ss.sample_rate,
             fq_band = kwargs.get("fq_band", [1.,15.]),
             pmax = pmax,
@@ -321,8 +347,7 @@ class sArray(Network):
             os.remove(filenamef)
             print(' file %s removed.' % filenamef)
         
-
-        cc8 = CC8.new(self, filenamef, cc8_hdr, **kwargs)
+        cc8 = CC8.new(self, filenamef, cc8_hdr, sup_path=kwargs.get("sup_path", None))
 
         return cc8
 

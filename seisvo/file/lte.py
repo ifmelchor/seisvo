@@ -1034,7 +1034,7 @@ class LTE(object):
                 chunk_shape1 = chunk_shape2 = None
                 chunk_info = 'none'
 
-        # print shape info
+        # print info
         print('')
         print(' LTE file INFO')
         print(' -------------')
@@ -1042,12 +1042,11 @@ class LTE(object):
         print(' --- dataset size: ', (timebins, freqbins))
         print(' --- chunk size: ', chunk_info)
         print('')
-        
-        # print info
         print(' LTE stats:')
         for info_key in ['id', 'channel', 'starttime', 'endtime' ,'interval' ,'int_olap' ,'step' ,'step_olap' ,'sample_rate' ,'remove_response' ,'fq_band' ,'nro_time_bins' ,'nro_freq_bins' ,'polar_degree' ,'polar_analysis' ,'f_params', 'opt_params', 'f_threshold' ,'PE_tau' ,'PE_order', 'time_bandwidth']:
             print(f' {info_key}:  {headers[info_key]}')
 
+        # create datasets structure
         f.create_dataset('freq', (freqbins,), dtype=np.float32)
 
         for chan in headers['channel']:
