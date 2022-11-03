@@ -82,13 +82,17 @@ class CC8(object):
     
     def __compute__(self, sarray, headers):
 
+        if self.stats.last_time_bin > 0:
+
+
         # loop over the intervals
         interval = headers["interval"]
         start_time = self.stats.starttime
         end_time = self.stats.endtime
-        nini = headers['nini']
-        nwin = headers['nwin']
-        nadv = headers['nadv']
+        nini = int(headers['nini'])
+        nwin = int(headers['nwin'])
+        lwin = int(headers['lwin'])
+        fsem = int(self.stats.sample_rate)
 
         start = start_time
         while start + interval <= end_time:
@@ -96,8 +100,11 @@ class CC8(object):
             mdata, stats = sarray.get_mdata(start, end, toff=nini*self.stats.sample_rate, sample_rate=self.stats.sample_rate, fq_band=self.stats.fq_band, return_stats=True)
 
             # prepare parameters
+            xsta_utm = [st.lon for st in stats]
+            ysta_utm = [st.lat for st in stats]
             
             # run cc8
+            cc8run_jl(mdata, xsta_utm, ysta_utm, self.stats.pmax, self.stats.pinc, fsem, lwin, nwin, headers['nadv'], self.stats.ccerr, nini, self.file_, headers["supfile"])
 
             start += interval
 
@@ -154,16 +161,30 @@ class CC8(object):
         cc8main.close()
 
         if headers['sup_file']:
+            if sup_path:
+                if not os.path.isdir(sup_path):
+                    os.makedirs(sup_path)
+                    print(f" >>> dir {sup_path} created")
+                headers["supfile"] = os.path.join(sup_path, filename)
+            else:
+                headers["supfile"] = filename
+
             for n in range(headers['np']):
                 # create supfiles
                 supfile_n = filename + f'.{n}'
+                if sup_path:
+                    supfile_n = os.path.join(sup_path, supfile_n)
                 cc8s_n = h5py.File(supfile_n, "w-")
                 
                 nite = 2*int(header["pmax"][n]/header["pinc"][n]) + 1
-                cc8main.create_dataset('sumap',(timebins,nite,nite), chunks='auto', dtype=np.float32)
+                dset = cc8main.create_dataset('sumap',(timebins,nite,nite), chunks='auto', dtype=np.float32)
+                dset.attrs['last_time_bin'] = -1
 
                 cc8s_n.flush()
                 cc8s_n.close()
+
+        else:
+            headers["supfile"] = None
 
         cc8 = CC8(filename, sup_path=sup_path)
         cc8.__compute__(sarray, headers)

@@ -306,6 +306,7 @@ class sArray(Network):
         # calculate the number of samples to avoid end-of-file 
         pmax = kwargs.get("pmax", [])
         pinc = kwargs.get("pinc", [])
+        lwin = kwargs.get("lwin", window_length*ss.sample_rate)
         dist = kwargs.get("dist", .5)
         nmas_npts = max([10 + 1.41421*dist*pmax_i*ss.sample_rate for pmax_i in pmax])
         nini = 1 + int(np.ceil(nmas_npts/ss.sample_rate)*ss.sample_rate)

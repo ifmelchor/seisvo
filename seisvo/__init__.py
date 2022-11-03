@@ -6,6 +6,7 @@ import os
 try:
     __seisvo__ = os.environ["SEISVO_PATH"]
     DB_PATH = os.path.join(__seisvo__, 'database')
+    CC8_PATH = os.path.join(__seisvo__, 'cc8')
     LTE_PATH = os.path.join(__seisvo__, 'lte')
     NET_PATH = os.path.join(__seisvo__, 'networks')
     RESP_PATH = os.path.join(__seisvo__, 'respfiles')
