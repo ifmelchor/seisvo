@@ -1220,7 +1220,6 @@ class Peaks(LTE):
             self.__fit_polar__(**kwargs)
         
         self.__dataframe__()
-        print(self.df_)
 
 
     def __fit_fq_kde__(self, **kwargs):

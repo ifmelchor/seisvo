@@ -17,7 +17,7 @@ except KeyError:
 
 from .core.network import Network, iArray
 from .core.station import Station
-from .file.lte import LTE
+from .file.lte import LTE, Peaks
 from .file.air import AiR
 from .database import SDE, LDE
 from .signal import SSteps
