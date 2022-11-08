@@ -47,17 +47,27 @@ class Network(object):
 
     def __setstacode__(self, sta_code, channel):
         sta_to_remove = []
+        
         for sta in self.station:
             if sta.stats.code == sta_code:
+                chan_to_remove = []
+                
                 for ch in sta.stats.chan:
                     if ch[-1] != channel:
+                        chan_to_remove.append(ch)
+                
+                if chan_to_remove:
+                    for ch in chan_to_remove:
                         sta.stats.chan.remove(ch)
+
                 if not sta.stats.chan:
                     sta_to_remove += [sta]
+           
             else:
                 sta_to_remove += [sta]
         
         id_list = [sta.stats.id for sta in sta_to_remove]
+        
         for sta in self.station:
             if sta.stats.id in id_list:
                 self.station.remove(sta)
@@ -96,10 +106,15 @@ class Network(object):
 
     def get_iarray(self, sta_code, model=None):
         """
-        Get a iArray object. Only for infrasound stations
-        :param loc_list: Specify the list of locations to exclude
+        Get a iArray object.
         """
         return iArray(self.stats.code, sta_code, model)
+    
+    def get_sarray(self, sta_code, chan="Z", **kwargs):
+        """
+        Get a sArray object.
+        """
+        return sArray(self.stats.code, sta_code, chan=chan, **kwargs)
 
 
     def get_sta(self, sta_code, loc=''):
@@ -269,11 +284,28 @@ class sArray(Network):
         self.sta_code = sta_code
         self.chan = chan
         self.__setstacode__(sta_code, chan)
+        self.__aperture__()
     
+    def __aperture__(self):
+        # only for utm data
+        a = 0
+        for sta1 in self.station:
+            for sta2 in self.station:
+                if sta1.stats.id != sta2.stats.id:
+                    if sta1.stats.type == sta2.stats.type == "utm":
+                        x1 = sta1.stats.lon
+                        y1 = sta1.stats.lat
+                        x2 = sta2.stats.lon
+                        y2 = sta2.stats.lat
+                        d = np.sqrt(np.abs(x1-x2)**2 + np.abs(y2-y1)**2)
+                        if d > a:
+                            a = d
+        self.apperture = a 
 
-    def get_mdata(self, start_time, end_time, toff=0., sample_rate=None, fq_band=(), return_stats=False):
-        if toff > 0:
-            toff = dt.timedelta(seconds=toff)
+
+    def get_mdata(self, start_time, end_time, toff_in_sec=0, sample_rate=None, fq_band=(), return_stats=False):
+        if toff_in_sec > 0:
+            toff = dt.timedelta(seconds=toff_in_sec)
             start_time -= toff
             end_time += toff
 
@@ -281,7 +313,7 @@ class sArray(Network):
         for n, tr in enumerate(st):
             tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
             if n == 0:
-                mdata = np.empty(len(st),len(tr_dat))
+                mdata = np.empty((len(st),len(tr_dat)))
             mdata[n,:] = tr_dat
 
             if return_stats:
@@ -290,47 +322,59 @@ class sArray(Network):
                 sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
                 stats.append(sta.stats)
 
+        if np.isnan(mdata).any():
+            print("Warning: data containing NaN values")
+
+
         if return_stats:
             return mdata, stats
+
         else:
             return mdata    
 
 
-    def cc8(self, start_time, window_length, overlap, end_time=None, interval=15, **kwargs):
+    def cc8(self, start_time, window_length, overlap, end_time=None, interval=15, pmax=[3.], pinc=[0.1],fq_band=[1.,10.], ccerr=0.75, sup_file=False, filename=None, outdir=None, sup_path=None, **sskwargs):
+
         if not end_time:
             end_time = start_time + dt.timedelta(days=interval)
 
-        ss = SSteps(start_time, end_time, window_length, overlap, **kwargs)
+        ss = SSteps(start_time, end_time, window_length, overlap, **sskwargs)
         npts_per_interval = ss.interval_.seconds * ss.sample_rate
+        ss.print()
 
-        # calculate the number of samples to avoid end-of-file 
-        pmax = kwargs.get("pmax", [])
-        pinc = kwargs.get("pinc", [])
-        lwin = kwargs.get("lwin", window_length*ss.sample_rate)
-        dist = kwargs.get("dist", .5)
-        nmas_npts = max([10 + 1.41421*dist*pmax_i*ss.sample_rate for pmax_i in pmax])
-        nini = 1 + int(np.ceil(nmas_npts/ss.sample_rate)*ss.sample_rate)
+
+        # calculate the number of samples to avoid end-of-file
+        if len(pmax) != len(pinc):
+            raise ValueError("pmax and pinc must be a list of the same length")
+
+        lwin = int(window_length*ss.sample_rate)
+        nmas_sec = np.ceil(max([10 + 1.41421*self.apperture*pmax_i for pmax_i in pmax]))
+        nini_sec = nmas_sec
 
         # prepare the header of the hdf file
         cc8_hdr = dict(
-            id = '.'.join(self.stats.net_code, self.sta_code, self.chan),
+            id = '.'.join([self.stats.code, self.sta_code, self.chan]),
             starttime = start_time.strftime('%Y-%m-%d %H:%M:%S'),
             endtime = end_time.strftime('%Y-%m-%d %H:%M:%S'),
             window_length = window_length,
             overlap = overlap,
-            nro_time_bins = ss.total_steps(),
             interval = ss.interval_,
+            nro_intervals = ss.nro_intervals,
+            nro_time_bins = ss.total_steps(),
             sample_rate = ss.sample_rate,
-            fq_band = kwargs.get("fq_band", [1.,15.]),
+            fq_band = fq_band,
             pmax = pmax,
             pinc = pinc,
             np = len(pmax),
-            nini = nini,
+            nini = nini_sec,
             nwin = ss.steps_,
+            lwin = window_length*ss.sample_rate,
             nadv = ss.prct_advance,
-            ccerr = kwargs.get("ccerr", ),
-            sup_file = kwargs.get("sup_file", False)
+            ccerr = ccerr,
+            sup_file = sup_file
         )
+
+        print(cc8_hdr)
 
         # define name
         if not filename:
@@ -348,7 +392,7 @@ class sArray(Network):
             os.remove(filenamef)
             print(' file %s removed.' % filenamef)
         
-        cc8 = CC8.new(self, filenamef, cc8_hdr, sup_path=kwargs.get("sup_path", None))
+        cc8 = CC8.new(self, filenamef, cc8_hdr, sup_path=sup_path)
 
         return cc8
 

@@ -353,6 +353,11 @@ class Stream2(Stream):
         super().__init__(*args, **kwargs)
 
 
+    def __iter__(self):
+        tr = [Trace2(self.traces[item]) for item in range(len(self))]
+        return tr.__iter__()
+
+
     def __getitem__(self, item):
         return Trace2(self.traces[item])
 

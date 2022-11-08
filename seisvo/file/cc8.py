@@ -7,13 +7,13 @@ Read write and operate .lte files
 
 '''
 
-
 import os
 import h5py
 import numpy as np
-
+import datetime as dt
 from obspy.core.util.attribdict import AttribDict
-
+from julia.api import Julia
+from tqdm import tqdm
 
 class cc8stats(AttribDict):
     def __init__(self, header):
@@ -34,14 +34,14 @@ class cc8stats(AttribDict):
 class CC8(object):
     def __init__(self, filename, sup_path=None):
         if not os.path.isfile(filename):
-            return ValueError(' file not found')
+            raise ValueError(' file not found')
         
         self.file_ = filename
         
         try:
             self.__set_stats__()
         except:
-            return ValueError(' file %s cannot be read' %filename)
+            raise ValueError(' file %s cannot be read' %filename)
         
         # search for supfiles
         if self.stats.sup_file:
@@ -83,32 +83,42 @@ class CC8(object):
     def __compute__(self, sarray, headers):
 
         if self.stats.last_time_bin > 0:
+            raise ValueError("last_time_bin is > 0. Please check cc8 file.")
 
+        # load julia and CC8
+        Julia(compiled_modules=False)
+        from julia import CC8
 
         # loop over the intervals
-        interval = headers["interval"]
+        interval = headers['interval']
+        nro_intervals = headers['nro_intervals']
         start_time = self.stats.starttime
         end_time = self.stats.endtime
-        nini = int(headers['nini'])
+        nini_sec = headers['nini']
         nwin = int(headers['nwin'])
         lwin = int(headers['lwin'])
         fsem = int(self.stats.sample_rate)
 
         start = start_time
-        while start + interval <= end_time:
-            end = start + interval
-            mdata, stats = sarray.get_mdata(start, end, toff=nini*self.stats.sample_rate, sample_rate=self.stats.sample_rate, fq_band=self.stats.fq_band, return_stats=True)
+        with tqdm(total=nro_intervals) as pbar:
+            while start + interval <= end_time:
+                end = start + interval
 
-            # prepare parameters
-            xsta_utm = [st.lon for st in stats]
-            ysta_utm = [st.lat for st in stats]
-            
-            # run cc8
-            cc8run_jl(mdata, xsta_utm, ysta_utm, self.stats.pmax, self.stats.pinc, fsem, lwin, nwin, headers['nadv'], self.stats.ccerr, nini, self.file_, headers["supfile"])
+                mdata, stats = sarray.get_mdata(start, end, toff_in_sec=nini_sec, sample_rate=fsem, fq_band=self.stats.fq_band, return_stats=True)
 
-            start += interval
+                # prepare parameters
+                xsta_utm = [st.lon for st in stats]
+                ysta_utm = [st.lat for st in stats]
+                
+                # print
+                # print("data size :: ", mdata.shape)
+                # print("array aperture [km] :: ", sarray.apperture)
+                
+                CC8.cc8mre_run(mdata, xsta_utm, ysta_utm, self.stats.pmax, self.stats.pinc, fsem, lwin, nwin, headers['nadv'], self.stats.ccerr, int(nini_sec*fsem), self.file_, headers["supfile"])
 
-    
+                start += interval
+                pbar.update()
+
 
     @staticmethod
     def new(sarray, filename, headers, sup_path=None):
@@ -118,7 +128,7 @@ class CC8(object):
         print(' CC8 file INFO')
         print(' -------------')
         print('  file   ::  %s ' % filename)
-        for key in ['id', 'starttime', 'endtime' ,'window_length' ,'overlap' ,'nro_time_bins' ,'sample_rate' ,'fq_band' , 'np', 'pmax', 'pinc', 'ccer', 'sup_file']:
+        for key in ['id', 'starttime', 'endtime' ,'window_length' ,'overlap' ,'nro_time_bins' ,'sample_rate' ,'fq_band' , 'np', 'pmax', 'pinc', 'ccerr', 'sup_file']:
             print(f'  {key}  ::  {headers[key]}')
         print('')
 
@@ -147,15 +157,15 @@ class CC8(object):
 
         for n in range(headers['np']):
             np_n = cc8main.create_group(str(n))
-            np_n.create_dataset('slow', (timebins,), chunks='auto', dtype=np.float32)
-            np_n.create_dataset('baz', (timebins,), chunks='auto', dtype=np.float32)
-            np_n.create_dataset('cc_max', (timebins,), chunks='auto', dtype=np.float32)
+            np_n.create_dataset('slow', (timebins,), chunks=True, dtype=np.float32)
+            np_n.create_dataset('baz', (timebins,), chunks=True, dtype=np.float32)
+            np_n.create_dataset('cc_max', (timebins,), chunks=True, dtype=np.float32)
             
             bds_n = np_n.create_group('bounds')
-            bds_n.create_dataset('baz_min', (timebins,), chunks='auto', dtype=np.float32)
-            bds_n.create_dataset('baz_max', (timebins,), chunks='auto', dtype=np.float32)
-            bds_n.create_dataset('slo_min', (timebins,), chunks='auto', dtype=np.float32)
-            bds_n.create_dataset('slo_max', (timebins,), chunks='auto', dtype=np.float32)
+            bds_n.create_dataset('baz_min', (timebins,), chunks=True, dtype=np.float32)
+            bds_n.create_dataset('baz_max', (timebins,), chunks=True, dtype=np.float32)
+            bds_n.create_dataset('slo_min', (timebins,), chunks=True, dtype=np.float32)
+            bds_n.create_dataset('slo_max', (timebins,), chunks=True, dtype=np.float32)
         
         cc8main.flush()
         cc8main.close()
@@ -177,7 +187,7 @@ class CC8(object):
                 cc8s_n = h5py.File(supfile_n, "w-")
                 
                 nite = 2*int(header["pmax"][n]/header["pinc"][n]) + 1
-                dset = cc8main.create_dataset('sumap',(timebins,nite,nite), chunks='auto', dtype=np.float32)
+                dset = cc8main.create_dataset('sumap',(timebins,nite,nite), chunks=True, dtype=np.float32)
                 dset.attrs['last_time_bin'] = -1
 
                 cc8s_n.flush()
