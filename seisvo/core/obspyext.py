@@ -23,7 +23,7 @@ class Trace2(Trace):
         super().__init__(data=trace.data, header=trace.stats)
     
 
-    def get_data(self, starttime=None, endtime=None, detrend=True, fq_band=(), abs=False, sample_rate=None, **kwargs):
+    def get_data(self, starttime=None, endtime=None, demean=True, detrend=True, fq_band=(), abs=False, sample_rate=None, rm_sensitivity=False, **kwargs):
         """
         This code returns a numpy array of the data
         """
@@ -45,8 +45,14 @@ class Trace2(Trace):
         
         data = tr.data
 
+        if demean:
+            data = data - data.mean()
+
         if detrend:
             data = signal.detrend(data)
+        
+        if rm_sensitivity:
+            data /= rm_sensitivity
 
         if list(fq_band):
             tr_filt = tr.filter2(fq_band, **kwargs)
@@ -253,7 +259,7 @@ class Trace2(Trace):
         return ans
 
 
-    def filter2(self, fq_band, **kwargs):
+    def filter2(self, fq_band, taper=False, **kwargs):
         """
         Apply a filter
         """
@@ -263,9 +269,7 @@ class Trace2(Trace):
 
         # detrend and taper
         data = self.data - self.data.mean()
-
         zerophase = kwargs.get("zerophase", True)
-        taper = kwargs.get("taper", False)
         taper_p = kwargs.get("taper_p", 0.05)
         bandstop = kwargs.get("bandstop", False)
 
@@ -300,11 +304,11 @@ class Trace2(Trace):
         import obspy.signal.invsim as osi
         from obspy.signal.util import _npts2nfft
 
-        taper = kwargs.get('taper', False)
+        taper          = kwargs.get('taper', True)
         taper_fraction = kwargs.get('taper_fraction', 0.05)
-        water_level = kwargs.get('water_level', 60)
-        output = kwargs.get('output', 'VEL')
-        pre_filt = kwargs.get('pre_filt', [0.01, 0.005, 40, 45]) #
+        water_level    = kwargs.get('water_level', 60)
+        output         = kwargs.get('output', 'VEL')
+        pre_filt       = kwargs.get('pre_filt', [0.01, 0.005, 40, 45]) #
 
         new_trace = self.copy()
         data = new_trace.data.astype(np.float64)

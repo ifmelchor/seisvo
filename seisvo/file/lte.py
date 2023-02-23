@@ -28,27 +28,16 @@ from seisvo.signal.polarization import PolarAnalysis
 from seisvo.signal.proba import get_PDF, get_KDE
 
 
-
-SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam']
-SCALAR_PARAMS_OPT = ['mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar_f']
-SCALAR_PARAMS_F = ['rsam_f', 'mf_f', 'hf_f', 'vlf_f', 'lf_f', 'vlar_f', 'lrar_f', 'rmar_f', 'dsar_f']
-
-VECTORAL_PARAMS = ['specgram', 'degree']
-VECTORAL_PARAMS_OPT = ['elevation', 'rect', 'azimuth']
-
-AMP_PARAMS = ['pentropy', 'rsam', 'dsar', 'mf', 'hf', 'lf', 'vlf', 'vlar', 'lrar', 'rmar', 'rsam_f', 'dsar_f', 'mf_f', 'hf_f', 'lf_f', 'vlf_f', 'vlar_f', 'lrar_f', 'rmar_f']
+SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'pentropy', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
+VECTORAL_PARAMS = ['specgram', 'degree', 'elevation', 'rect', 'azimuth']
+AMP_PARAMS = ['pentropy', 'rsam', 'dsar', 'mf', 'hf', 'lf', 'vlf', 'vlar', 'lrar', 'rmar']
 SPEC_PARAMS = ['specgram', 'fq_dominant', 'fq_centroid', 'energy']
 POLAR_PARAMS = ['degree', 'elevation', 'rect', 'azimuth']
-
 LTE_GROUPS = ['amplitude', 'spectral', 'polar']
-
 
 def get_group(attr):
     if attr in AMP_PARAMS:
-        if attr in SCALAR_PARAMS_F:
-            return 'amplitude_f'
-        else:
-            return 'amplitude'
+        return 'amplitude'
 
     if attr in SPEC_PARAMS:
         return 'spectral'
@@ -91,39 +80,145 @@ class LTEstats(AttribDict):
         return self._pretty_str(priorized_keys)
 
 
-def remove_outlier(data, seg_twindow, th):
-    scaler = StandardScaler()
-    data_f = np.copy(data)
-    data_standard = scaler.fit_transform(data.reshape(-1,1)).reshape(-1,)
-    # searching outliers
-    outs_position = np.where(data_standard > th)
-    if outs_position:
-        for i in list(map(int, outs_position[0])):
-            f_0 = i - int(seg_twindow/10)
-            if f_0 >= 0: # el outlier esta dentro de la ventana
-                if f_0 + seg_twindow >= len(data_f):
-                    # el final de la ventana esta fuera
-                    data_f[f_0:] = np.nan
-                else:
-                    # el final de la ventana esta dentro
-                    data_f[f_0:f_0+seg_twindow] = np.nan
-            else:
-                # el outlier esta al comienza de la ventana
-                data_f[0:seg_twindow] = np.nan
+class LTEProcess(object):
+    def __init__(self, h5file, ncomp, args):
+        self.file_ = h5file
+        self.read_nfs()
+        self.ncomp = ncomp
+        self.init_args = args
+        self.n = -1
+        self.processes = []
+        self.queue = Queue()
     
-    if data_f[~np.isnan(data_f)].size > 0:
-        return np.nanmean(data_f)
-    else:
-        return np.nan
+    def read_nfs(self):
+        with h5py.File(self.file_, "r+") as h5f:
+            self.nfs = h5f['header'].attrs["nro_freq_bins"]
+
+    def _wrapper(self, *args):
+        data = {}
+        if arg[0] != None:
+            julia.Julia(compiled_modules=False)
+            from julia import LTE as lte
+            ret = lte.lte_run(
+                args[0],
+                args[1],
+                self.init_args[0],
+                self.init_args[1],
+                self.init_args[2],
+                self.init_args[3],
+                self.init_args[4],
+                self.init_args[5],
+                self.init_args[6],
+                self.init_args[7],
+                self.init_args[8],
+                self.init_args[9],
+                self.init_args[10],
+                self.init_args[11],
+                self.init_args[12],
+                self.init_args[13],
+                self.init_args[14]
+                )
+            
+            # fill ddict
+            for n in range(self.ncomp):
+                data[n+1] = {}
+                data[n+1]["spec"] = ret[n+1]["spec"]
+                for attr in ("erg", "dfq", "cfq", "pe"):
+                        data[n+1][attr] = ret[n+1][attr] 
+
+                if self.init_args[8]:
+                    data["opt"] = {}
+                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                        data["opt"][attr]  = ret[attr]
+
+                    if self.init_args[9]:
+                        data["opt"]["dsar"]  = ret["dsar"]        
+
+                if self.init_args[10]:
+                    data["polar"] = {}
+                    for attr in ("degree", "rect", "azimuth", "elev"):
+                        data["polar"][attr]  = ret[attr]
+        else:
+            # fill ddict with nan
+            nwin = self.init_args[1]
+            for n in range(args[0].shape[0]):
+                data[n+1] = {}
+                data[n+1]["spec"] = np.zeros((nwin,self.nfs))*np.nan
+                for attr in ("erg", "dfq", "cfq", "pe"):
+                        data[n+1][attr] = np.zeros((nwin,))*np.nan
+
+                if self.init_args[8]:
+                    data["opt"] = {}
+                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                        data["opt"][attr]  = np.zeros((nwin,))*np.nan
+
+                    if self.init_args[9]:
+                        data["opt"]["dsar"]  = np.zeros((nwin,))*np.nan        
+
+                if self.init_args[10]:
+                    data["polar"] = {}
+                    for attr in ("degree", "rect", "azimuth", "elev"):
+                        data["polar"][attr]  = np.zeros((nwin,self.nfs))*np.nan
+
+        self.queue.put((self.n, data))
+    
+
+    def run(self, *args):
+        self.n += 1
+        p = Process(target=self._wrapper, args=args)
+        self.processes.append(p)
+        p.start()
+    
+
+    def reset(self):
+        self.processes = []
+        self.queue = Queue()
+
+
+    def wait(self):
+        rets = []
+        for p in self.processes:
+            ret = self.queue.get()
+            rets.append(ret)
+        
+        self.data = {}
+        for n, data in rets:
+            self.data[n] = data
+        
+        for p in self.processes:
+            p.join()
+    
+
+    def save(self):
+        available_n = list(self.data.keys())
+        available_n.sort() # nro interval per job
+
+        for n in available_n:
+            data = self.data[n]
+
+            #save into h5file
+            with h5py.File(self.file_, "r+") as h5f:
+                nbin = h5f['header'].attrs["last_time_bin"]
+                nwin = self.init_args[4]
+                
+                # add data
+                
+
+
+                h5f['header'].attrs.modify('last_time_bin', nbin+nwin)
+                h5f.flush()
+
+        self.reset()
 
 
 class LTE(object):
-    def __init__(self, lte_file):
+    def __init__(self, lte_file, v2=False):
 
         if not os.path.isfile(lte_file):
             return ValueError(' lte_file do not found')
         
-        self.lte_file = lte_file
+        self.file_ = lte_file
+        self.v2 = v2
         self.__set_stats__()
         self.__set_attrs__()
 
@@ -153,23 +248,16 @@ class LTE(object):
             return_list = list_attr
         
         if only_scalars:
-            return_list = [attr for attr in return_list if attr in SCALAR_PARAMS + SCALAR_PARAMS_OPT + SCALAR_PARAMS_F]
+            return_list = [attr for attr in return_list if attr in SCALAR_PARAMS]
         
         if only_vectors:
-            return_list = [attr for attr in return_list if attr in VECTORAL_PARAMS + VECTORAL_PARAMS_OPT]
+            return_list = [attr for attr in return_list if attr in VECTORAL_PARAMS]
             
         return return_list
 
 
     def is_matrix(self, attr):
-
-        for_matrix = VECTORAL_PARAMS + VECTORAL_PARAMS_OPT
-
-        if attr in for_matrix:
-            return True
-
-        else:
-            return False
+        return attr in VECTORAL_PARAMS
 
 
     def is_chan(self, chan):
@@ -188,262 +276,159 @@ class LTE(object):
 
 
     def __set_stats__(self):
-        with h5py.File(self.lte_file, "r") as f:
+        with h5py.File(self.file_, "r") as f:
             hdr = f['header']
-            lte_stats = dict(
-                id = hdr.attrs['id'],
-                channel = hdr.attrs['channel'],
-                starttime = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
-                endtime = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
-                interval = hdr.attrs['interval'],
-                int_olap = hdr.attrs['int_olap'],
-                nro_time_bins = hdr.attrs['nro_time_bins'],
-                last_time_bin = hdr.attrs['last_time_bin'],
-                step = hdr.attrs['step'],
-                step_olap = hdr.attrs['step_olap'],
-                fq_band = hdr.attrs['fq_band'],
-                nro_freq_bins = hdr.attrs['nro_freq_bins'],
-                sample_rate = hdr.attrs['sample_rate'],
-                remove_response = hdr.attrs['remove_response'],
-                polar_degree = hdr.attrs['polar_degree'],
-                polar_analysis = hdr.attrs['polar_analysis'],
-                f_params = hdr.attrs['f_params'],
-                opt_params = hdr.attrs['opt_params'],
-                f_threshold = hdr.attrs["f_threshold"],
-                PE_tau = hdr.attrs["PE_tau"],
-                PE_order = hdr.attrs["PE_order"],
-                time_bandwidth = hdr.attrs['time_bandwidth']
-                )
+
+            if self.v2:
+                lte_stats = dict(
+                    id = hdr.attrs['id'],
+                    channel = hdr.attrs['channel'],
+                    starttime = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
+                    endtime = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
+                    nro_time_bins = hdr.attrs['nro_time_bins'],
+                    last_time_bin = hdr.attrs['last_time_bin'],
+                    step = hdr.attrs['step'],
+                    step_olap = hdr.attrs['step_olap'],
+                    fq_band = hdr.attrs['fq_band'],
+                    pad = hdr.attrs['pad'],
+                    nro_freq_bins = hdr.attrs['nro_freq_bins'],
+                    sample_rate = hdr.attrs['sample_rate'],
+                    remove_response = hdr.attrs['remove_response'],
+                    polar = hdr.attrs['polar'],
+                    opt_params = hdr.attrs['opt_params'],
+                    opt_th = hdr.attrs['opt_th'],
+                    opt_twin = hdr.attrs['opt_twin'],
+                    PE_tau = hdr.attrs["PE_tau"],
+                    PE_order = hdr.attrs["PE_order"],
+                    time_bandwidth = hdr.attrs['time_bandwidth']
+                    )
+            else:
+                lte_stats = dict(
+                    id = hdr.attrs['id'],
+                    channel = hdr.attrs['channel'],
+                    starttime = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
+                    endtime = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
+                    interval = hdr.attrs['interval'],
+                    int_olap = hdr.attrs['int_olap'],
+                    nro_time_bins = hdr.attrs['nro_time_bins'],
+                    last_time_bin = hdr.attrs['last_time_bin'],
+                    step = hdr.attrs['step'],
+                    step_olap = hdr.attrs['step_olap'],
+                    fq_band = hdr.attrs['fq_band'],
+                    nro_freq_bins = hdr.attrs['nro_freq_bins'],
+                    sample_rate = hdr.attrs['sample_rate'],
+                    remove_response = hdr.attrs['remove_response'],
+                    polar_degree = hdr.attrs['polar_degree'],
+                    polar_analysis = hdr.attrs['polar_analysis'],
+                    f_params = hdr.attrs['f_params'],
+                    opt_params = hdr.attrs['opt_params'],
+                    f_threshold = hdr.attrs["f_threshold"],
+                    PE_tau = hdr.attrs["PE_tau"],
+                    PE_order = hdr.attrs["PE_order"],
+                    time_bandwidth = hdr.attrs['time_bandwidth']
+                    )
         
         self.stats = LTEstats(lte_stats)
 
 
     def __set_attrs__(self):
-        
-        attrs = SCALAR_PARAMS
+        attrs = SCALAR_PARAMS[0:4]
+        attrs.append(VECTORAL_PARAMS[0])
         
         if self.stats.opt_params:
+            attrs += SCALAR_PARAMS[4:12]
+
             if self.stats.remove_response:
-                attrs += SCALAR_PARAMS_OPT
-            else:
-                attrs += SCALAR_PARAMS[:-1]
+                attrs.append(SCALAR_PARAMS_OPT[-1]) 
          
-        if self.stats.f_params:
-            attrs += [SCALAR_PARAMS_F[0]]
-
-            if self.stats.opt_params:
-                if self.stats.remove_response:
-                    attrs += SCALAR_PARAMS_F[1:]
-                else:
-                    attrs += SCALAR_PARAMS_F[1:-1]
-
-        if self.stats.polar_degree:
-            attrs += VECTORAL_PARAMS
-            
-            if self.stats.polar_analysis:
-                attrs += VECTORAL_PARAMS_OPT
-        
-        else:
-            attrs += [VECTORAL_PARAMS[0]]
+        if self.stats.polar:
+            attrs += VECTORAL_PARAMS[1:]
                 
         self.stats.__add_attr__(attrs)
 
 
-    def __empty_dict__(self):
-        
-        empty_dict = {}
-        for chan in self.stats.channel:
-            empty_dict[chan] = {}
-        
-        if self.stats.polar_degree:
-            empty_dict['polar'] = {}
 
-        for attr in self.stats.attributes:
-            if get_group(attr) != 'polar':
-                for chan in self.stats.channel:
-                    empty_dict[chan][attr] = None
-        
-            else:
-                empty_dict['polar'][attr] = None
+    # def __save__(self, dict_in, tbin):
+    #     with h5py.File(self.file_, "r+") as f:
+    #         for chan in self.stats.channel:
+    #             chan_dict = dict_in[chan]
+    #             chan_gr = f.get(chan)
 
-        return empty_dict
+    #             for attr, val in chan_dict.items():
+    #                 group = get_group(attr)
+    #                 dset = chan_gr.get(group)[attr]
 
-
-    def __save__(self, dict_in, tbin):
-        with h5py.File(self.lte_file, "r+") as f:
-            for chan in self.stats.channel:
-                chan_dict = dict_in[chan]
-                chan_gr = f.get(chan)
-
-                for attr, val in chan_dict.items():
-                    group = get_group(attr)
-                    dset = chan_gr.get(group)[attr]
-
-                    if isinstance(val, type(None)):
-                        val = np.nan
+    #                 if isinstance(val, type(None)):
+    #                     val = np.nan
                     
-                    if self.is_matrix(attr):
-                        dset[tbin, :] = val
+    #                 if self.is_matrix(attr):
+    #                     dset[tbin, :] = val
                     
-                    else:
-                        dset[tbin,] = val
+    #                 else:
+    #                     dset[tbin,] = val
             
-            if self.stats.polar_degree:
-                for attr, val in dict_in['polar'].items():
-                    dset = f.get('polar')[attr]
+    #         if self.stats.polar_degree:
+    #             for attr, val in dict_in['polar'].items():
+    #                 dset = f.get('polar')[attr]
 
-                    if isinstance(val, type(None)):
-                        val = np.nan
+    #                 if isinstance(val, type(None)):
+    #                     val = np.nan
                     
-                    dset[tbin, :] = val
+    #                 dset[tbin, :] = val
             
-            f['header'].attrs.modify('last_time_bin', tbin+1)
-            f.flush()
+    #         f['header'].attrs.modify('last_time_bin', tbin+1)
+    #         f.flush()
 
 
-    def __compute__(self, station, **kwargs):
-        
-        stime = self.stats.starttime
-        interval_delta = dt.timedelta(minutes=int(self.stats.interval))
-
-        psdkwargs = {
-            'taper':kwargs.get('taper', False),
-            'taper_p':kwargs.get('taper_p', 0.05),
-            'time_bandwidth':self.stats.time_bandwidth
-        }
-
-        freq_saved = False
-        total_bins = self.stats.nro_time_bins
-        olap_delta = dt.timedelta(minutes=self.stats.interval*self.stats.int_olap)
+    def __compute__(self, station, headers, njobs):
         
         with tqdm(total=total_bins) as pbar:
-            tbin = 0
-            while stime + interval_delta <= self.stats.endtime:
-                save_dict = self.__empty_dict__()
-                time_text = stime.strftime(' >>> %d %B %Y | %H:%M UTC  ::  ')
+            start = self.stats.starttime
+            interval = dt.timedelta(minutes=headers["interval"])
+
+            ltep = LTEProcess(
+                self.file_,[
+                int(self.stats.sample_rate),
+                int(headers["nwin"]),
+                int(headers["lwin"]),
+                int(headers["nadv"]),
+                0,
+                self.stats.fq_band,
+                self.stats.time_bandwidth,
+                self.stats.pad,
+                bool(self.stats.remove_response*self.stats.opt_params),
+                self.stats.opt_params,
+                self.stats.polar,
+                self.stats.PE_order,
+                self.stats.PE_tau,
+                self.stats.opt_twin,
+                self.stats.opt_th
+                ]
+            )
+
+            while start + interval <= self.stats.endtime:
+                end = start + interval
                 
-                # memory stream
-                int_endtime = stime + interval_delta
+                mdata = station.get_mdata(start, end, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate, sort="ZNE")
 
-                if self.stats.polar_degree:
-                    m_stream = station.get_stream(stime, int_endtime, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
+                if mdata and self.stats.remove_response and self.stats.opt_params:
+                    zchan = station.get_chan("Z")[0]
+                    sdata = station.get_mdata(start, end, channel=zchan, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate, rrkwargs={"output":'DISP'})
                 else:
-                    m_stream = station.get_stream(stime, int_endtime, channel=self.stats.channel, remove_response=self.stats.remove_response, sample_rate=self.stats.sample_rate)
-                    
-                if m_stream:
-                    for chan in self.stats.channel:
-                        tr = m_stream.select(channel=chan)[0]
-                        
-                        try:
-                            chan_spec_params = tr.psd(fq_band=self.stats.fq_band, mov_avg_step=self.stats.step, olap_step=self.stats.step_olap, drm_params=True, **psdkwargs)
-                        
-                        except Exception as exc:
-                            chan_spec_params = None
-                            pbar.write('\x1b[0;31;40m' + time_text + tr.stats.channel + '(spectral error)' + '\x1b[0m')
-                            pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
+                    sdata = None
+                
+                ltep.run(mdata, sdata) # send to a cpu
+                
+                if len(ltep.processes) == njobs:
+                    ltep.wait()
+                    ltep.save()
 
-                        if chan_spec_params:
-                            data = tr.get_data(detrend=True, fq_band=self.stats.fq_band)
-                            h = ent.permutation_entropy(data, order=self.stats.PE_order, delay=self.stats.PE_tau, normalize=True)
-                            rsam = tr.get_data(fq_band=(2,4.5), abs=True)
-
-                            if not freq_saved:
-                                with h5py.File(self.lte_file, "r+") as f:
-                                    dset = f.get('freq')
-                                    dset[:] = chan_spec_params[1]
-                                    f.flush()
-                                freq_saved = True
-
-                            save_dict[chan]['specgram'] = chan_spec_params[0]
-                            save_dict[chan]['fq_dominant'] = chan_spec_params[3]
-                            save_dict[chan]['fq_centroid'] = chan_spec_params[2]
-                            save_dict[chan]['energy'] = chan_spec_params[4]
-                            save_dict[chan]['pentropy'] = h
-                            save_dict[chan]['rsam'] = rsam.mean()
-
-                            if self.stats.opt_params:
-                                vlf = tr.get_data(detrend=True, fq_band=(.01,.1), abs=True)
-                                lf = tr.get_data(detrend=True, fq_band=(.1,2), abs=True)
-                                mf = tr.get_data(detrend=True, fq_band=(4,8), abs=True)
-                                hf = tr.get_data(detrend=True, fq_band=(8,16), abs=True)
-                                vlar = vlf/lf
-                                lrar = lf/rsam
-                                rmar = rsam/mf
-                                
-                                save_dict[chan]['vlf'] = vlf.mean()
-                                save_dict[chan]['lf'] = lf.mean()
-                                save_dict[chan]['mf'] = mf.mean()
-                                save_dict[chan]['hf'] = hf.mean()
-                                save_dict[chan]['vlar'] = vlar.mean()
-                                save_dict[chan]['lrar'] = lrar.mean()
-                                save_dict[chan]['rmar'] = rmar.mean()
-                            
-                                if self.stats.remove_response:
-                                    rr_tr = tr.remove_response2(station.resp_, output='DISP')
-                                    dst_mf = rr_tr.get_data(detrend=True, fq_band=(4,8), abs=True)
-                                    dst_hf = rr_tr.get_data(detrend=True, fq_band=(8,16), abs=True)
-                                    dsar = dst_mf/dst_hf
-                                    save_dict[chan]['dsar'] = dsar.mean()
-
-                            if self.stats.f_params:
-                                seg_time_window = kwargs.get('seg_tw', 150)
-                                seg_twindow = int(seg_time_window*self.stats.sample_rate)
-                                save_dict[chan]['rsam_f'] = remove_outlier(rsam, seg_twindow, self.stats.f_threshold)
-                                
-                                if self.stats.opt_params:
-                                    njobs = kwargs.get('njobs', multiprocessing.cpu_count()-2)
-                                    func_fop = partial(remove_outlier, seg_twindow=seg_twindow, th=self.stats.f_threshold)
-                                    
-                                    with multiprocessing.Pool(njobs) as p:
-                                        opt_ans = list(p.map(func_fop, [mf, hf, lf, vlf, vlar, lrar, rmar]))
-                                    
-                                    save_dict[chan]['mf_f']   = opt_ans[0]
-                                    save_dict[chan]['hf_f']   = opt_ans[1]
-                                    save_dict[chan]['lf_f']   = opt_ans[2]
-                                    save_dict[chan]['vlf_f']  = opt_ans[3]
-                                    save_dict[chan]['vlar_f'] = opt_ans[4]
-                                    save_dict[chan]['lrar_f'] = opt_ans[5]
-                                    save_dict[chan]['rmar_f'] = opt_ans[6]
-                                
-                                    if self.stats.remove_response:
-                                        save_dict[chan]['dsar_f'] = remove_outlier(dsar, seg_twindow, self.stats.f_threshold)
-                    
-                    # polarization parameters
-                    if self.stats.polar_degree:
-                        try:
-                            z_data = m_stream.get_component('Z').get_data()
-                            n_data = m_stream.get_component('N').get_data()
-                            e_data = m_stream.get_component('E').get_data()
-
-                            npts_mov_avg = self.stats.sample_rate*self.stats.step*60
-                            pa_kwargs = dict(
-                                taper = kwargs.get('taper', False),
-                                taper_p = kwargs.get('taper_p', 0.05),
-                                time_bandwidth = self.stats.time_bandwidth
-                                )
-
-                            pa = PolarAnalysis(z_data, n_data, e_data, self.stats.sample_rate, npts_mov_avg=npts_mov_avg, olap=self.stats.step_olap, fq_band=self.stats.fq_band, full_analysis=self.stats.polar_analysis, **pa_kwargs)
-                        
-                        except Exception as exc:
-                            pa = None
-                            pbar.write('\x1b[0;31;40m' + time_text + '(polar error)' + '\x1b[0m')
-                            pbar.write('     \x1b[0;31;40m' + str(exc) + '\x1b[0m')
-                        
-                        if pa:
-                            save_dict['polar']['degree'] = pa.degree
-
-                            if self.stats.polar_analysis:
-                                save_dict['polar']['rect'] = pa.rect
-                                save_dict['polar']['azimuth'] = pa.azimuth
-                                save_dict['polar']['elevation'] = pa.elevation
-
-                else:
-                    pbar.write('\x1b[0;31;40m' + time_text + 'no data (stream error)' + '\x1b[0m')
-
-                self.__save__(save_dict, tbin)
-                stime = stime + interval_delta - olap_delta
-                tbin += 1
+                # advance 
+                start += interval
                 pbar.update()
+            
+            # save last precesse
+
 
 
     def get(self, attr, chan=None, starttime=None, endtime=None, **kwargs):
@@ -477,7 +462,7 @@ class LTE(object):
         for attr in attr_list:
             group = get_group(attr)
 
-            with h5py.File(self.lte_file, "r") as f:
+            with h5py.File(self.file_, "r") as f:
                 if group == 'polar':
                     data = f.get('polar')[attr][n_0:n_f,:]
                     freq = f.get('freq')[:]
@@ -529,7 +514,7 @@ class LTE(object):
 
 
     def get_outlier(self, chan, threshold, n0, nf):
-        with h5py.File(self.lte_file, "r") as f:
+        with h5py.File(self.file_, "r") as f:
             erg = 10*np.log10(f.get(chan)['spectral']['energy'][n0:nf])
             outliers = np.where(erg > threshold)[0]
         
@@ -706,7 +691,7 @@ class LTE(object):
                 
         # plot model parameters
         if kwargs.get("verbose", True):
-            print(f'\n  File: {os.path.basename(self.lte_file)}')
+            print(f'\n  File: {os.path.basename(self.file_)}')
             print('  ----- Model param ------')
             for key, item in self.peak_thresholds.items():
                 print(f'  {key:>10}     ', item)
@@ -974,139 +959,90 @@ class LTE(object):
 
 
     @staticmethod
-    def new(station, lte_file, headers, auto_chunk=True, **ltekwargs):
+    def new(station, lte_file, headers, njobs):
         """
         Create new LTE (hdf5) file
         """
 
-        f = h5py.File(lte_file, "w-")
-        
-        # header dataset
-        hdr = f.create_dataset('header',(1,))
-        hdr.attrs['id'] = headers['id']
-        hdr.attrs['channel'] = headers['channel']
-        hdr.attrs['starttime'] = headers['starttime']
-        hdr.attrs['endtime'] = headers['endtime']
-        hdr.attrs['interval'] = headers['interval']
-        hdr.attrs['int_olap'] = headers['int_olap']
-        hdr.attrs['step'] = headers['step']
-        hdr.attrs['step_olap'] = headers['step_olap']
-        hdr.attrs['sample_rate'] = headers['sample_rate']
-        hdr.attrs['remove_response'] = headers['remove_response']
-        hdr.attrs['fq_band'] = headers['fq_band']
-        hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
-        hdr.attrs['last_time_bin'] = -1
-        hdr.attrs['nro_freq_bins'] = headers['nro_freq_bins']
-        hdr.attrs['polar_degree'] = headers['polar_degree']
-        hdr.attrs['polar_analysis'] = headers['polar_analysis']
-        hdr.attrs['f_params'] = headers['f_params']
-        hdr.attrs['opt_params'] = headers['opt_params']
-        hdr.attrs['f_threshold'] = headers['f_threshold']
-        hdr.attrs['PE_tau'] = headers['PE_tau']
-        hdr.attrs['PE_order'] = headers['PE_order']
-        hdr.attrs['time_bandwidth'] = headers['time_bandwidth']
-
-        freqbins = headers['nro_freq_bins']
-        timebins = headers['nro_time_bins']
-
-        # set chunks 
-        if auto_chunk:
-            chunk_shape1 = chunk_shape2 = True
-            chunk_info = 'auto'
-        
-        else:
-            if timebins > 1000:
-                chunk_info = 200
-                chunk_shape1 = (200, freqbins)
-                chunk_shape2 = (200,)
+        with h5py.File(lte_file, "w-") as f:
+            # header dataset
+            hdr = f.create_dataset('header',(1,))
+            hdr.attrs['id'] = headers['id']
+            hdr.attrs['channel'] = headers['channel']
+            hdr.attrs['starttime'] = headers['starttime']
+            hdr.attrs['endtime'] = headers['endtime']
+            hdr.attrs['step'] = headers['step']
+            hdr.attrs['step_olap'] = headers['step_olap']
             
-            elif timebins > 10000:
-                chunk_info = 500
-                chunk_shape1 = (500, freqbins)
-                chunk_shape2 = (500,)
+            hdr.attrs['sample_rate'] = headers['sample_rate']
+            hdr.attrs['pad'] = headers['pad']
+            hdr.attrs['fq_band'] = headers['fq_band']
+            hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
+            hdr.attrs['last_time_bin'] = -1
             
-            elif timebins > 100000:
-                chunk_info = 1000
-                chunk_shape1 = (1000, freqbins)
-                chunk_shape2 = (1000,)
+            # optional param
+            hdr.attrs['polar'] = headers['polar']
+            hdr.attrs['opt_params'] = headers['opt_params']
+            hdr.attrs['remove_response'] = headers['remove_response']
+            hdr.attrs['opt_twin'] = headers['opt_twin']
+            hdr.attrs['opt_th'] = headers['opt_th']
+            
+            hdr.attrs['PE_tau'] = headers['pe_tau']
+            hdr.attrs['PE_order'] = headers['pe_order']
+            hdr.attrs['time_bandwidth'] = headers['time_bandwidth']
 
-            else:
-                chunk_shape1 = chunk_shape2 = None
-                chunk_info = 'none'
+            freqbins = headers['nro_freq_bins']
+            timebins = headers['nro_time_bins']
 
-        # print info
-        print('')
-        print(' LTE file INFO')
-        print(' -------------')
-        print(" hdf5_memory info: %s " % lte_file)
-        print(' --- dataset size: ', (timebins, freqbins))
-        print(' --- chunk size: ', chunk_info)
-        print('')
-        print(' LTE stats:')
-        for info_key in ['id', 'channel', 'starttime', 'endtime' ,'interval' ,'int_olap' ,'step' ,'step_olap' ,'sample_rate' ,'remove_response' ,'fq_band' ,'nro_time_bins' ,'nro_freq_bins' ,'polar_degree' ,'polar_analysis' ,'f_params', 'opt_params', 'f_threshold' ,'PE_tau' ,'PE_order', 'time_bandwidth']:
-            print(f' {info_key}:  {headers[info_key]}')
+            # print info
+            print('')
+            print(' LTE file INFO')
+            print(' -------------')
+            print(" hdf5_memory info: %s " % lte_file)
+            print(' --- dataset size: ', (timebins, freqbins))
+            print('')
+            print(' LTE stats:')
+            for info_key in ['id', 'channel', 'starttime', 'endtime', 'step' ,'step_olap' ,'sample_rate' ,'remove_response' ,'fq_band' ,'polar' ,'opt_params']:
+                print(f' {info_key}:  {headers[info_key]}')
 
-        # create datasets structure
-        f.create_dataset('freq', (freqbins,), dtype=np.float32)
+            # create datasets structure
+            # f.create_dataset('freq', (freqbins,), dtype=np.float32)
 
-        for chan in headers['channel']:
-            chgr = f.create_group(chan)
-
-            spec = chgr.create_group("spectral")
-            spec.create_dataset('specgram', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
-            spec.create_dataset('fq_dominant', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            spec.create_dataset('fq_centroid', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            spec.create_dataset('energy', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-
-            amp = chgr.create_group("amplitude")
-            amp.create_dataset('pentropy', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-            amp.create_dataset('rsam', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+            for chan in headers['channel']:
+                chgr = f.create_group(chan)
+                amp = chgr.create_group("amplitude")
+                spec = chgr.create_group("spectral")
+                amp.create_dataset('pentropy', (timebins,), chunks=True, dtype=np.float32)
+                spec.create_dataset('specgram', (timebins, freqbins), chunks=True, dtype=np.float32)
+                spec.create_dataset('fq_dominant', (timebins,), chunks=True, dtype=np.float32)
+                spec.create_dataset('fq_centroid', (timebins,), chunks=True, dtype=np.float32)
+                spec.create_dataset('energy', (timebins,), chunks=True, dtype=np.float32)
 
 
-            if headers['opt_params']:
-                amp.create_dataset('vlf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                amp.create_dataset('lf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                amp.create_dataset('mf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                amp.create_dataset('hf', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                amp.create_dataset('vlar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                amp.create_dataset('lrar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                amp.create_dataset('rmar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-
-                if headers['remove_response']:
-                    amp.create_dataset('dsar', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-
-            if headers['f_params']:
-                ampF = chgr.create_group("amplitude_f")
-                ampF.create_dataset('rsam_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                
-                
                 if headers['opt_params']:
-                    ampF.create_dataset('mf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                    ampF.create_dataset('hf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                    ampF.create_dataset('lf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                    ampF.create_dataset('vlf_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                    ampF.create_dataset('vlar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                    ampF.create_dataset('lrar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
-                    ampF.create_dataset('rmar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+                    amp.create_dataset('vlf', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('lf', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('mf', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('hf', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('rsam', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('vlar', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('lrar', (timebins,), chunks=True, dtype=np.float32)
+                    amp.create_dataset('rmar', (timebins,), chunks=True, dtype=np.float32)
 
-                    if headers['remove_response']:
-                        ampF.create_dataset('dsar_f', (timebins,), chunks=chunk_shape2, dtype=np.float32)
+                    if headers['remove_response'] and chan[-1] == 'Z':
+                        amp.create_dataset('dsar', (timebins,), chunks=True, dtype=np.float32)
 
-        if headers['polar_degree']:
-            polar = f.create_group("polar")
-            polar.create_dataset('degree', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
-
-            if headers['polar_analysis']:
-                polar.create_dataset('rect', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
-                polar.create_dataset('elevation', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
-                polar.create_dataset('azimuth', (timebins, freqbins), chunks=chunk_shape1, dtype=np.float32)
+            if headers['polar']:
+                polar = f.create_group("polar")
+                polar.create_dataset('degree', (timebins, freqbins), chunks=True, dtype=np.float32)
+                polar.create_dataset('rect', (timebins, freqbins), chunks=True, dtype=np.float32)
+                polar.create_dataset('elevation', (timebins, freqbins), chunks=True, dtype=np.float32)
+                polar.create_dataset('azimuth', (timebins, freqbins), chunks=True, dtype=np.float32)
                 
-        f.flush()
-        f.close()
+            f.flush()
 
-        lte = LTE(lte_file)
-        print('')
-        lte.__compute__(station, **ltekwargs)
+        lte = LTE(lte_file, v2=True)
+        lte.__compute__(station, headers, njobs)
 
         return lte
 
@@ -1149,7 +1085,7 @@ class Peaks(LTE):
     
     
     def __str__(self):
-        txt_to_return =  f'\n   >>LTE file    ::: {self.lte_file}'
+        txt_to_return =  f'\n   >>LTE file    ::: {self.file_}'
         txt_to_return += f'\n   >channel       : {self.chan}'
         txt_to_return += f'\n   >starttime     : {self.stats.starttime.strftime("%d %B %Y %H:%M")}'
         txt_to_return += f'\n   >endtime       : {self.stats.endtime.strftime("%d %B %Y %H:%M")}'
@@ -1460,7 +1396,7 @@ class Peaks(LTE):
     def to_json(self, fout=None, out_path='./'):
         if isinstance(self.df_, pd.DataFrame):
             if not fout:
-                lte_file = os.path.basename(self.lte_file).split('.')
+                lte_file = os.path.basename(self.file_).split('.')
                 lte_file.insert(-1, self.chan)
                 
                 if lte_file[-1] == 'lte':

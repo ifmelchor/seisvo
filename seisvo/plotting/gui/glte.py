@@ -13,10 +13,12 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 
 from seisvo.plotting import plot_gram
 from seisvo.plotting.gui import notify
-from seisvo.plotting.base.lte import plotLTE, defaultLTE_color, default_labels
 from seisvo.plotting.gui.frames import lte_base, lte_pdf
+from seisvo.lte.plotting import ltaoutsta_plot, get_axes_dict
 
+# from seisvo.plotting.base.lte import plotLTE, defaultLTE_color, default_labels
 
+default_LTE_color = get_colors('zesty')[1]
 default_color_dictlabels = {
     'NB':'k',
     'BB':'k',
@@ -27,7 +29,7 @@ default_color_dictlabels = {
 CLICK_COLOR = ('r', 'darkgreen')
 
 
-def plot_gui(chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent, **kwargs):
+def plot_gui(lte, list_chan, list_attr, starttime, endtime, interval, lde, lde_parent, **kwargs):
     app = QtWidgets.QApplication(sys.argv)
     lte_window = LTEWindow(chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent, **kwargs)
     lte_window.show()
@@ -35,21 +37,23 @@ def plot_gui(chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent
 
 
 class LTEWindow(QtWidgets.QMainWindow):
-    def __init__(self, chan, lte, starttime, endtime, interval, list_attr, lde, lde_parent, **kwargs):
+    def __init__(self, *args, **kwargs):
         QtWidgets.QMainWindow.__init__(self)
         self.ui = lte_base.Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle('LTE: '+ lte.stats.id)
 
-        self.lte = lte
-        self.chan = chan
-        self.starttime = starttime
-        self.endtime = endtime
-        self.interval = interval
-        self.list_attr = list_attr
-        self.lde_parent = lde_parent
-        self.canvaskwargs = kwargs
-            
+        self.lte        = args[0]
+        self.list_chan  = args[1]
+        self.list_attr  = args[2]
+        self.starttime  = args[3]
+        self.endtime    = args[4]
+        self.interval   = args[5]
+        self.lde        = args[6]
+        self.lde_parent = args[7]
+        self.ckwargs    = kwargs
+
+        self.lteout = self.lte.get(attr=self.list_attr, chan=self.list_chan, starttime=self.starttime, endtime=self.endtime)
         self.set_canvas()
 
 
@@ -177,12 +181,15 @@ class LTEWindow(QtWidgets.QMainWindow):
 
 class LTECanvas(FigureCanvas):
     def __init__(self, parent):
-        self.parent = parent
-
-        self.interval = None
+        self.parent    = parent
         self.pdf_frame = None
+        self.events_   = {} 
+        self.__figinit__()
 
-        self.fig = Figure(figsize=parent.canvaskwargs.get("figsize", (20,9)), dpi=100)
+
+    def __figinit__(self):
+        self.fig = Figure(figsize=self.parent.ckwargs.get("figsize", (20,9)), dpi=100)
+        self.axes = get_axes_dict(self.parent.lteout, self.parent.attr_list, self.parent.chan_list, self.fig)
         
         FigureCanvas.__init__(self, self.fig)
         FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding,
@@ -191,7 +198,7 @@ class LTECanvas(FigureCanvas):
         self.setParent(self.parent)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setFocus()
-
+        
         self.cliks = dict(right=dict(tick=[], time=None), left=dict(tick=[], time=None))
         self.callbacks.connect('button_press_event', self.on_click)
 
@@ -200,7 +207,7 @@ class LTECanvas(FigureCanvas):
 
 
     def set_statusbar(self, interval):
-        text = '\t %s  --- %s  | Interval: %i' % (self.starttime.strftime('%d %B %Y'), self.endtime.strftime('%d %B %Y'), interval)
+        text = f'\t {self.parent.starttime.strftime('%d %B %Y')}  --- {self.parent.endtime.strftime('%d %B %Y')}  | Interval: {interval:.0f}'
         self.parent.ui.statusbar.showMessage(text, 0)
 
 
@@ -210,47 +217,44 @@ class LTECanvas(FigureCanvas):
 
 
     def update_interval(self):
-        if not self.interval:
-            self.interval = self.parent.interval
-
-        self.delta = dt.timedelta(days=self.interval)
+        self.delta = dt.timedelta(days=self.parent.interval)
         self.set_statusbar(self.interval)
 
 
     def plot(self):
         self.fig.clf()
 
-        if self.starttime < self.parent.lte.stats.starttime:
-            self.starttime = self.parent.lte.stats.starttime
+        if self.parent.starttime < self.parent.lte.stats.starttime:
+            self.parent.starttime = self.parent.lte.stats.starttime
             notify('LTE', 'starttime set to LTE.starttime', status='info')
 
-        self.endtime = self.starttime + self.delta
+        self.parent.endtime = self.parent.starttime + self.delta
 
-        if self.endtime > self.parent.lte.stats.endtime:
-            self.endtime = self.parent.lte.stats.endtime
+        if self.parent.endtime > self.parent.lte.stats.endtime:
+            self.parent.endtime = self.parent.lte.stats.endtime
             notify('LTE', 'endtime set to LTE.endtime', status='info')
         
-        interval = (self.endtime - self.starttime).days
+        interval = (self.parent.endtime - self.parent.starttime).days
 
-        self.parent.canvaskwargs['settitle'] = False
-        self.col_dict = self.parent.canvaskwargs.get('col_dict', default_color_dictlabels)
-        
-        self.plte = plotLTE(
-            self.fig, 
-            self.parent.lte,
-            self.starttime,
-            self.endtime,
-            interval,
-            self.parent.list_attr,
-            **self.parent.canvaskwargs
-        )
+        self.parent.ckwargs['settitle'] = False
+        self.col_dict = self.parent.ckwargs.get('col_dict', default_color_dictlabels)
 
-        self.axes = []
-        for _, dat in self.plte.axes_:
-            self.axes.append(dat[0])
+        self.stats = ltaoutsta_plot(
+                        self.parent.lteout, 
+                        self.parent.chan_list, 
+                        self.parent.attr_list, 
+                        fig=self.fig, 
+                        axes=self.axes, 
+                        plot=False,
+                        return_stats=True,
+                        datetime=self.parent.ckwargs.get("datetime"), 
+                        **kwargs)
 
         # show episodes in LDE
-        self.show_events()
+        ids = self.parent.lde.get_episodes_id(time_interval=(self.parent.starttime, self.parent.endtime))
+
+        if ids:
+            self.show_events(ids)
         
         with pyqtgraph.BusyCursor():
             self.reset_ticks()
@@ -260,9 +264,29 @@ class LTECanvas(FigureCanvas):
 #-----------  EVENTS --------------
 #----------------------------------------------
 
-    def show_events(self, reshow=False):
+    def show_events(self, ids, reshow=False):        
         if not reshow:
-            self.plte.show_events(self.parent.lde, col_dict=self.col_dict)
+            # self.plte.show_events(self.parent.lde, col_dict=self.col_dict)
+            for eid in ids:
+                self.events_[eid] = {'ticks':[], 'event':self.parent.lde[eid]}
+                for key in self.axes:
+                    if len(key) == 1: # scalar parameters
+                        ax  = self.axes[key][0]
+                        col = self.col_dict.get(episode.label, defaultLTE_color)
+                        v1  = ax.axvline(episode.starttime,  alpha=0.5, color=col, ls='dashed')
+                        v2  = ax.axvline(episode.endtime,  alpha=0.5, color=col, ls='dashed')
+                        v3  = ax.avspan(episode.starttime,  episode.endtime, alpha=0.15, color=col)
+                        self.events_[eid]['ticks'] += [v1,v2,v3]
+                        
+                        if i == 0:
+                            ymax = self.get_ymax(attr)
+                            txt = f'ID:{episode.id}[{episode.label}]'
+                            mid_bin = episode.starttime + dt.timedelta(hours=episode.duration/2)
+                            t = ax.annotate(txt, (mid_bin, ymax), color=col, xycoords='data')
+                            self.events_[eid]['text'] = t
+
+            
+
 
         self.parent.ui.eventWidget.clear()
         if self.plte.events_:

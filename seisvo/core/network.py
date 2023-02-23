@@ -2,19 +2,22 @@
 # coding=utf-8
 
 from seisvo import DB_PATH, CC8_PATH
-from seisvo.file.air import AiR
-from seisvo.file.cc8 import CC8
 from seisvo.core import get_network
 from seisvo.core.obspyext import Stream2
 from seisvo.core.station import Station
-
+from seisvo.sap import CC8, Arfr, plot_array
 from seisvo.signal import SSteps
+
+from seisvo.file.air import AiR
 from seisvo.signal.infrasound import infrasound_model_default, cross_corr
 
+import os
 import numpy as np
 import collections as col
 import datetime as dt
-import os
+import multiprocessing as mp
+
+
 
 class Network(object):
     def __init__(self, net_code):
@@ -45,7 +48,7 @@ class Network(object):
             return self.get_sta(sta_code, loc=loc)
     
 
-    def __setstacode__(self, sta_code, channel):
+    def __setstacode__(self, sta_code, component):
         sta_to_remove = []
         
         for sta in self.station:
@@ -53,7 +56,7 @@ class Network(object):
                 chan_to_remove = []
                 
                 for ch in sta.stats.chan:
-                    if ch[-1] != channel:
+                    if ch[-1] != component:
                         chan_to_remove.append(ch)
                 
                 if chan_to_remove:
@@ -66,11 +69,8 @@ class Network(object):
             else:
                 sta_to_remove += [sta]
         
-        id_list = [sta.stats.id for sta in sta_to_remove]
-        
-        for sta in self.station:
-            if sta.stats.id in id_list:
-                self.station.remove(sta)
+        for sta in sta_to_remove:
+            self.station.remove(sta)
         
         self.stations_info = [sta.stats.id for sta in self.station]
 
@@ -110,11 +110,12 @@ class Network(object):
         """
         return iArray(self.stats.code, sta_code, model)
     
-    def get_sarray(self, sta_code, chan="Z", **kwargs):
+
+    def get_sarray(self, sta_code, comp="Z", **kwargs):
         """
         Get a sArray object.
         """
-        return sArray(self.stats.code, sta_code, chan=chan, **kwargs)
+        return sArray(self.stats.code, sta_code, comp=comp, **kwargs)
 
 
     def get_sta(self, sta_code, loc=''):
@@ -142,33 +143,6 @@ class Network(object):
         return stream
 
 
-    def plot_map(self, zoom_scale=1, arcgis_map='World_Shaded_Relief', epsg=4326, pixel=1500, dpi=100, save=False):
-        """
-        Plot a map for geograpich network
-        :param zoom_scale: how much to zoom from coordinates (in degrees)
-        :param map: http://server.arcgisonline.com/arcgis/rest/services
-        """
-        
-        from seisvo.utils.maps import get_map
-
-        # desired coordinates
-        coord = [self.stats.latOrig, self.stats.lonOrig]
-        title = "Network: %s" % self.stats.code
-        
-        fig, ax = get_map(coord, arcgis_map, zoom_scale, epsg, pixel=pixel, dpi=dpi, title=title)
-
-        # draw station
-        for station in self.station:
-            (lat, lon) = station.get_latlon(degree=True)
-            ax.scatter(lon, lat, marker='^', label=station.stats.id, transform=proj)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-
-        if save:
-            fig.savefig('map.png', format='png', dpi=500)
-        else:    
-            fig.show()
-
-
     def check_files(self, startday, endday, sta_code, loc=None, plot=False):
         """
         This code plot the availability of the stations of the network.
@@ -178,57 +152,73 @@ class Network(object):
         :param loc: string, optional
         :param plot: boolean, by default False
         """
-
-        from datetime import timedelta
         
-        if plot:
-            from seisvo.utils.plotting import plot_check
+        # if plot:
+        #     from seisvo.utils.plotting import plot_check
 
         sta_list = []
         for sta in self.station:
             if sta_code == sta.stats.code:
-                if not loc or sta.stats.loc == loc:
-                    for chan in sta.stats.chan:
-                        sta_list += ['%s.%s' % (sta.stats.id, chan)]
+                if loc:
+                    if isinstance(loc, str):
+                        if sta.stats.loc == loc:
+                            for chan in sta.stats.chan:
+                                sta_list += ['%s.%s' % (sta.stats.id, chan)]
+                    
+                    if isinstance(loc, (list, tuple)):
+                        for l in loc:
+                            if sta.stats.loc == l:
+                                for chan in sta.stats.chan:
+                                    sta_list += ['%s.%s' % (sta.stats.id, chan)]
 
         if not sta_list:
-            raise TypeError(' Station list is empty.')
+            print(' "checking ERROR :: Station list is empty')
+            return False
 
-        day_list = [startday + timedelta(days=k) for k in range(0,(endday-startday).days+1)]
+        day_list = [startday + dt.timedelta(days=k) for k in range(0,(endday-startday).days+1)]
         
-        if plot:
-            availability = np.empty(shape=(len(day_list), len(sta_list)))
         list_missing_days = []
+        for i, day in enumerate(day_list):
+            for j, sta_code_chan in enumerate(sta_list):
+                sta_code = sta_code_chan.split('.')[1]
+                chan     = sta_code_chan.split('.')[-1]
+                sta_loc  = sta_code_chan.split('.')[2]
+                sta      = self.get_sta(sta_code, loc=sta_loc)
+                sta_loc_day_file = sta.__read_file__(chan, date=day)
+                
+                if not sta_loc_day_file:
+                    missing_str = ".".join([sta_code,sta_loc,chan])
+                    missing_str += f"/{day}"
+                    list_missing_days += [missing_str]
+        
+        return list_missing_days
 
-        r = 0
-        nro_reads = len(day_list)*len(sta_list)
-        for i, x in enumerate(day_list):
-            for j, y in enumerate(sta_list):
-                for sta in self.station:
-                    if sta.stats.id == '.'.join(y.split('.')[0:-1]):
-                        #print ('  reading data... (%d%%)' % (100*r/nro_reads), end='\r')
-                        status = sta.is_file(y.split('.')[-1], date=x)
+                
+        #         for sta in self.station:
+        #             if sta.stats.id == '.'.join(y.split('.')[0:-1]):
+        #                 #print ('  reading data... (%d%%)' % (100*r/nro_reads), end='\r')
+        #                 status = sta.__read_file__(y.split('.')[-1], date=day)
                         
-                        if plot:
-                            if isinstance(status, str):
-                                status = 1
-                            else:
-                                status = 0
-                            availability[i,j] = status
-                        else:
-                            if not status:
-                                missing_day = x.strftime('%Y%j')
-                                missing_day_str = '%s-%s' %(sta.stats.id, missing_day)
-                                list_missing_days += [missing_day_str]
+        #                 if plot:
+        #                     if isinstance(status, str):
+        #                         status = 1
+        #                     else:
+        #                         status = 0
+        #                     availability[i,j] = status
+        #                 else:
+        #                     if not status:
+        #                         missing_day = x.strftime('%Y%j')
+        #                         missing_day_str = '%s-%s' %(sta.stats.id, missing_day)
+        #                         list_missing_days += [missing_day_str]
 
-                        r += 1
+        #                 r += 1
             
-        if plot:
-            title = "Availability for Network %s" % self.stats.code
-            plot_check(title, sta_list, availability, day_list)
+        # if plot:
+        #     title = "Availability for Network %s" % self.stats.code
+        #     plot_check(title, sta_list, availability, day_list)
 
-        else:
-            return list_missing_days
+        # else:
+        #     return list_missing_days
 
 
     def remove(self, sta_code, loc):
@@ -279,106 +269,182 @@ class Network(object):
 
 
 class sArray(Network):
-    def __init__(self, net_code, sta_code, chan='Z', **kwargs):
+    def __init__(self, net_code, sta_code, comp='Z', locs=None):
         super().__init__(net_code)
         self.sta_code = sta_code
-        self.chan = chan
-        self.__setstacode__(sta_code, chan)
-        self.__aperture__()
+        self.comp = comp
+        self.__setstacode__(sta_code, comp)
+
+        if locs:
+            if isinstance(locs, (str, tuple)):
+                locs = list(locs)
+            self.__filterlocs__(locs)
+
+        self.locs = [sta.stats.loc for sta in self.station]
+        self.xUTM = [float(sta.stats.lon) for sta in self.station]
+        self.yUTM = [float(sta.stats.lat) for sta in self.station]
+        self.resp = Arfr(self)
     
-    def __aperture__(self):
+    
+    def __filterlocs__(self, loc_list):
+
+        locs_to_remove = []
+        for sta in self.station:
+            if sta.stats.loc not in loc_list:
+                locs_to_remove.append(sta)
+        
+        for sta in locs_to_remove:
+            self.station.remove(sta)
+        
+        self.stations_info = [sta.stats.id for sta in self.station]
+
+
+    def get_aperture(self):
         # only for utm data
         a = 0
-        for sta1 in self.station:
-            for sta2 in self.station:
-                if sta1.stats.id != sta2.stats.id:
-                    if sta1.stats.type == sta2.stats.type == "utm":
-                        x1 = sta1.stats.lon
-                        y1 = sta1.stats.lat
-                        x2 = sta2.stats.lon
-                        y2 = sta2.stats.lat
-                        d = np.sqrt(np.abs(x1-x2)**2 + np.abs(y2-y1)**2)
-                        if d > a:
-                            a = d
-        self.apperture = a 
+        for i in range(len(self.locs)):
+            for j in range(i,len(self.locs)):
+                if i != j:
+                    x1 = self.xUTM[i]
+                    x2 = self.xUTM[j]
+                    y1 = self.yUTM[i]
+                    y2 = self.yUTM[j]
+                    d = np.sqrt(np.abs(x1-x2)**2 + np.abs(y2-y1)**2)
+                    if d > a:
+                        a = d
+        return a
 
 
-    def get_mdata(self, start_time, end_time, toff_in_sec=0, sample_rate=None, fq_band=(), return_stats=False):
-        if toff_in_sec > 0:
-            toff = dt.timedelta(seconds=toff_in_sec)
+    def get_mdata(self, start_time, end_time, toff_sec=10, sample_rate=None, fq_band=(), return_stats=False):
+        if toff_sec > 0:
+            toff = dt.timedelta(seconds=toff_sec)
             start_time -= toff
             end_time += toff
 
         st = self.get_stream(start_time, end_time, sample_rate=sample_rate)
-        for n, tr in enumerate(st):
-            tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
-            if n == 0:
-                mdata = np.empty((len(st),len(tr_dat)))
-            mdata[n,:] = tr_dat
+
+        if st:
+            for n, tr in enumerate(st):
+                tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
+                if n == 0:
+                    mdata = np.empty((len(st),len(tr_dat)))
+                mdata[n,:] = tr_dat/tr_dat.max()
+
+                if return_stats:
+                    if n == 0:
+                        stats = []
+                    sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
+                    stats.append(sta.stats)
+
+            if np.isnan(mdata).any():
+                print("Warning: data containing NaN values")
 
             if return_stats:
-                if n == 0:
-                    stats = []
-                sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
-                stats.append(sta.stats)
+                return mdata, stats
 
-        if np.isnan(mdata).any():
-            print("Warning: data containing NaN values")
-
-
-        if return_stats:
-            return mdata, stats
-
+            else:
+                return mdata
+        
         else:
-            return mdata    
+            return None
+        
 
+    def cc8(self, starttime, endtime, window, overlap, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1.,5.)], cc_thres=0.75, filename=None, outdir=None, interval=1, **kwargs):
+        """ Compute CC8 file
 
-    def cc8(self, start_time, window_length, overlap, end_time=None, interval=15, pmax=[3.], pinc=[0.1],fq_band=[1.,10.], ccerr=0.75, sup_file=False, filename=None, outdir=None, sup_path=None, **sskwargs):
+        Parameters
+        ----------
+        starttime : datetime
+        
+        endtime : datetime
+        
+        window : int [sec]
+            length of the time window (in sec)
+        
+        overlap : float [0--1)
+            overlap percent
+        
+        interval : int [min]
+            length of time window (in min) to store data in memory. By default is 15 min.
+        
+        slow_max : list 
+            maximum slowness in km/s, by default [3.]
 
-        if not end_time:
-            end_time = start_time + dt.timedelta(days=interval)
+        slow_inc : list
+            slowness intervals in km/s, by default [0.1]
+        
+        fq_bands : list of tuples
+            frequency bands (in Hz) to analyze, by default [(1.,5.)]
+        
+        cc_thres : float
+            therhold level to keep computing slowness, by default 0.75
 
-        ss = SSteps(start_time, end_time, window_length, overlap, **sskwargs)
-        npts_per_interval = ss.interval_.seconds * ss.sample_rate
-        ss.print()
+        Returns
+        -------
+        CC8
+            CC8 object
+        """
 
+        assert starttime < endtime
+        assert window/60 < interval
+        assert len(slow_max) == len(slow_inc)
 
-        # calculate the number of samples to avoid end-of-file
-        if len(pmax) != len(pinc):
-            raise ValueError("pmax and pinc must be a list of the same length")
+        # load parameters
+        njobs       = kwargs.get('njobs', -1)
+        toff_sec    = kwargs.get('toff_sec', 10)
+        sample_rate = kwargs.get("sample_rate", 40)
+        validate    = kwargs.get("validate", True) # if False, ss do not ask for confirmation
 
-        lwin = int(window_length*ss.sample_rate)
-        nmas_sec = np.ceil(max([10 + 1.41421*self.apperture*pmax_i for pmax_i in pmax]))
-        nini_sec = nmas_sec
-
-        # prepare the header of the hdf file
-        cc8_hdr = dict(
-            id = '.'.join([self.stats.code, self.sta_code, self.chan]),
-            starttime = start_time.strftime('%Y-%m-%d %H:%M:%S'),
-            endtime = end_time.strftime('%Y-%m-%d %H:%M:%S'),
-            window_length = window_length,
-            overlap = overlap,
-            interval = ss.interval_,
-            nro_intervals = ss.nro_intervals,
-            nro_time_bins = ss.total_steps(),
-            sample_rate = ss.sample_rate,
-            fq_band = fq_band,
-            pmax = pmax,
-            pinc = pinc,
-            np = len(pmax),
-            nini = nini_sec,
-            nwin = ss.steps_,
-            lwin = window_length*ss.sample_rate,
-            nadv = ss.prct_advance,
-            ccerr = ccerr,
-            sup_file = sup_file
+        # defining base params
+        cc8base = dict(
+            id              = '.'.join([self.stats.code, self.sta_code, self.comp]),
+            locs            = self.locs,
+            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
+            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
+            interval        = interval,
+            window          = window,
+            overlap         = overlap,
+            sample_rate     = sample_rate,
+            fq_bands        = fq_bands,
+            slow_max        = slow_max,
+            slow_inc        = slow_inc,
+            cc_thres        = cc_thres
         )
 
-        print(cc8_hdr)
+        ss = SSteps(starttime, endtime, interval, window, validate=validate, win_olap=overlap)
 
+        if ss.nwin_eff < ss.total_nwin:
+            diff = ss.total_nwin - ss.nwin_eff
+            nwext = round(diff/ss.nro_intervals)
+            if toff_sec <= nwext*window:
+                toff_sec += int(nwext*window)
+        else:
+            nwext = 0
+
+        cc8base["nwin"] = int(ss.int_nwin)+nwext
+        cc8base["lwin"] = int(window*sample_rate)
+        cc8base["nadv"] = float(ss.win_adv)
+        cc8base["toff_sec"] = toff_sec
+        cc8base["nro_intervals"] = int(ss.nro_intervals)
+        cc8base["nro_time_bins"] = int(cc8base["nwin"]*cc8base["nro_intervals"])
+
+        if njobs >= mp.cpu_count() or njobs == -1:
+            njobs = mp.cpu_count() - 2
+        
+        if njobs > int(ss.nro_intervals)*len(fq_bands):
+            njobs = int(ss.nro_intervals)*len(fq_bands)
+
+            print(f"warn  ::  njobs set to {njobs}")
+
+        if validate:
+            self.print_cc8_validation(cc8base)
+            name = input("\n Please, confirm that you are agree (y/Y): ")
+            if name not in ('y', 'Y'):
+                return
+        
         # define name
         if not filename:
-            filename = "%s.%s%03d-%s%03d.cc8" % (cc8_hdr["id"], start_time.year, start_time.timetuple().tm_yday, end_time.year, end_time.timetuple().tm_yday)
+            filename = "%s.%s%03d-%s%03d.cc8" % (cc8base["id"], starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday)
         else:
             if filename.split('.')[-1] != "cc8":
                 filename += ".cc8"
@@ -392,9 +458,33 @@ class sArray(Network):
             os.remove(filenamef)
             print(' file %s removed.' % filenamef)
         
-        cc8 = CC8.new(self, filenamef, cc8_hdr, sup_path=sup_path)
+        if CC8.__check_process__(self, starttime, endtime, verbose=True):
+            cc8 = CC8.new(self, filenamef, cc8base, njobs)
+        
+        return 
 
-        return cc8
+
+    def plot(self, save=False, filename="./array_map.png"):
+        fig = plot_array(self)
+
+        if save:
+            fig.savefig(filename)
+
+    @staticmethod
+    def print_cc8_validation(cc8dict):
+        print('')
+        print(' CC8base INFO')
+        print(' -------------')
+        print(f'{"      ID     ":^5s} : ', cc8dict.get("id"))
+        print(f'{"     LOCS    ":^5s} : ', cc8dict.get("locs"))
+        print(f'{"   Start time":^5s} : ', cc8dict.get("starttime"))
+        print(f'{"     End time":^5s} : ', cc8dict.get("endtime"))
+        print(f'{" window [sec]":^5s} : ', cc8dict.get("window"))
+        print(f'{"  window olap":^5s} : ', cc8dict.get("overlap"))
+        print(f'{"Total windows":^5s} : ', cc8dict.get("nwin")*cc8dict.get("nro_intervals"))
+        print(f'{"     interval":^5s} : ', cc8dict.get("interval"))
+        print(f'{" nwin per int":^5s} : ', cc8dict.get("nwin"))
+        print('')
 
 
 class iArray(Network):
@@ -825,8 +915,4 @@ class iArray(Network):
             pavg += [p_avg[x, src]]
 
         return [np.array(mcorr_max), np.array(azm_max), np.array(pmax), np.array(pavg)]
-
-
-# class sArray(Network)
-
 
