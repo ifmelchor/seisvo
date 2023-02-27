@@ -240,6 +240,7 @@ class LTE(object):
             
             # advance 
             start += interval
+            nint += 1
         
         # check if there are any process running, then wait and save
         if len(ltep.processes) > 0:
