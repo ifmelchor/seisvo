@@ -307,7 +307,7 @@ class LTE(object):
 
 
     @staticmethod
-    def new(station, lte_file, headers, njobs):
+    def sta_new(station, lte_file, headers, njobs):
         """
         Create new LTE (hdf5) file
         """
@@ -362,9 +362,6 @@ class LTE(object):
                 else:
                     print(f' {info_key}:  {headers[info_key]}')
 
-            # create datasets structure
-            # f.create_dataset('freq', (freqbins,), dtype=np.float32)
-
             for chan in headers['channel']:
                 chgr = f.create_group(chan)
                 chgr.create_dataset('specgram',    (timebins, freqbins), chunks=True, dtype=np.float32)
@@ -373,7 +370,6 @@ class LTE(object):
                 chgr.create_dataset('fq_centroid', (timebins,), chunks=True, dtype=np.float32)
                 chgr.create_dataset('energy',      (timebins,), chunks=True, dtype=np.float32)
             
-            # these parameters are computed for the first channel, which used to be the vertical component
             if headers['opt_params']:
                 opt  = f.create_group("opt")
                 opt.create_dataset('lf',   (timebins,), chunks=True, dtype=np.float32)
@@ -399,9 +395,7 @@ class LTE(object):
             f.flush()
 
         lte = LTE(lte_file)
-
-        if headers['type'] == "station":
-            lte.__sta_compute__(station, headers, njobs)
+        lte.__sta_compute__(station, headers, njobs)
 
         return lte
 

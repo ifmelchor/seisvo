@@ -15,8 +15,7 @@ except KeyError:
     print('"seisvo_path" not defined in bashrc. Please, see documentation')
     exit()
 
-from .core.network import Network, iArray
-from .core.station import Station
+from .core.network import Network, iArray, Station
 from .lte import LTE
 from .sap.cc8 import CC8
 from .file.air import AiR

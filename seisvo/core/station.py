@@ -13,7 +13,7 @@ from glob import glob
 from seisvo import LTE_PATH
 from seisvo.lte import LTE
 from seisvo.core import get_respfile
-from seisvo.core.obspyext import UTCDateTime, read2, Stream2
+from .obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import SSteps, get_freq
 from seisvo.signal.polarization import PolarAnalysis
 from seisvo.plotting import pplot_control
@@ -505,7 +505,7 @@ class Station(object):
 
 
     def lte(self, starttime, endtime, window, subwindow, interval=1, channel=None, subwindow_olap=0.75, **kwargs):
-        """ Compute LTE file
+        """ Compute (station) LTE file
 
         Parameters
         ----------
@@ -617,7 +617,7 @@ class Station(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
 
-        lte = LTE.new(self, file_name_full, ltebase, njobs)
+        lte = LTE.sta_new(self, file_name_full, ltebase, njobs)
         
         return lte
 
