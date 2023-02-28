@@ -205,15 +205,14 @@ class CC8(object):
             for fqn, fqband in enumerate(self.stats.fq_bands):
                 # prepare parameters
                 mdata, stats = sarray.get_mdata(start, end, toff_sec=int(headers["toff_sec"]), sample_rate=self.stats.sample_rate, fq_band=fqband, return_stats=True)
-                xsta_utm = [st.lon for st in stats]
-                ysta_utm = [st.lat for st in stats]
+                xsta_utm = np.array([st.lon for st in stats])
+                ysta_utm = np.array([st.lat for st in stats])
             
                 # run the process
                 cc8p.run(mdata, xsta_utm, ysta_utm, int(fqn+1), start, end)
 
                 if len(cc8p.processes) == njobs:
-                    cc8p.wait()
-                    cc8p.save(f"{nint}/{nro_ints}")
+                    cc8p.wait(f"{nint}/{nro_ints}")
                 
             # advance 
             start += interval
@@ -221,8 +220,7 @@ class CC8(object):
         
         # wait until finishes
         if len(cc8p.processes) > 0:
-            cc8p.wait()
-            cc8p.save(f"{nint}/{nro_ints}")
+            cc8p.wait(f"{nint}/{nro_ints}")
 
 
     def __write__(self, cc8dict, fqn, nwin):

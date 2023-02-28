@@ -268,7 +268,7 @@ def plot_array_response(arf):
     title = f"STA: {arf.sar_.sta_code} \n LOCS: {arf.sar_.locs} \n Fq band : {arf.fq_band_} Hz"
     ax.set_title(title)
 
-    power = arf.arf_.power
+    power = arf.power_
     power /= power.max()
     vmin = 0
     vmax = 1

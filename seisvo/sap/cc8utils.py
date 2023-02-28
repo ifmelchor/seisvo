@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
-import julia
 import numpy as np
 import time as ttime
 import multiprocessing as mp 
@@ -38,15 +37,18 @@ class CC8Process(object):
     def _wrapper(self, *args):
         start_time = ttime.time()
 
+        cc8_ans = {}
         if isinstance(args[0], np.ndarray):
-            julia.Julia(compiled_modules=False)
-            from julia import SAP
-            cc8_ans = SAP.CC8(
-                        args[0],
-                        args[1],
-                        args[2],
-                        self.cc8.stats.slow_max,
-                        self.cc8.stats.slow_inc,
+
+            from juliacall import Main as jl
+            jl.seval("using SAP")
+
+            jlans = jl.CC8(
+                        jl.Array(args[0]),
+                        jl.Array(args[1]),
+                        jl.Array(args[2]),
+                        jl.Array(np.array(self.cc8.stats.slow_max)),
+                        jl.Array(np.array(self.cc8.stats.slow_inc)),
                         self.cc8.stats.sample_rate, 
                         self.lwin,
                         self.nwin,
@@ -54,8 +56,13 @@ class CC8Process(object):
                         self.cc8.stats.cc_thres,
                         self.toff,
                         )
-        else:
-            cc8_ans = {}
+
+            # convert to python dict
+            jlans = dict(jlans)
+            for nsi in range(1, len(self.cc8.nites_)+1):
+                cc8_ans[nsi] = {}
+                for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
+                        cc8_ans[nsi][attr] = np.array(jlans[nsi][attr])
 
         proc_duration = ttime.time() - start_time
         self.queue.put((self.n, cc8_ans, args[3], args[4], args[5], proc_duration))
@@ -73,7 +80,7 @@ class CC8Process(object):
         self.queue = mp.Queue()
 
 
-    def wait(self):
+    def wait(self, int_prct):
         rets = []
         for p in self.processes:
             ret = self.queue.get()
@@ -90,7 +97,9 @@ class CC8Process(object):
         
         for p in self.processes:
             p.join()
-    
+        
+        self.save(int_prct)
+
 
     def save(self, int_prct):
         available_n = list(self.data.keys())
@@ -342,10 +351,9 @@ class CC8out(object):
         data = self._dout[key]
 
         # load SAP.jl
-        julia.Julia(compiled_modules=False)
-        from julia import SAP
-        
-        slowprob = SAP.mpm(data)
+        from juliacall import Main as jl
+        jl.seval("using SAP")
+        slowprob = jl.mpm(jl.Array(data))
 
         plot = kwargs.get("plot", False)
         fileout = kwargs.get("fileout", None)
@@ -378,10 +386,10 @@ class CC8out(object):
         slomax = self.cc8.stats.slow_max[int(slow_idx)-1]
         sloinc = self.cc8.stats.slow_inc[int(slow_idx)-1]
 
-        julia.Julia(compiled_modules=False)
-        from julia import SAP
+        from juliacall import Main as jl
+        jl.seval("using SAP")
 
-        slowbaz_tmap = SAP.slobaztmap(data, sloinc, slomax, cc_th)
+        slowbaz_tmap = jl.slobaztmap(jl.Array(data), sloinc, slomax, cc_th)
 
         if savefig:
             title = f"MAAC > {cc_th}" + f"\n {self.starttime_} -- {self.endtime_}"

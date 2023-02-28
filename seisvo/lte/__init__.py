@@ -230,26 +230,24 @@ class LTE(object):
 
             if not isinstance(mdata, np.ndarray):
                 mdata = None
+                
             # send to a cpu
             ltep.run(mdata, start, end)
 
             # stack jobs until njobs
             if len(ltep.processes) == njobs:
-                ltep.wait()
-                ltep.save(f"{nint}/{nro_ints}")
+                ltep.wait(f"{nint}/{nro_ints}")
             
             # advance 
             start += interval
             nint += 1
         
-        # check if there are any process running, then wait and save
+        # check if there are any process running
         if len(ltep.processes) > 0:
-            ltep.wait()
-            ltep.save(f"{nint}/{nro_ints}")
+            ltep.wait(f"{nint}/{nro_ints}")
 
 
     def __write__(self, ltedict, nwin):
-
         if self.type == "station":
             with h5py.File(self.file_, "r+") as h5f:
                 nbin = h5f['header'].attrs["last_time_bin"]

@@ -401,8 +401,8 @@ class sArray(Network):
             self.__filterlocs__(locs)
 
         self.locs = [sta.stats.loc for sta in self.station]
-        self.xUTM = [float(sta.stats.lon) for sta in self.station]
-        self.yUTM = [float(sta.stats.lat) for sta in self.station]
+        self.xUTM = np.array([float(sta.stats.lon) for sta in self.station])
+        self.yUTM = np.array([float(sta.stats.lat) for sta in self.station])
         self.resp = Arfr(self)
     
     

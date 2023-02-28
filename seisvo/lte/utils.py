@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
-import julia
 import scipy
 import time as ttime
 import numpy as np
@@ -44,28 +43,63 @@ class LTEstats(AttribDict):
 
 class LTEProcSTA(object):
     def __init__(self, lte, nwin, lwin, nswin, lswin, nadv):
+
         self.lte   = lte
         self.nwin  = nwin
         self.lwin  = lwin
         self.nswin = nswin
         self.lswin = lswin
         self.nadv  = nadv
-        self.queue = mp.Queue()
+        self.manager = mp.Manager()
+        self.queue = self.manager.Queue()
         self.n  = -1
         self.processes = []
 
 
     def sta_wrapper(self, *args):
         start_time = ttime.time()
+
+        lte_ans = {}
         
         if isinstance(args[0], np.ndarray):
-            julia.Julia(compiled_modules=False)
-            from julia import LTE
-            lte_ans = LTE.sta_run(args[0], self.lte.stats.channel, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, self.lte.stats.fq_band, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
-        else:
-            lte_ans = {}
+
+            # load julia function
+            from juliacall import Main as jl
+            jl.seval("using LTE")
+
+            # prepare data
+            jldata = jl.Array(args[0])
+            jlchan = "/".join(self.lte.stats.channel)
+            jlband = jl.Tuple(self.lte.stats.fq_band)
+            # jl = julia.Julia(compiled_modules=False)
+            # jl._LegacyJulia__julia.using("LTE")
+            # sta_run_func = jl._LegacyJulia__julia.eval("sta_run")
+
+            # exec jl function
+            jlans = jl.sta_run(jldata, jlchan, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
+            jlans = dict(jlans)
+
+            # convert the jl dict into a python dict
+            for chan in self.lte.stats.channel:
+                lte_ans[chan] = {}
+                lte_ans[chan]["specgram"] = np.array(jlans[chan]["specgram"])
+
+                for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
+                    lte_ans[chan][attr] = np.array(jlans[chan][attr])
+                
+                if self.lte.stats.opt_params:
+                    lte_ans["opt"] = {}
+                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
+                        lte_ans["opt"][attr] = np.array(jlans["opt"][attr])
+                
+                if self.lte.stats.polar:
+                    lte_ans["polar"] = {}
+                    for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
+                        lte_ans["polar"][attr] = np.array(jlans["polar"][attr])
 
         proc_duration = ttime.time() - start_time
+        
+        # save data
         self.queue.put((self.n, lte_ans, args[1], args[2], proc_duration))
     
 
@@ -81,11 +115,17 @@ class LTEProcSTA(object):
         self.queue = mp.Queue()
 
 
-    def wait(self):
+    def wait(self, int_prct):
+        
         rets = []
         for p in self.processes:
             ret = self.queue.get()
             rets.append(ret)
+
+        print("all values where save it!!")
+        
+        print("done!")
+        self.queue.task_done()
         
         self.data = {}
         for n, lte_ans, start, end, proct in rets:
@@ -97,7 +137,9 @@ class LTEProcSTA(object):
         
         for p in self.processes:
             p.join()
-    
+        
+        self.save(int_prct)
+        
 
     def save(self, int_prct):
         available_n = list(self.data.keys())
@@ -123,11 +165,9 @@ class LTEProcSTA(object):
                         lte_ans[chan][attr] = vector_nan
                 
                 if self.lte.stats.opt_params:
-                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
                         lte_ans["opt"][attr] = vector_nan
-                    
-                    if self.lte.stats.rm_sens:
-                        lte_ans["opt"]["dsar"] = vector_nan
+
 
                 if self.lte.stats.polar:
                     for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):

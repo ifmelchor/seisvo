@@ -4,7 +4,6 @@
 import os
 import utm
 import scipy
-import julia
 import numpy as np
 import datetime as dt
 import multiprocessing as mp
@@ -497,9 +496,9 @@ class Station(object):
 
         data = self.get_mdata(starttime, endtime, self.stats.chan, sort="ZNE", **kwargs)
 
-        julia.Julia(compiled_modules=False)
-        from julia import LTE
-        polar_ans = LTE.polar_run(data, [float(fq) for fq in fq_band], sample_rate, NW, pad, nwin, lwin, nadv, full_analysis)
+        from juliacall import Main as jl
+        jl.seval("using LTE")
+        polar_ans = jl.polar_run(jl.Array(data), jl.Tuple(fq_band), sample_rate, NW, pad, nwin, lwin, nadv, full_analysis)
 
         return polar_ans
 
