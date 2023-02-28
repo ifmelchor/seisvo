@@ -50,8 +50,7 @@ class LTEProcSTA(object):
         self.nswin = nswin
         self.lswin = lswin
         self.nadv  = nadv
-        self.manager = mp.Manager()
-        self.queue = self.manager.Queue()
+        self.queue = mp.Queue()
         self.n  = -1
         self.processes = []
 
@@ -121,11 +120,6 @@ class LTEProcSTA(object):
         for p in self.processes:
             ret = self.queue.get()
             rets.append(ret)
-
-        print("all values where save it!!")
-        
-        print("done!")
-        self.queue.task_done()
         
         self.data = {}
         for n, lte_ans, start, end, proct in rets:
