@@ -153,17 +153,20 @@ class LTEProcSTA(object):
                 vector_nan = np.full([self.nwin,], np.nan)
 
                 for chan in self.lte.stats.channel:
+                    lte_ans[chan] = {}
                     lte_ans[chan]["specgram"] = matrix_nan
 
                     for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
                         lte_ans[chan][attr] = vector_nan
                 
                 if self.lte.stats.opt_params:
+                    lte_ans["opt"] = {}
                     for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
                         lte_ans["opt"][attr] = vector_nan
 
 
                 if self.lte.stats.polar:
+                    lte_ans["polar"] = {}
                     for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
                         lte_ans["polar"][attr] = matrix_nan
             else:
