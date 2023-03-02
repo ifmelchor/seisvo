@@ -75,26 +75,31 @@ class LTEProcSTA(object):
             # sta_run_func = jl._LegacyJulia__julia.eval("sta_run")
 
             # exec jl function
-            jlans = jl.sta_run(jldata, jlchan, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
-            jlans = dict(jlans)
+            try:
+                jlans = jl.sta_run(jldata, jlchan, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
 
-            # convert the jl dict into a python dict
-            for chan in self.lte.stats.channel:
-                lte_ans[chan] = {}
-                lte_ans[chan]["specgram"] = np.array(jlans[chan]["specgram"])
+                jlans = dict(jlans)
 
-                for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
-                    lte_ans[chan][attr] = np.array(jlans[chan][attr])
-                
-                if self.lte.stats.opt_params:
-                    lte_ans["opt"] = {}
-                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
-                        lte_ans["opt"][attr] = np.array(jlans["opt"][attr])
-                
-                if self.lte.stats.polar:
-                    lte_ans["polar"] = {}
-                    for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
-                        lte_ans["polar"][attr] = np.array(jlans["polar"][attr])
+                # convert the jl dict into a python dict
+                for chan in self.lte.stats.channel:
+                    lte_ans[chan] = {}
+                    lte_ans[chan]["specgram"] = np.array(jlans[chan]["specgram"])
+
+                    for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
+                        lte_ans[chan][attr] = np.array(jlans[chan][attr])
+                    
+                    if self.lte.stats.opt_params:
+                        lte_ans["opt"] = {}
+                        for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
+                            lte_ans["opt"][attr] = np.array(jlans["opt"][attr])
+                    
+                    if self.lte.stats.polar:
+                        lte_ans["polar"] = {}
+                        for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
+                            lte_ans["polar"][attr] = np.array(jlans["polar"][attr])
+            except:
+                # you can catch error here and do whatever
+                pass
 
         proc_duration = ttime.time() - start_time
         
