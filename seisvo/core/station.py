@@ -389,7 +389,7 @@ class Station(object):
         return st
 
 
-    def get_mdata(self, start, end, channel_list, sort=None, verbose=False, **kwargs):
+    def get_mdata(self, start, end, channel_list, sort=None, verbose=True, **kwargs):
         """
         Return a numpy array with seismic data
         """
@@ -421,13 +421,7 @@ class Station(object):
 
             total_sec = (end-start).total_seconds()
             sample_rate = st[0].stats.sampling_rate
-        
-            # check is npts coincides with selected dates
             true_npts = int(sample_rate*total_sec)
-            if true_npts != npts-1:
-                if verbose:
-                    print(f" error: no full data available for specific the dates {start}--{end}")
-                return None
             
             # get indexes
             if true_npts > npts:
@@ -445,7 +439,7 @@ class Station(object):
                     n = sort.index(tr.stats.channel[-1]) 
                 else:
                     n = 0
-                mat[n,nin:nfi] = tr.data[:-1]
+                mat[n,nin:nfi] = tr.data[:true_npts]
         
             return mat
         
