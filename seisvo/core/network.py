@@ -448,7 +448,7 @@ class sArray(Network):
                 tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
                 if n == 0:
                     mdata = np.empty((len(st),len(tr_dat)))
-                mdata[n,:] = tr_dat/tr_dat.max()
+                mdata[n,:] = tr_dat
 
                 if return_stats:
                     if n == 0:
@@ -603,6 +603,7 @@ class sArray(Network):
         print(f'{"  window olap":^5s} : ', cc8dict.get("overlap"))
         print(f'{"Total windows":^5s} : ', cc8dict.get("nwin")*cc8dict.get("nro_intervals"))
         print(f'{"     interval":^5s} : ', cc8dict.get("interval"))
+        print(f'{"     toff_sec":^5s} : ', cc8dict.get("toff_sec"))
         print(f'{" nwin per int":^5s} : ', cc8dict.get("nwin"))
         print('')
 

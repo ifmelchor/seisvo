@@ -272,6 +272,7 @@ class Trace2(Trace):
         zerophase = kwargs.get("zerophase", True)
         taper_p = kwargs.get("taper_p", 0.05)
         bandstop = kwargs.get("bandstop", False)
+        corners = kwargs.get("corners", 2)
 
         if taper:
             data = data * cosine_taper(len(data), p=taper_p)
@@ -280,7 +281,9 @@ class Trace2(Trace):
             if bandstop:
                 data = osf.bandstop(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, zerophase=zerophase)
             else:
-                data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, zerophase=zerophase)
+                b, a = signal.butter(corners, fq_band, fs=sample_rate, btype='band')
+                data = signal.filtfilt(b, a, data, method="gust")
+                # data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, corners=corners, zerophase=zerophase)
 
         elif fq_band[0] and not fq_band[1]:
             data = osf.highpass(data, freq=fq_band[0], df=sample_rate, zerophase=zerophase)
