@@ -152,7 +152,7 @@ class SSteps(object):
     start_time : datetime
     end_time   : datetime
     interval   : int [min]    interval in memory
-    window     : int [sec]    time window of processing
+    window     : float [sec]  time window of processing
     win_olap   : float [0-1)  by default is 0
     subwindow  : int [sec]    for moving average. by default is 0
     subw_olap  : float [0-1)  by default is 0

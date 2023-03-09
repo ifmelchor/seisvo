@@ -469,7 +469,7 @@ class sArray(Network):
             return None
         
 
-    def cc8(self, starttime, endtime, window, overlap, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1.,5.)], cc_thres=0.75, filename=None, outdir=None, interval=1, **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1.,5.)], cc_thres=0.05, filename=None, outdir=None, interval=1, **kwargs):
         """ Compute CC8 file
 
         Parameters
@@ -558,8 +558,8 @@ class sArray(Network):
 
         if validate:
             self.print_cc8_validation(cc8base)
-            name = input("\n Please, confirm that you are agree (y/Y): ")
-            if name not in ('y', 'Y'):
+            name = input("\n Please, confirm that you are agree (Y/n): ")
+            if name not in ('', 'Y', 'y'):
                 return
         
         # define name

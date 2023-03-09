@@ -406,8 +406,7 @@ class Station(object):
         if st:
             # check if nro of channels and traces match up
             if len(channel_list) != len(st):
-                if verbose:
-                    print(" error: number of channels do not match with channel_list")
+                print(" error: number of channels do not match with channel_list")
                 return None
 
             # check if npts of all traces in stream match up
@@ -415,8 +414,7 @@ class Station(object):
             if len(set(npts_list)) == 1:
                 npts = npts_list[0]
             else:
-                if verbose:
-                    print(" error: npts of the channels do not match!")
+                print(" error: npts of the channels do not match!")
                 return None
 
             total_sec = (end-start).total_seconds()
@@ -424,27 +422,25 @@ class Station(object):
             true_npts = int(sample_rate*total_sec)
             
             # get indexes
-            if true_npts > npts:
-                nin = (st[0].stats.starttime.datetime-start).total_seconds() * sample_rate
-                nfi = nin + npts
-            else:
+            if true_npts+1 == npts:
                 nin = 0
                 nfi = true_npts
 
-            # create the matrix
-            mat = np.empty((len(st),true_npts))
+                # create the matrix
+                mat = np.empty((len(st),true_npts))
 
-            for tr in st:
-                if len(st) > 1:
-                    n = sort.index(tr.stats.channel[-1]) 
-                else:
-                    n = 0
-                mat[n,nin:nfi] = tr.data[:true_npts]
+                for tr in st:
+                    if len(st) > 1:
+                        n = sort.index(tr.stats.channel[-1]) 
+                    else:
+                        n = 0
+                    mat[n,nin:nfi] = tr.data[:]
+            
+                return mat
+            else:
+                print(" error: no full data")
         
-            return mat
-        
-        else:
-            return None
+        return None
 
 
     def polar_analysis(self, starttime, endtime, window=0, olap=0.75, full_analysis=True, **kwargs):

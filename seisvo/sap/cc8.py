@@ -253,9 +253,9 @@ class CC8(object):
         
         else:
             if verbose:
-                for md in list_missing_days:
+                for md in ans:
                     print(md)
-                print(f" Missing files: {len(list_missing_days)}")
+                print(f" Missing files: {len(ans)}")
             return False
 
 
