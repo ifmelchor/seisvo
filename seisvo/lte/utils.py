@@ -211,6 +211,9 @@ class LTEoutSTA(object):
             else:
                 if k not in ("freq", "time", "dtime"):
                     self.attr_list.append(k)
+        
+        self.npts_ = len(self._dout["time"])
+        self.npfs_ = len(self._dout["freq"])
             
     
     def __str__(self):
@@ -278,7 +281,7 @@ class LTEoutSTA(object):
         return attr_list
 
 
-    def get_stats(self, attr=None, chan=None, db_scale=True):
+    def get_stats(self, attr=None, chan=None):
         """
         Return (min, max, mean, mode) of an specific scalar-only attribute
         """
@@ -300,9 +303,6 @@ class LTEoutSTA(object):
                 for chan in chan_list:
                     key = "/".join([chan, attr])
                     data = self._dout[chan][attr]
-
-                    if attr == 'energy' and db_scale:
-                        data = 10*np.log10(data)
 
                     dout[key] = get_tseries_stats(data[np.isfinite(data)])
             

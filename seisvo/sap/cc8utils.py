@@ -49,6 +49,7 @@ class CC8Process(object):
                         jl.Array(args[2]),
                         jl.Array(np.array(self.cc8.stats.slow_max)),
                         jl.Array(np.array(self.cc8.stats.slow_inc)),
+                        jl.Array(args[3]),
                         self.cc8.stats.sample_rate, 
                         self.lwin,
                         self.nwin,
@@ -65,7 +66,7 @@ class CC8Process(object):
                         cc8_ans[nsi][attr] = np.array(jlans[nsi][attr])
 
         proc_duration = ttime.time() - start_time
-        self.queue.put((self.n, cc8_ans, args[3], args[4], args[5], proc_duration))
+        self.queue.put((self.n, cc8_ans, args[4], args[5], args[6], proc_duration))
     
 
     def run(self, *args, **kwargs):
@@ -106,8 +107,8 @@ class CC8Process(object):
         available_n.sort() # nro interval per job
         
         for n in available_n:
-            start   = self.data[n]["start"].strftime("%d %b%y %H:%M")
-            end     = self.data[n]["end"].strftime("%d %b%y %H:%M")
+            start   = self.data[n]["start"].strftime("%d %b%y %H:%M:%S")
+            end     = self.data[n]["end"].strftime("%d %b%y %H:%M:%S")
             cc8_ans = self.data[n]["ans"]
             nfq     = self.data[n]["nfq"]
             proct   = self.data[n]["proct"]
@@ -273,6 +274,9 @@ class CC8out(object):
                         key = "/".join([fqslo, attr])
                         data = self._dout[key]
 
+                        if attr == "bazm":
+                            data[data>400] = np.nan
+
                         if attr == 'rms' and db_scale:
                             data = 10*np.log10(data)
                     
@@ -281,13 +285,28 @@ class CC8out(object):
         return dout
 
 
-    def plot(self, attr_list=None, fq_idx=None, slow_idx=None, datetime=False, **kwargs):
+    def get_pdf(self, attr, fq_idx=None, slow_idx=None, bandwidth=0.02):
+        
+        attr_list = self.__check_attr__(attr, "scalar")
+        
+        fq_idx = self.cc8.__checkidx__(fq_idx, "fq")
+        slow_idx = self.cc8.__checkidx__(slow_idx, "slow")
 
-        if not attr_list:
-            attr_list = self.attr_list
+        fqslo = "/".join([fq_idx[0], slow_idx[0]])
+        key = "/".join([fqslo, attr_list[0]])
+        data = self._dout[key]
         
-        attr_list = self.__check_attr__(attr_list, "scalar")
+        if attr == "bazm":
+            data[data>400] = np.nan
         
+        if attr == "rms":
+            data = 10*np.log10(data)
+
+        return get_pdf_data(data, bandwidth)
+
+
+    def plot(self, cc_th=0.5, fq_idx=None, slow_idx=None, datetime=False, **kwargs):
+
         if not fq_idx:
             fq_idx = self._fqidx
         else:
@@ -305,7 +324,7 @@ class CC8out(object):
                 if fqslo in self.fqslo_:
                     fq_slo_idx.append(fqslo)
 
-        ans = cc8_plot(self, attr_list, fq_slo_idx, plot=True, datetime=datetime, **kwargs)
+        ans = cc8_plot(self, fq_slo_idx[0], cc_th=cc_th, datetime=datetime, **kwargs)
 
         return ans
         

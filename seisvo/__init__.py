@@ -5,10 +5,10 @@ import os
 
 try:
     __seisvo__ = os.environ["SEISVO_PATH"]
-    DB_PATH = os.path.join(__seisvo__, 'database')
-    CC8_PATH = os.path.join(__seisvo__, 'cc8')
-    LTE_PATH = os.path.join(__seisvo__, 'lte')
-    NET_PATH = os.path.join(__seisvo__, 'networks')
+    DB_PATH   = os.path.join(__seisvo__, 'database')
+    CC8_PATH  = os.path.join(__seisvo__, 'cc8')
+    LTE_PATH  = os.path.join(__seisvo__, 'lte')
+    NET_PATH  = os.path.join(__seisvo__, 'networks')
     RESP_PATH = os.path.join(__seisvo__, 'respfiles')
     
 except KeyError:
@@ -16,7 +16,7 @@ except KeyError:
     exit()
 
 from .core.network import Network, iArray, Station
-from .lte import LTE
+from .lte import LTE, Peaks
 from .sap.cc8 import CC8
 from .file.air import AiR
 from .database import SDE, LDE

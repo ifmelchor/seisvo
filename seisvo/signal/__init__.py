@@ -44,6 +44,9 @@ def get_tseries_stats(x):
 
 def get_pdf_data(x, bandwidth, xmin=None, xmax=None, xspace=1000, db_scale=False, **kwargs):
 
+    if len(x.shape) == 1:
+        x = x.reshape(-1,1)
+        
     masked_data = np.ma.masked_invalid(x)
     data = np.ma.compress_rowcols(masked_data, axis=0)
 

@@ -7,6 +7,7 @@ import datetime as dt
 import numpy as np
 from seisvo.signal import get_freq
 from .utils import LTEstats, LTEProcSTA, LTEoutSTA
+from .peaks import Peaks
 
 
 SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'perm_entr', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
@@ -167,7 +168,7 @@ class LTE(object):
         return time_list, datetime_list, (n0,nf)
 
 
-    def get(self, attr=None, chan=None, starttime=None, endtime=None):
+    def get(self, attr=None, chan=None, starttime=None, endtime=None, db_scale=True, azimuth_ambiguity=True):
         
         # if attr is None, return all attributes
         if not attr:
@@ -201,11 +202,119 @@ class LTE(object):
             for attr in attr_list:
                 if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr', 'specgram'):
                     for chan in chan_list: 
-                        dout[chan][attr] = self.__read__(attr, n0, nf, chan)
+                        dout[chan][attr] = self.__read__(attr, n0, nf, chan, db_scale, azimuth_ambiguity)
                 else:
-                    dout[attr] = self.__read__(attr, n0, nf, None)
+                    dout[attr] = self.__read__(attr, n0, nf, None, db_scale, azimuth_ambiguity)
 
             return LTEoutSTA(self, dout)
+
+
+    def get_peaks(self, chan=None, starttime=None, endtime=None, fq_range=(), peak_thresholds={}):
+        """
+
+        Extract dominant peaks as described in Melchor et al. 2022 (https://doi.org/10.1016/j.jsames.2022.103961)
+
+        Parameters
+        ----------
+        fq_range : tuple, optional
+            by default stats.fq_band
+        peak_thresholds : dict, optional
+            by default {'fq_dt': 0.05, 'sxx_th': 0.95, 'pdg_th': 0.8, 'rect_th': 0.7, 'pdg_std':0.1, 'rect_std':0.1, 'azim_std':10, 'elev_std':10}
+
+        Returns
+        -------
+        [Peak object]
+        """
+
+        if not self.type == "station":
+            return None 
+        
+        if not self.stats.polar:
+            return None
+
+        from juliacall import Main as jl
+
+        default_peak_thresholds = {
+                'fq_dt': 0.05,
+                'sxx_th': 0.7,
+                'pdg_th': 0.7,
+                'pdg_std':0.1,
+                'rect_th': 0.7,
+                'rect_std':0.1,
+                'azim_std':10,
+                'elev_std':10,
+                'npts_min':4
+        }
+
+        # build the peak_thresholds dict
+        for key in default_peak_thresholds.keys():
+            if not peak_thresholds.get(key, None):
+                peak_thresholds[key] = default_peak_thresholds.get(key)
+
+        # plot model parameters
+        print(f'\n  File: {os.path.basename(self.file_)}')
+        print('  ----- Model param ------')
+        for key, item in peak_thresholds.items():
+            print(f'  {key:>10}     ', item)
+        print('  ------------------------\n')
+
+        attr = ['specgram', 'degree', 'elev', 'rect', 'azimuth']
+        gout = self.get(attr=attr, chan=chan, starttime=starttime, endtime=endtime)
+
+        freq = gout._dout["freq"]
+        if fq_range:
+            assert fq_range[0] >= freq[0]
+            assert fq_range[1] <= freq[-1]
+            fleft  = np.argmin(np.abs(freq - fq_range[0]))
+            fright = np.argmin(np.abs(freq - fq_range[1])) + 1
+            freq = freq[fleft:fright]
+        else:
+            fq_range = self.fq_band
+            fleft = 0 
+            fright = len(freq)-1
+        
+        nchan = len(gout.chan_list)
+        sxx = np.empty((nchan, gout.npts_, len(freq)), dtype=np.float32)
+        for c, chan in enumerate(gout.chan_list):
+            sxx[c,:,:] = gout._dout[chan]["specgram"][:,fleft:fright]
+
+        sxx  = jl.Array(sxx)
+        freq = jl.Array(np.array(freq, dtype=np.float32))
+        degr = jl.Array(gout._dout["degree"][:,fleft:fright])
+        rect = jl.Array(gout._dout["rect"][:,fleft:fright])
+        azim = jl.Array(gout._dout["azimuth"][:,fleft:fright])
+        elev = jl.Array(gout._dout["elev"][:,fleft:fright])
+
+        jl.seval("using LTE")
+        pksth = jl.PeakThresholds(
+            float(peak_thresholds["fq_dt"]),
+            float(peak_thresholds["sxx_th"]),
+            float(peak_thresholds["pdg_th"]),
+            float(peak_thresholds["pdg_std"]),
+            float(peak_thresholds["rect_th"]),
+            float(peak_thresholds["rect_std"]),
+            float(peak_thresholds["azim_std"]),
+            float(peak_thresholds["elev_std"]),
+            int(peak_thresholds["npts_min"])
+        )
+        jlout = jl.extract(sxx, degr, rect, azim, elev, freq, pksth)
+
+        # convert to a python object
+        pyout = {}
+        for c, chan in enumerate(gout.chan_list):
+            pyout[chan] = {"nW":jlout[1][0][c], "nL":jlout[1][1][c], "pks":{}}
+            
+            for t, pks in dict(jlout[0][c]).items():
+                pyout[chan]["pks"][t] = {
+                    "fq"  :np.array(dict(pks)["fq"],dtype=np.float32),
+                    "sxx" :np.array(dict(pks)["specgram"],dtype=np.float32),
+                    "dgr" :np.array(dict(pks)["degree"],dtype=np.float32),
+                    "rect":np.array(dict(pks)["rect"],dtype=np.float32),
+                    "azim":np.array(dict(pks)["azimuth"],dtype=np.float32),
+                    "elev":np.array(dict(pks)["elev"],dtype=np.float32)
+                }
+
+        return Peaks(pyout, self.file_, gout.starttime_, gout.endtime_, fq_range, peak_thresholds)
 
 
     def __sta_compute__(self, base, headers, njobs):
@@ -276,19 +385,28 @@ class LTE(object):
                 h5f.flush()
 
 
-    def __read__(self, attr, n0, nf, chan):
+    def __read__(self, attr, n0, nf, chan, db_scale, azimuth_ambiguity):
         if self.type == "station":
             ts = None
 
             with h5py.File(self.file_, "r") as f:
                 if attr == 'specgram':
                     ts = f.get(chan)[attr][n0:nf,:]
+
+                    if db_scale:
+                        ts = 10*np.log10(ts)
                 
                 if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr'):
                     ts = f.get(chan)[attr][n0:nf]
+
+                    if attr == "energy" and db_scale:
+                        ts = 10*np.log10(ts)
             
                 if attr in ('degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh'):
                     ts = f.get("polar")[attr][n0:nf,:]
+
+                    if attr == "azimuth" and azimuth_ambiguity:
+                        ts[ts>180] = ts[ts>180] - 180
                 
                 if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
                     ts = f.get("opt")[attr][n0:nf]

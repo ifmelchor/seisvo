@@ -37,8 +37,8 @@ default_linestyle = {
 
 def get_axes_dict(attr_list, fig):
 
-    grid = {'hspace':0.15, 'left':0.08, 'right':0.92, 'wspace':0.05, 'top':0.95, 'bottom':0.05}
-    col = 1
+    grid = {'hspace':0.15, 'left':0.08, 'right':0.92, 'wspace':0.05, 'top':0.95, 'width_ratios':[1,0.1],'bottom':0.05}
+    col = 2
     row = len(attr_list)
 
     axes = fig.subplots(row, col, gridspec_kw=grid)
@@ -52,13 +52,13 @@ def get_axes_dict(attr_list, fig):
     axes_dict = {}
     n = 0
     for attr in attr_list:
-        axes_dict[attr] = axes[n,0]
+        axes_dict[attr] = [axes[n,0],axes[n,1]]
         n += 1
 
     return axes_dict
 
 
-def cc8_plot(cc8out, attr_list, fq_slo_idx, fig=None, axes=None, plot=False, return_stats=False, datetime=False, **kwargs):
+def cc8_plot(cc8out, fq_slo_idx="1/1", cc_th=0.5, fig=None, axes=None, plot=False, return_stats=False, datetime=False, **kwargs):
 
     if not fig:
         fig = plt.figure(figsize=(12,8))
@@ -66,63 +66,99 @@ def cc8_plot(cc8out, attr_list, fq_slo_idx, fig=None, axes=None, plot=False, ret
     if axes:
         clear_ax = True
     else:
-        axes = get_axes_dict(attr_list, fig)
+        axes = get_axes_dict(["maac","rms","bazm","slow"], fig)
         clear_ax = False
             
     # define time and x format
     day_interval = (cc8out.endtime_ - cc8out.starttime_).total_seconds()/3600
     time_format = get_time_format(datetime, day_interval)
 
+    # get stats of scalar values
+    fq_idx   = fq_slo_idx.split('/')[0]
+    slow_idx = fq_slo_idx.split('/')[1]
+
+    # compute PDF
+    maac_pdf = cc8out.get_pdf("maac", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=0.01)
+    rms_pdf = cc8out.get_pdf("rms", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=0.1)
+    bazm_pdf = cc8out.get_pdf("bazm", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=5.0)
+    slow_pdf = cc8out.get_pdf("slow", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=0.1)
+    
+    # filter data
+    maac = cc8out._dout["/".join([fq_slo_idx, "maac"])]
+    rms  = 10*np.log10(cc8out._dout["/".join([fq_slo_idx, "rms"])])
+    slow = cc8out._dout["/".join([fq_slo_idx, "slow"])]
+    bazm = cc8out._dout["/".join([fq_slo_idx, "bazm"])]
+    bazm[bazm>400] = np.nan
+    
+    yed = np.where(maac > cc_th) # detections
+    nod = np.where(maac < cc_th) # non detections
+
+    data_dict = {
+        "maac_yd":maac[yed], 
+        "maac_nd":maac[nod], 
+        "maac_pdf":maac_pdf, 
+        "rms_yd":rms[yed], 
+        "rms_nd":rms[nod], 
+        "rms_pdf":rms_pdf, 
+        "bazm_yd":bazm[yed],
+        "bazm_nd":bazm[nod],
+        "bazm_pdf":bazm_pdf,
+        "slow_yd":slow[yed], 
+        "slow_nd":slow[nod], 
+        "slow_pdf":slow_pdf, 
+        }
+    
     if datetime:
         time = cc8out._dout["dtime"]
     else:
         time = cc8out._dout["time"]
     
-    # get stats of scalar values
-    fq_idx   = [fqsl.split('/')[0] for fqsl in fq_slo_idx]
-    slow_idx = [fqsl.split('/')[1] for fqsl in fq_slo_idx]
-    stats = cc8out.get_stats(attr_list=attr_list, fq_idx=fq_idx, slow_idx=slow_idx)
+    for attr in ("rms","maac","slow","bazm"):
+        ax = axes[attr][0]
+        prob_ax = axes[attr][1]
+        
+        if clear_ax:
+            ax.cla()
+            prob_ax.cla()
+        
+        # plot non detections
+        xt_nd = data_dict[attr+"_nd"]
+        ax.scatter(time[nod], xt_nd, color="grey", edgecolor="k", alpha=0.2, zorder=1)
+
+            # plot detections
+        xt_yd = data_dict[attr+"_yd"]
+        ax.scatter(time[yed], xt_yd, color="blue", edgecolor="k", alpha=0.6, zorder=2)
+
+
+        pdf = data_dict[attr+"_pdf"]
+        prob_ax.plot(pdf[1], pdf[0], color='k')
+
+        data_min = pdf[0][0]
+        data_max = pdf[0][-1]
+        ax.set_ylim(data_min, data_max)
+        prob_ax.set_ylim(data_min, data_max)
+        prob_ax.yaxis.set_major_formatter(mtick.NullFormatter())
+        prob_ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
+        # prob_ax.xaxis.set_major_formatter(mtick.NullFormatter())
+        prob_ax.xaxis.set_major_locator(mtick.NullLocator())
+        ax.set_ylabel(default_labels[attr])
+        ax.set_xlim(time[0], time[-1])
+
+        ax.xaxis.set_major_locator(time_format[0][0])
+        ax.xaxis.set_minor_locator(time_format[1][0])
+        ax.xaxis.set_minor_formatter(mtick.NullFormatter())
+        ax.xaxis.set_major_formatter(mtick.NullFormatter())
+        ax.yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
+        ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
+        ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1f'))
     
-    for fqsl in fq_slo_idx:
-        fq_idx   = fqsl.split('/')[0]
-        color    = default_colors[fq_idx]
-        slow_idx = fqsl.split('/')[1]
-        linesty  = default_linestyle[slow_idx]
-
-        for n, attr in enumerate(attr_list):
-            ax = axes[attr]
-
-            if clear_ax:
-                ax.cla()
-
-            key = "/".join([fqsl, attr])
-            data = cc8out._dout[key]
-            stdat = stats[key]
-
-            if attr == "rms":
-                data = 10*np.log10(data)
-            
-            ax.plot(time, data, color=color, ls=linesty, label=fqsl)
-            data_min = np.floor(stdat[0])
-            data_max = np.ceil(stdat[1])
-            ax.set_ylim(data_min, data_max)
-            ax.set_ylabel(default_labels[attr])
-            ax.set_xlim(time[0], time[-1])
-
-            ax.xaxis.set_major_locator(time_format[0][0])
-            ax.xaxis.set_minor_locator(time_format[1][0])
-            ax.xaxis.set_minor_formatter(mtick.NullFormatter())
-            ax.xaxis.set_major_formatter(mtick.NullFormatter())
-            ax.yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
-            ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
-            ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1f'))
-
-            if n == len(attr_list)-1:
-                ax.xaxis.set_major_formatter(time_format[0][1])
-                ax.set_xlabel('Time [h]')
-                if time_format[1][1]:
-                    ax.xaxis.set_minor_formatter(time_format[1][1])
-            
+        if attr == "slow":
+            # last plot
+            ax.xaxis.set_major_formatter(time_format[0][1])
+            ax.set_xlabel('Time [h]')
+            if time_format[1][1]:
+                ax.xaxis.set_minor_formatter(time_format[1][1])
+        
     if plot:
         plt.show()
     
