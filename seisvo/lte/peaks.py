@@ -71,7 +71,7 @@ class Peaks(object):
         return txt_to_return
 
 
-    def fit(self, chan=None, threshold=0.0, peak_width='auto', to_dataframe=True, **kwargs):
+    def fit(self, chan=None, ns_min=100, threshold=0.0, peak_width='auto', to_dataframe=True, **kwargs):
         """
         Computes the dominant peaks following Melchor et al. 2022 (https://doi.org/10.1016/j.jsames.2022.103961)
         peak_width can be 'auto' or float. If 'auto', for each peak, the width is computing by signal.peak_widths.
@@ -113,6 +113,8 @@ class Peaks(object):
             peak_width = scipy.signal.peak_widths(fq_pdf, peaks)[0]
             half_width = None
         
+        to_return = [(fq_space, fq_pdf)]
+        
         # define dominant frequencies
         d_peaks = {}
         for ip, p in enumerate(peaks):
@@ -136,8 +138,6 @@ class Peaks(object):
                 }
         
         if nro_dfq > 0:
-            ns_min = kwargs.get('ns_min', 100)
-
             for f in range(1, nro_dfq + 1):
                 dfq = d_peaks[f]['fq'] # dominant frequency
                 sp, rect, th_H, th_V = [], [], [], []
@@ -293,13 +293,15 @@ class Peaks(object):
                         data['V_range'] = k_range
                         data['N_V'] = k_n
 
-                return pd.DataFrame(data, index=index)
+                to_return.append(pd.DataFrame(data, index=index))
 
             else:
-                return d_peaks
+                to_return.append(d_peaks)
         
         else:
-            return None
+            to_return.append(None)
+
+        return to_return
 
 
     def write_json(self, df, fout=None):
@@ -368,20 +370,19 @@ class Peaks(object):
     #     return aW, aL
 
 
-    def plot_spec_pdf(self, show=True, **kwargs):
-        if self.nro_ == 0:
-            raise ValueError ('no dominant frequencies to plot!')
+    @staticmethod
+    def plot(self, peaks_dict, n=None, fq_out=[], plot=True):
 
-        fig = plotPeaksSpecPDF(self, show=show, **kwargs)
+        if n:
+            assert n in list(peaks_dict.keys())
+            fig = plotPeaksPDF(peaks_dict[n], plot=plot)
 
-        return fig
+        elif fq_out:
+            fig = plotPeaksSpecPDF(peaks_dict, fq_out, plot=plot)
 
-
-    def plot_peak_pdf(self, peaks_dict, n, plot=True, **kwargs):
-        if self.nro_ == 0:
-            raise ValueError ('no dominant frequencies to plot!')
-        
-        fig = plotPeaksPDF(self, peaks_dict, n, plot=plot, **kwargs)
+        else:
+            fig = None
+            print("you should define 'n' or 'fq_out' to plot")
         
         return fig
 

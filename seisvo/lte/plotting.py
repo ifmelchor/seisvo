@@ -541,33 +541,33 @@ def ltaoutsta_plot(lteout, chan_list, attr_list, fig=None, axes=None, plot=False
     else:
         return (fig, axes)
 
+## PEAKS ##
 
-def plotPeaksSpecPDF(peak, show=True, **kwargs):
+def plotPeaksSpecPDF(peak_dict, fq, fq_th=None, plot=True, **kwargs):
+
     grid = {'left':0.15, 'right':0.95, 'top':0.90, 'bottom':0.2}
     fig, ax = plt.subplots(1,1, figsize=kwargs.get('figsize',(9,3)), gridspec_kw=grid)
 
-    norm = max([info['fq_prob'] for _, info in peak.peaks_.items()])
-    
-    ax.plot(peak.fq_space_, peak.fq_pdf_/norm, color='k') # plot normalized PDF
+    norm = fq[1].max()
+    ax.plot(fq[0], fq[1]/norm, color='k') # plot normalized PDF
 
-    if peak.threshold:
-        ax.axhline(y=peak.threshold, color='r', ls='--')
+    if fq_th:
+        ax.axhline(y=fq_th, color='r', ls='--')
     
-    for _, info in peak.peaks_.items():
+    for _, info in peak_dict.items():
         ax.scatter(info['fq'], info['fq_prob']/norm, color='r', marker='o', ec='k')
         half_width = info['width']
         y1_index = np.argmin(np.abs(peak.fq_space_-(info['fq']-half_width)))
         y2_index = np.argmin(np.abs(peak.fq_space_-(info['fq']+half_width)))
-        x_fill = peak.fq_space_[y1_index:y2_index].reshape(-1,)
-        y_fill = peak.fq_pdf_[y1_index:y2_index]/norm
+        x_fill = fq[0][y1_index:y2_index].reshape(-1,)
+        y_fill = fq[1][y1_index:y2_index]/norm
         ax.fill_between(x_fill, y_fill, color='k', alpha=0.1)
         # ax.annotate(f'#{p_i}', xy=(info['fq']+0.05, info['fq_prob']+0.01), bbox=dict(boxstyle="round", fc="w", ec="k", lw=0.8), fontsize=8, family='monospace')
     
-    fs = kwargs.get('fs', 10)
-    ax.set_xlim(peak.fq_space_.min(), peak.fq_space_.max())
+    ax.set_xlim(fq[0].min(), fq[0].max())
     ax.set_ylim(0, 1.1)
-    ax.set_ylabel('$P(\mathcal{P}_{wp}$)', fontsize=fs)
-    ax.set_xlabel(r'$f$ [Hz]', fontsize=fs)
+    ax.set_ylabel(r'$P(\mathcal{P}_{wp}$)')
+    ax.set_xlabel(r'$f$ [Hz]')
 
     ax.set_xticks([1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5])
     ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
@@ -577,17 +577,16 @@ def plotPeaksSpecPDF(peak, show=True, **kwargs):
     ax.grid(which='major', axis='both', ls='--', alpha=0.5)
     ax.grid(which='minor', axis='both', ls=':', alpha=0.25)
 
-    ax.tick_params(axis='y', labelsize=fs)
-    ax.tick_params(axis='x', labelsize=fs)
+    ax.tick_params(axis='y')
+    ax.tick_params(axis='x')
 
-    if show:
+    if plot:
         plt.show()
 
     return fig
 
 
-def plotPeaksPDF(peak, n, show=True, **kwargs):
-    nPeak = peak.peaks_[n]
+def plotPeaksPDF(nPeak, plot=True):
 
     PDFs = {}
     if nPeak['sp']:
@@ -619,8 +618,6 @@ def plotPeaksPDF(peak, n, show=True, **kwargs):
     grid = {'hspace':0.1, 'wspace':0.3, 'left':0.15, 'right':0.95, 'top':0.90, 'bottom':0.2}
     fig, axis = plt.subplots(1, n_axis, figsize=(n_axis*2,2.5), gridspec_kw=grid)
 
-    fs = kwargs.get('fs', 10)
-
     if not isinstance(axis, np.ndarray):
         axis = [axis]
 
@@ -633,44 +630,44 @@ def plotPeaksPDF(peak, n, show=True, **kwargs):
             rect_th = peak.peak_thresholds['rect_th']
             ax.fill_between(space[space>rect_th], pdf[np.where(space>rect_th)[0]], alpha=0.1, color='k')
             ax.set_xlim(0,1)
-            ax.set_xlabel(r'R', fontsize=fs)
+            ax.set_xlabel(r'R')
             ax.set_xticks([0, 0.5, 1])
-            ax.set_ylabel(r'$P(\mathcal{R}_%s$)' %n, fontsize=fs)
+            ax.set_ylabel(r'$P(\mathcal{R}_%s$)' %n)
             ax.set_title(r'$N_R$ = %s' % nPeak['rect']['n'])
         
         elif att == 'thH':
             ax.set_xlim(0,180)
-            ax.set_xlabel(r'$\Theta_H$ [$\degree$]', fontsize=fs)
+            ax.set_xlabel(r'$\Theta_H$ [$\degree$]')
             ax.set_xticks([0, 90, 180])
-            ax.set_ylabel(r'$P(\mathcal{H}_%s$)' %n, fontsize=fs)
+            ax.set_ylabel(r'$P(\mathcal{H}_%s$)' %n)
             ax.set_title(r'$N_H$ = %s' % nPeak['thH']['n'])
 
         elif att == 'thV':
             ax.set_xlim(0,90)
-            ax.set_ylabel(r'$P(\mathcal{V}_%s$)' %n, fontsize=fs)
-            ax.set_xlabel(r'$\Theta_V$ [$\degree$]', fontsize=fs)
+            ax.set_ylabel(r'$P(\mathcal{V}_%s$)' %n)
+            ax.set_xlabel(r'$\Theta_V$ [$\degree$]')
             ax.set_xticks([0, 45, 90])
             ax.set_title(r'$N_V$ = %s' % nPeak['thV']['n'])
         
         else:
             ax.set_xlim(-170,-110)
-            ax.set_xlabel('PSD\n' +r'[dB//(m$^2$s$^{-2}$/Hz)]', fontsize=fs)
-            ax.set_ylabel(r'$P(\mathcal{S}_%s$)' %n, fontsize=fs)
+            ax.set_xlabel('PSD\n' +r'[dB//(m$^2$s$^{-2}$/Hz)]')
+            ax.set_ylabel(r'$P(\mathcal{S}_%s$)' %n)
             ax.set_title(r'$N_S$ = %s' % nPeak['sp']['n'])
         
         ax.set_ylim(0,1.1)
-        ax.tick_params(axis='x', labelsize=fs)
+        ax.tick_params(axis='x')
         ax.set_yticks([0, 0.5, 1])
         ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
         ax.grid(which='major', axis='both', ls='--', alpha=0.5)
         ax.grid(which='minor', axis='both', ls=':', alpha=0.25)
         
         if ax == axis[0]:
-            ax.tick_params(axis='y', labelsize=fs)
+            ax.tick_params(axis='y')
         else:
             ax.yaxis.set_major_formatter(mtick.NullFormatter())
     
-    if show:
+    if plot:
         plt.show()
 
     return fig

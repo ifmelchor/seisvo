@@ -68,11 +68,15 @@ class RespFile(AttribDict):
     def __init__(self, header):
         super(RespFile, self).__init__(header)
         self.keys_ = list(header.keys())
-        self.__download__()
-        self.__check_times__()
+
+        if hasattr(self, 'sensor_keys') and hasattr(self, 'datalogger_keys'):
+            self.download()
+        
+        self.check_times()
+        self.load_factor()
 
 
-    def __check_times__(self):
+    def check_times(self):
         if 'starttime' in self.keys_:
             if self.starttime:
                 try:
@@ -106,7 +110,8 @@ class RespFile(AttribDict):
         
         return self._pretty_str(priorized_keys)
     
-    def __download__(self):
+
+    def download(self):
         if not os.path.isdir(RESP_PATH):
             os.makedirs(RESP_PATH)
         
@@ -132,15 +137,24 @@ class RespFile(AttribDict):
             print(' STA : %s.%s >> no file info in .resp file' % (self.code, self.loc))
 
 
-    def load(self):
-        file_out_name = os.path.join(RESP_PATH, self.file)
-        if os.path.isfile(file_out_name):
-            with open(file_out_name, 'rb') as f:
-                resp = pickle.load(f)
-        else:
-            resp = None
+    def load_factor(self):
 
-        return resp
+        if hasattr(self, 'file'):
+            file_out_name = os.path.join(RESP_PATH, self.file)
+            if os.path.isfile(file_out_name):
+                with open(file_out_name, 'rb') as f:
+                    resp = pickle.load(f)
+
+                self.factor = resp.instrument_sensitivity.value
+                self.resp  = resp
+
+            return
+
+        self.resp = None
+        
+        if not hasattr(self, 'factor'):
+            self.factor = 1
+
 
 
 def get_network(net_code):
