@@ -314,7 +314,7 @@ class LTE(object):
                     "elev":np.array(dict(pks)["elev"],dtype=np.float32)
                 }
 
-        return Peaks(pyout, self.file_, gout.starttime_, gout.endtime_, fq_range, peak_thresholds)
+        return Peaks(pyout, self.file_, gout.starttime_, gout.endtime_, self.stats.window, fq_range, peak_thresholds)
 
 
     def __sta_compute__(self, base, headers, njobs):
@@ -406,7 +406,7 @@ class LTE(object):
                     ts = f.get("polar")[attr][n0:nf,:]
 
                     if attr == "azimuth" and azimuth_ambiguity:
-                        ts[ts>180] = ts[ts>180] - 180
+                        ts = np.where(ts>180, ts-180, ts)
                 
                 if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
                     ts = f.get("opt")[attr][n0:nf]

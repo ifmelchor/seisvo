@@ -2,50 +2,40 @@
 # coding=utf-8
 
 import os
+import scipy
 import pickle
 import numpy as np
 import pandas as pd
-import scipy
-
+import datetime as dt
 from itertools import chain
 from seisvo.signal.proba import get_KDE
-from .plotting import plotPeaksSpecPDF, plotPeaksPDF
+from .plotting import plotPeaksSpecPDF, plotPeaksPDF, plotPeakTimeEvo
 
 
 class Peaks(object):
-    def __init__(self, peaks_dict, lte_file, starttime, endtime, fq_band, peaks_threshold, **kwargs):
+    def __init__(self, peaks_dict, lte_file, starttime, endtime, delta, fq_band, peaks_threshold, **kwargs):
         self._dout     = peaks_dict
         self.starttime = starttime 
         self.endtime   = endtime
+        self.delta     = delta
         self.fq_band   = fq_band
         self.ltefile_  = lte_file
         self.model_    = peaks_threshold
         self.chan      = list(peaks_dict.keys())
-
-        self.file_  = kwargs.get("pksfile", None)
+        self.df_       = None
+        self.file_     = kwargs.get("pksfile", None)
     
 
-    def write(self, pks_file):
+    def write(self, pks_file=None):
+        if not pks_file:
+            pks_file = os.path.basename(self.ltefile_)
+            pks_file = pks_file.replace(".lte", ".pks")
+
         # write pickle object
-        with open(pks_file+".pks", 'wb') as handle:
+        with open(pks_file, 'wb') as handle:
             pickle.dump(self, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-        return None
-
-
-    @staticmethod
-    def load(pks_file):
-        with open(pks_file, 'rb') as handle:
-            pks = pickle.load(handle)
-
-        kwargs = {
-            "pksfile":pks_file,
-            "char_peaks":pks.peaks_,
-            "nro_char_peaks":pks.nro_,
-            "dataframes":pks.df_,
-            }
-
-        return Peaks(pks._dout, pks.ltefile_, pks.starttime, pks.endtime, pks.fq_band, pks.model_, **kwargs)
+        
+        print(f"  >>>  {pks_file}  created!")
 
 
     def __str__(self):
@@ -71,7 +61,7 @@ class Peaks(object):
         return txt_to_return
 
 
-    def fit(self, chan=None, ns_min=100, threshold=0.0, peak_width='auto', to_dataframe=True, **kwargs):
+    def fit(self, starttime=None, endtime=None, chan=None, ns_min=100, threshold=0.0, peak_width='auto', to_json=True, dpks=None, **kwargs):
         """
         Computes the dominant peaks following Melchor et al. 2022 (https://doi.org/10.1016/j.jsames.2022.103961)
         peak_width can be 'auto' or float. If 'auto', for each peak, the width is computing by signal.peak_widths.
@@ -82,22 +72,23 @@ class Peaks(object):
         if not isinstance(peak_width, float) and not peak_width=='auto':
             raise ValueError (" peak_width must be float or 'auto'")
 
-        if chan and chan not in self.chan:
-            raise ValueError("chan not found")
+        if not dpks:
+            dpks = self.get(starttime=starttime, endtime=endtime, chan=chan, return_stats=False)
 
-        if chan:
-            all_dpks = [nd for _, nd in self._dout[chan]["pks"].items()]
-        else:
-            all_dpks = [nd for chan in self.chan for _, nd in self._dout[chan]["pks"].items()]
+        if not dpks:
+            print("warn :: no dominant peaks found")
+            return
         
+        true_chan = list(dpks.keys())
+
         # join all frequencies
-        all_fq_pks = [nd['fq'] for nd in all_dpks]
-        all_pks = np.array(list(chain(*all_fq_pks)))
+        all_fq_pks = [nd for chan in true_chan for nd in dpks[chan]["pks"]["fq"]]
+        all_fq_pks = np.array(list(chain(*all_fq_pks)))
         
         # compute PDF
-        fq_space = np.linspace(all_pks.min(), all_pks.max(), 1000).reshape(-1, 1)
+        fq_space = np.linspace(all_fq_pks.min(), all_fq_pks.max(), 1000).reshape(-1, 1)
         fq_bwd  = kwargs.get("fq_bandwidth", 0.01)
-        pks_kde = get_KDE(all_pks.reshape(-1, 1), fq_bwd)
+        pks_kde = get_KDE(all_fq_pks.reshape(-1, 1), fq_bwd)
         fq_pdf  = np.exp(pks_kde.score_samples(fq_space))
 
         # search for dominant frequencies
@@ -137,47 +128,59 @@ class Peaks(object):
                 'thV':None
                 }
         
+        # characterize dominant frequencies
         if nro_dfq > 0:
+            # sxx
+            all_sxx_pks = [nd for chan in true_chan for nd in dpks[chan]["pks"]["sxx"]]
+            all_sxx_pks = np.array(list(chain(*all_sxx_pks)))
+            # rect
+            all_rect_pks = [nd for chan in true_chan for nd in dpks[chan]["pks"]["rect"]]
+            all_rect_pks = np.array(list(chain(*all_rect_pks)))
+            # azimuth
+            all_azim_pks = [nd for chan in true_chan for nd in dpks[chan]["pks"]["azim"]]
+            all_azim_pks = np.array(list(chain(*all_azim_pks)))
+            # elevation
+            all_elev_pks = [nd for chan in true_chan for nd in dpks[chan]["pks"]["elev"]]
+            all_elev_pks = np.array(list(chain(*all_elev_pks)))
+
             for f in range(1, nro_dfq + 1):
                 dfq = d_peaks[f]['fq'] # dominant frequency
-                sp, rect, th_H, th_V = [], [], [], []
+                fhigh = dfq + d_peaks[f]['width']
+                flow  = dfq - d_peaks[f]['width']
+                fqn = np.where((all_fq_pks>=flow)&(all_fq_pks<=fhigh))
 
-                for tdict in all_dpks:
-                    for n, fq in enumerate(tdict['fq']):
-                        if dfq - d_peaks[f]['width'] <= fq <= dfq + d_peaks[f]['width']:
-                            sp   += [tdict['sxx'][n]]
-                            # pd   += [tdict['dgr'][n]]
-                            rect += [tdict['rect'][n]]
-                            th_H += [tdict['azim'][n]]
-                            th_V += [tdict['elev'][n]]
+                sxx_dfq  = all_sxx_pks[fqn]
+                rect_dfq = all_rect_pks[fqn]
+                azim_dfq = all_azim_pks[fqn]
+                elev_dfq = all_elev_pks[fqn]
+
+                if np.isnan(sxx_dfq).any():
+                    sxx_dfq = sxx_dfq[np.isfinite(sxx_dfq)]
                 
-                sp   = np.array(sp, dtype=np.float32)
-                if np.isnan(sp).any():
-                    sp = sp[np.isfinite(sp)]
-                
-                if sp.shape[0] > ns_min:
+                if sxx_dfq.shape[0] >= ns_min:
                     sxx_bwd  = kwargs.get("sxx_bandwidth", 0.05)
-                    sp_kde   = get_KDE(sp.reshape(-1,1), sxx_bwd)
-                    sp_x = np.linspace(sp.min(), sp.max(), 500).reshape(-1,1)
-                    sp_dist  = np.exp(sp_kde.score_samples(sp_x))
+                    sp_kde   = get_KDE(sxx_dfq.reshape(-1,1), sxx_bwd)
+                    sp_space = np.linspace(sxx_dfq.min(), sxx_dfq.max(), 500).reshape(-1,1)
+                    sp_dist  = np.exp(sp_kde.score_samples(sp_space))
                     sp_dist /= sp_dist.max()
-                    sp_args = np.where(sp_dist > 0.5)[0]
-                    sp_range = (sp_x[sp_args[0]], sp_x[sp_args[-1]])
+                    sp_args  = np.where(sp_dist > 0.5)[0]
+                    sp_range = (sp_space[sp_args[0]], sp_space[sp_args[-1]])
 
                     d_peaks[f]['sp'] = {
-                        'val':sp_x[np.argmax(sp_dist)],
+                        'val':sp_space[np.argmax(sp_dist)],
                         'range':sp_range,
-                        'n':len(sp),
-                        'kde':sp_kde
+                        'n':len(sxx_dfq),
+                        'kde':sp_kde,
+                        'min':sxx_dfq.min(),
+                        'max':sxx_dfq.max()
                     }
 
-                    rect = np.array(rect, dtype=np.float32)
-                    if np.isnan(rect).any():
-                        rect = rect[np.isfinite(rect)]
+                    if np.isnan(rect_dfq).any():
+                        rect_dfq = rect_dfq[np.isfinite(rect_dfq)]
                     
-                    if rect.shape[0] > ns_min:
+                    if rect_dfq.shape[0] >= ns_min:
                         rect_bwd = kwargs.get("rect_bandwidth", 0.1)
-                        rect_kde = get_KDE(rect.reshape(-1,1), rect_bwd)
+                        rect_kde = get_KDE(rect_dfq.reshape(-1,1), rect_bwd)
                         rect_space = np.linspace(0, 1, 500).reshape(-1,1)
                         rect_dist = np.exp(rect_kde.score_samples(rect_space))
                         rect_dist /= rect_dist.max()
@@ -187,48 +190,43 @@ class Peaks(object):
                         d_peaks[f]['rect'] = {
                             'val':rect_space[np.argmax(rect_dist)],
                             'range':rect_range,
-                            'n':len(rect),
+                            'n':len(rect_dfq),
                             'kde':rect_kde
                         }
-                        d_peaks[f]['cp'] = len(rect)/len(sp)
+                        d_peaks[f]['cp'] = len(rect_dfq)/len(sxx_dfq)
 
-                        th_H = np.array(th_H, dtype=np.float32)
-                        if np.isnan(th_H).any():
-                            th_H = th_H[np.isfinite(th_H)]
-
-                        th_V = np.array(th_V, dtype=np.float32)
-                        if np.isnan(th_V).any():
-                            th_V = th_V[np.isfinite(th_V)]
+                        azim_dfq = azim_dfq[np.isfinite(azim_dfq)]
+                        elev_dfq = elev_dfq[np.isfinite(elev_dfq)]
                         
-                        if th_H.shape[0] > ns_min and th_V.shape[0] > ns_min:
-                            d_peaks[f]['cl'] = (len(th_H) + len(th_V)) / (2*len(rect))
+                        if azim_dfq.shape[0] >= ns_min and elev_dfq.shape[0] > ns_min:
+                            d_peaks[f]['cl'] = (len(azim_dfq) + len(elev_dfq)) / (2*len(rect_dfq))
 
-                            azim_bwd = kwargs.get("azim_bandwidth", 5)
-                            thH_kde = get_KDE(th_H.reshape(-1,1), azim_bwd)
-                            thH_x = np.linspace(0, 180, 500).reshape(-1,1)
-                            thH_dist = np.exp(thH_kde.score_samples(thH_x))
+                            azim_bwd  = kwargs.get("azim_bandwidth", 5)
+                            thH_kde   = get_KDE(azim_dfq.reshape(-1,1), azim_bwd)
+                            thH_space = np.linspace(0, 180, 500).reshape(-1,1)
+                            thH_dist  = np.exp(thH_kde.score_samples(thH_space))
                             thH_dist /= thH_dist.max()
-                            args = np.where(thH_dist > 0.5)[0]
+                            args      = np.where(thH_dist > 0.5)[0]
 
                             d_peaks[f]['thH'] = {
-                                'val':thH_x[np.argmax(thH_dist)],
-                                'range':(thH_x[args[0]], thH_x[args[-1]]),
-                                'n':len(th_H),
+                                'val':thH_space[np.argmax(thH_dist)],
+                                'range':(thH_space[args[0]], thH_space[args[-1]]),
+                                'n':len(azim_dfq),
                                 'kde':thH_kde
                             }
 
-                            elev_bwd = kwargs.get("elev_bandwidth", 5)
-                            thV_kde = get_KDE(th_V.reshape(-1,1), elev_bwd)
-                            thV_x = np.linspace(0, 90, 500).reshape(-1,1)
-                            thV_dist = np.exp(thV_kde.score_samples(thV_x))
+                            elev_bwd  = kwargs.get("elev_bandwidth", 5)
+                            thV_kde   = get_KDE(elev_dfq.reshape(-1,1), elev_bwd)
+                            thV_space = np.linspace(0, 90, 500).reshape(-1,1)
+                            thV_dist  = np.exp(thV_kde.score_samples(thV_space))
                             thV_dist /= thV_dist.max()
-                            args = np.where(thV_dist > 0.5)[0]
+                            args      = np.where(thV_dist > 0.5)[0]
 
                             # save elevation
                             d_peaks[f]['thV'] = {
-                                'val':thV_x[np.argmax(thV_dist)],
-                                'range':(thV_x[args[0]], thV_x[args[-1]]),
-                                'n':len(th_V),
+                                'val':thV_space[np.argmax(thV_dist)],
+                                'range':(thV_space[args[0]], thV_space[args[-1]]),
+                                'n':len(elev_dfq),
                                 'kde':thV_kde
                             }
 
@@ -236,7 +234,7 @@ class Peaks(object):
                     del d_peaks[f]
 
             # convert to dataframe
-            if to_dataframe:
+            if to_json:
                 index = list(d_peaks.keys())
                 data = {
                     'fq':[info['fq'][0] for _, info in d_peaks.items()],
@@ -293,22 +291,17 @@ class Peaks(object):
                         data['V_range'] = k_range
                         data['N_V'] = k_n
 
-                to_return.append(pd.DataFrame(data, index=index))
-
-            else:
-                to_return.append(d_peaks)
+                self.df_ = pd.DataFrame(data, index=index)
+                self.__to_json__(kwargs.get("fout", None))
         
-        else:
-            to_return.append(None)
+        to_return.append(d_peaks)
 
         return to_return
 
 
-    def write_json(self, df, fout=None):
-        assert isinstance(df, pd.DataFrame)
+    def __to_json__(self, fout):
 
         if not fout:
-
             if self.file_:
                 fout = '.'.join(os.path.basename(self.file_).split('.')[:-1])
             else:
@@ -320,38 +313,84 @@ class Peaks(object):
         if os.path.isfile(fout):
             os.remove(fout)
 
-        df.to_json(fout)
+        self.df_.to_json(fout)
 
 
-    def get_dpeaks(self, chan, fq_range):
+    def get(self, starttime=None, endtime=None, chan=None, return_stats=True):
+                
+        if isinstance(chan, str):
+            chan = [chan]
         
-        assert chan in self.chan
+        elif isinstance(chan, list):
+            true_chan = [ch for ch in chan if ch in self.chan]
+        
+        else:
+            chan = self.chan
+        
+        if not starttime:
+            starttime = self.starttime
+        else:
+            assert starttime >= self.starttime
+        
+        if not endtime:
+            endtime = self.endtime
+        else:
+            assert endtime <= self.endtime
+        
+        time = self.get_time(to_array=True)
 
         dout = {}
-        for t, tdict in self._dout[chan]["pks"].items():
-            if tdict['fq']:
-                dout[t] = {'fq':[], 'specgram':[], 'rect':[], 'azimuth':[], 'elevation':[]}
-                
-                for n, fq in enumerate(tdict['fq']):
-                    if fq_range[0] <= fq <= fq_range[1]:
-                        dout[t]['fq'].append(fq)
+        
+        for ch in chan:
+            p = self._dout[ch]["pks"]
+            t = list(p.keys())
+            t.sort()
+            tt = time[t]
+            tn = np.where((starttime <= tt)&(endtime >= tt))
+            t  = np.array(t)[tn]
+            pks = list(map(p.get, t))
+            
+            if len(pks) > 0:
+                pks_dict = {}
+                for attr in ("fq", "sxx", "rect", "azim", "elev"):
+                    pks_dict[attr] = [pk[attr] for pk in pks]
 
-                        sp = tdict['specgram'][n]
-                        dout[t]['specgram'].append(sp)
-
-                        rect = tdict['rect'][n]
-                        if rect:
-                            dout[t]['rect'].append(rect)
-                        
-                        tH = tdict['azimuth'][n]
-                        if tH:
-                            dout[t]['azimuth'].append(tH)
-                        
-                        tV = tdict['elevation'][n]
-                        if tV:
-                            dout[t]['elevation'].append(tV)
+                dout[ch] = {"time":tt[tn], "pks":pks_dict}
+        
+        # get stats
+        if dout and return_stats:
+            for ch in chan:
+                dout[ch]["stats"] = {}
+                for attr in ("fq", "sxx", "rect", "azim", "elev"):
+                    ts = np.array(list(chain(*dout[ch]["pks"][attr])))
+                    ts = ts[np.isfinite(ts)]
+                    ts_kde = scipy.stats.gaussian_kde(ts)
+                    dout[ch]["stats"][attr] = (ts.min(), ts.max(), ts_kde)
 
         return dout
+
+
+    def get_time(self, starttime=None, endtime=None, to_array=False):
+
+        if not starttime:
+            starttime = self.starttime
+        
+        if not endtime:
+            endtime = self.endtime
+        
+        start_diff = (starttime - self.starttime).total_seconds() # sp
+        n0 =  int(np.floor(start_diff/(self.delta*60)))
+    
+        end_diff = (endtime - self.starttime).total_seconds() # sp
+        nf =  int(np.ceil(end_diff/(self.delta*60))) + 1
+
+        ts = [starttime + dt.timedelta(minutes=float(self.delta/2)) + dt.timedelta(minutes=float(k*self.delta)) for k in range(n0,nf)]
+
+        if to_array:
+            ts = np.array(ts)
+
+        return ts
+
 
 
     # def get_fq_area(self, fq, fqtol=0.5):
@@ -371,7 +410,15 @@ class Peaks(object):
 
 
     @staticmethod
-    def plot(self, peaks_dict, n=None, fq_out=[], plot=True):
+    def load(pks_file):
+        with open(pks_file, 'rb') as handle:
+            pks = pickle.load(handle)
+
+        return Peaks(pks._dout, pks.ltefile_, pks.starttime, pks.endtime, pks.delta, pks.fq_band, pks.model_, pksfile=pks_file)
+
+
+    @staticmethod
+    def plot(peaks_dict, n=None, fq_out=[], plot=True):
 
         if n:
             assert n in list(peaks_dict.keys())
@@ -385,4 +432,13 @@ class Peaks(object):
             print("you should define 'n' or 'fq_out' to plot")
         
         return fig
+
+
+    def plot_tevo(self, starttime=None, endtime=None, chan=None, n=None, plot=True, **kwargs):
+
+        if not n:
+            pkt = self.get(starttime=starttime, endtime=endtime, chan=chan)
+            fig = plotPeakTimeEvo(pkt, plot=plot, **kwargs)
+
+            return fig
 

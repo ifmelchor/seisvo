@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
+import scipy
 import numpy as np
 import datetime as dt
+
+from matplotlib import cm
+from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolor
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+
 from seisvo.plotting import plot_gram, get_colors
 from seisvo.utils import get_time_format
 
@@ -557,8 +563,8 @@ def plotPeaksSpecPDF(peak_dict, fq, fq_th=None, plot=True, **kwargs):
     for _, info in peak_dict.items():
         ax.scatter(info['fq'], info['fq_prob']/norm, color='r', marker='o', ec='k')
         half_width = info['width']
-        y1_index = np.argmin(np.abs(peak.fq_space_-(info['fq']-half_width)))
-        y2_index = np.argmin(np.abs(peak.fq_space_-(info['fq']+half_width)))
+        y1_index = np.argmin(np.abs(fq[0]-(info['fq']-half_width)))
+        y2_index = np.argmin(np.abs(fq[0]-(info['fq']+half_width)))
         x_fill = fq[0][y1_index:y2_index].reshape(-1,)
         y_fill = fq[1][y1_index:y2_index]/norm
         ax.fill_between(x_fill, y_fill, color='k', alpha=0.1)
@@ -590,7 +596,7 @@ def plotPeaksPDF(nPeak, plot=True):
 
     PDFs = {}
     if nPeak['sp']:
-        sp_space = np.linspace(-170, -100, 1000).reshape(-1,1)
+        sp_space = np.linspace(nPeak['sp']['min'], nPeak['sp']['max'], 1000).reshape(-1,1)
         sp_pdf = np.exp(nPeak['sp']['kde'].score_samples(sp_space))
         PDFs['sp'] = (sp_space, sp_pdf)
 
@@ -627,32 +633,32 @@ def plotPeaksPDF(nPeak, plot=True):
         ax.plot(space, pdf, color='k')
 
         if att == 'rect':
-            rect_th = peak.peak_thresholds['rect_th']
-            ax.fill_between(space[space>rect_th], pdf[np.where(space>rect_th)[0]], alpha=0.1, color='k')
+            # rect_th = peak.peak_thresholds['rect_th']
+            # ax.fill_between(space[space>rect_th], pdf[np.where(space>rect_th)[0]], alpha=0.1, color='k')
             ax.set_xlim(0,1)
             ax.set_xlabel(r'R')
             ax.set_xticks([0, 0.5, 1])
-            ax.set_ylabel(r'$P(\mathcal{R}_%s$)' %n)
+            ax.set_ylabel(r'$P(\mathcal{R}$)')
             ax.set_title(r'$N_R$ = %s' % nPeak['rect']['n'])
         
         elif att == 'thH':
             ax.set_xlim(0,180)
             ax.set_xlabel(r'$\Theta_H$ [$\degree$]')
             ax.set_xticks([0, 90, 180])
-            ax.set_ylabel(r'$P(\mathcal{H}_%s$)' %n)
+            ax.set_ylabel(r'$P(\mathcal{H}$)')
             ax.set_title(r'$N_H$ = %s' % nPeak['thH']['n'])
 
         elif att == 'thV':
             ax.set_xlim(0,90)
-            ax.set_ylabel(r'$P(\mathcal{V}_%s$)' %n)
+            ax.set_ylabel(r'$P(\mathcal{V}$)')
             ax.set_xlabel(r'$\Theta_V$ [$\degree$]')
             ax.set_xticks([0, 45, 90])
             ax.set_title(r'$N_V$ = %s' % nPeak['thV']['n'])
         
         else:
-            ax.set_xlim(-170,-110)
+            ax.set_xlim(space[0],space[-1])
             ax.set_xlabel('PSD\n' +r'[dB//(m$^2$s$^{-2}$/Hz)]')
-            ax.set_ylabel(r'$P(\mathcal{S}_%s$)' %n)
+            ax.set_ylabel(r'$P(\mathcal{S}$)')
             ax.set_title(r'$N_S$ = %s' % nPeak['sp']['n'])
         
         ax.set_ylim(0,1.1)
@@ -673,134 +679,144 @@ def plotPeaksPDF(nPeak, plot=True):
     return fig
 
 
-class plotDPeakTEVO(object):
-    def __init__(self, lte, starttime, endtime, chan_list, attr_list, fq_range_dict, fig, **kwargs):
+def plotPeakTimeEvo(pkt, plot=True, **kwargs):
 
-        if not fig:
-            self.fig = plt.figure(figsize=kwargs.get('figsize', (8,9)))
-        else:
-            self.fig = fig
-        
-        self.lte = lte
-        self.attr_list = lte.is_attr(attr_list, only_vectors=True) # move to main call
-        self.top_attr = kwargs.get('top_scalar', 'energy')
-        self.top_chan = kwargs.get('top_scalar_chan', chan_list[0])
+    title = kwargs.get("title", None)
+    flow  = kwargs.get("flow", None)
+    fhigh = kwargs.get("fhigh", None)
+    
+    fig = plt.figure(figsize=(13,8))
+    gs = GridSpec(4, 3, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05, width_ratios=[1, 0.2, 0.02])
 
-        self.chan_list = chan_list
-        
-        self.fqs = fq_range_dict
-        
-        self.starttime = starttime
-        self.endtime = endtime
+    sxx_ax = fig.add_subplot(gs[0, 0])
+    sxx_pdf_ax = fig.add_subplot(gs[0, 1])
+    rec_ax = fig.add_subplot(gs[1, 0])
+    ret_pdf_ax = fig.add_subplot(gs[1, 1])
+    azi_ax = fig.add_subplot(gs[2, 0])
+    azi_pdf_ax = fig.add_subplot(gs[2, 1])
+    ele_ax = fig.add_subplot(gs[3, 0])
+    ele_pdf_ax = fig.add_subplot(gs[3, 1])
+    fq_cax = fig.add_subplot(gs[:, 2])
 
-        self.set_frame()
-        self.plot(**kwargs)
+    # sxx norm/cmap
+    fq_min = np.floor(np.min([pkt[ch]["stats"]["fq"][0] for ch in list(pkt.keys())]))
+    fq_max = np.ceil(np.max([pkt[ch]["stats"]["fq"][1] for ch in list(pkt.keys())]))
+    cmap = plt.get_cmap('Spectral_r')
+    norm = mcolor.Normalize(fq_min, fq_max)
 
-        if kwargs.get('title', None):
-            self.axes[0].set_title(kwargs.get('title'))
+    chan = list(pkt.keys())
 
-        self.fig.align_ylabels()
+    ttt = np.array([])
+    fqt = np.array([])
+    sxt = np.array([])
+    rct = np.array([])
+    azt = np.array([])
+    evt = np.array([])
+    
+    for ch in chan:
+        nbin = pkt[ch]["time"].shape[0]
+        for n in range(nbin):
+            fqn = pkt[ch]["pks"]["fq"][n]
+            sxn = pkt[ch]["pks"]["sxx"][n]
+            rcn = pkt[ch]["pks"]["rect"][n]
+            azn = pkt[ch]["pks"]["azim"][n]
+            evn = pkt[ch]["pks"]["elev"][n]
+
+            # filter in frequency
+            if flow and fhigh:
+                fql = np.where((fqn >= flow)&(fqn <= fhigh))
+            elif flow and not fhigh:
+                fql = np.where(fqn >= flow)
+            elif fhigh and not flow:
+                fql = np.where(fqn <= fhigh)
+            else:
+                fql = None
+
+            if fql:
+                fqn = fqn[fql]
+                sxn = sxn[fql]
+                rcn = rcn[fql]
+                azn = azn[fql]
+                evn = evn[fql]
 
 
-    def set_frame(self):
-        gridspec_dict = {
-            'left':0.1,
-            'right':0.95,
-            'height_ratios':[0.75]+[1]*len(self.attr_list),
-            'hspace':0.1,
-            'wspace':0.1
-            }
-        nrows = len(self.attr_list) + 1
-        self.axes = self.fig.subplots(nrows, 1, gridspec_kw=gridspec_dict)
-        self.axes[-1].set_xlabel('Time [hr]')
+            tnn = np.array([pkt[ch]["time"][n]]*len(fqn))
+            ttt = np.hstack((ttt,tnn))
+            fqt = np.hstack((fqt,fqn))
+            sxt = np.hstack((sxt,sxn))
+            rct = np.hstack((rct,rcn))
+            azt = np.hstack((azt,azn))
+            evt = np.hstack((evt,evn))
 
+    sxx_ax.scatter(ttt, sxt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+    rec_ax.scatter(ttt, rct, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+    azi_ax.scatter(ttt, azt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+    ele_ax.scatter(ttt, evt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+    
+    sxx_min = np.floor(np.min([pkt[ch]["stats"]["sxx"][0] for ch in list(pkt.keys())]))
+    sxx_max = np.ceil(np.max([pkt[ch]["stats"]["sxx"][1] for ch in list(pkt.keys())]))
+    sxx_ax.set_ylim(sxx_min, sxx_max)
+    sxx_ax.set_ylabel("Power [dB]")
+    rec_ax.set_ylim(-0.1, 1.1)
+    rec_ax.set_ylabel("Rect.")
+    azi_ax.set_ylim(-5, 185)
+    azi_ax.set_ylabel("Azimuth")
+    ele_ax.set_ylim(-2, 92)
+    ele_ax.set_ylabel("Elevation")
+    ele_ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
+    
+    # time norm
+    t_min = min([min(pkt[ch]["time"]) for ch in list(pkt.keys())])
+    t_max = max([max(pkt[ch]["time"]) for ch in list(pkt.keys())])
+    for ax in [sxx_ax, rec_ax, azi_ax, ele_ax]:
+        ax.set_xlim(t_min, t_max)
+        ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+        ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(4))
+        ax.grid(which="major", ls="--", alpha=0.3, color="k")
+        ax.grid(which="minor", ls=":", alpha=0.2, color="k")
+        if ax != ele_ax:
+            ax.xaxis.set_major_formatter(mtick.NullFormatter())
 
-    def plot(self, **kwargs):
+    # add colorbar
+    fq_im = cm.ScalarMappable(norm=norm, cmap=cmap)
+    fig.colorbar(fq_im, cax=fq_cax, orientation='vertical', label="Hz")
 
-        time, dout = self.lte.get(self.top_attr, chan=self.top_chan, starttime=self.starttime, endtime=self.endtime, **kwargs)
+    # compute probability
+    sxx_space = np.linspace(sxx_min, sxx_max, 500)
+    sxx_kde = scipy.stats.gaussian_kde(sxt)
+    sxx_pdf = sxx_kde(sxx_space)
+    sxx_pdf_ax.plot(sxx_pdf, sxx_space, color='k')
+    sxx_pdf_ax.set_ylim(sxx_min, sxx_max)
+    sxx_pdf_ax.set_title("PDF")
+    
+    ret_space = np.linspace(0, 1, 500)
+    ret_kde = scipy.stats.gaussian_kde(rct[np.isfinite(rct)])
+    ret_pdf = ret_kde(ret_space)
+    ret_pdf_ax.plot(ret_pdf, ret_space, color='k')
+    ret_pdf_ax.set_ylim(-0.1, 1.1)
+    
+    azi_space = np.linspace(0, 180, 500)
+    azi_kde = scipy.stats.gaussian_kde(azt[np.isfinite(azt)])
+    azi_pdf = azi_kde(azi_space)
+    azi_pdf_ax.plot(azi_pdf, azi_space, color='k')
+    azi_pdf_ax.set_ylim(-5, 185)
+    
+    ele_space = np.linspace(0, 90, 500)
+    ele_kde = scipy.stats.gaussian_kde(evt[np.isfinite(evt)])
+    ele_pdf = azi_kde(ele_space)
+    ele_pdf_ax.plot(ele_pdf, ele_space, color='k')
+    ele_pdf_ax.set_ylim(-2, 92)
 
-        if self.top_attr == 'energy':
-            scalar_data = 10*np.log10(dout[self.top_attr])
-        else:
-            scalar_data = dout[self.top_attr]
+    for ax in [sxx_pdf_ax,ret_pdf_ax, azi_pdf_ax,ele_pdf_ax]:
+        ax.xaxis.set_major_formatter(mtick.NullFormatter())
+        ax.yaxis.set_major_formatter(mtick.NullFormatter())
+        ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+        ax.grid(which="major", ls="--", alpha=0.3, color="k")
+        ax.grid(which="minor", ls=":", alpha=0.2, color="k")
 
-        self.axes[0].plot(time, scalar_data, color='k')
+    if plot:
+        plt.show()
+    
+    return fig
 
-        # define the limits
-        y_lim = kwargs.get('y_lim', None)
-        y_ticks = kwargs.get('y_ticks', None)
-        y_label = kwargs.get('y_label', True)
-
-        if y_label:
-            self.axes[0].set_ylabel(default_labels.get(self.top_attr, self.top_attr))
-        
-        if y_lim:
-            self.axes[0].set_ylim(y_lim)
-        else:
-            prc5 = np.percentile(scalar_data[np.isfinite(scalar_data)], 1)
-            prc95 = np.percentile(scalar_data[np.isfinite(scalar_data)], 99)
-            self.axes[0].set_ylim(prc5, prc95)
-        
-        if y_ticks:
-            self.axes[0].set_yticks(y_ticks)
-
-        self.axes[0].yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-        self.axes[0].xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-        
-        show_ylabel = True
-        # add legend
-        legend_ = {'h':[], 't':[]}
-        for chan in self.chan_list:
-                peak = self.lte.get_Peaks(chan, starttime=self.starttime, endtime=self.endtime, peak_thresholds=kwargs.get('peak_thresholds', {}))
-                
-                for fq, fq_dict in self.fqs.items():
-                    fq_range = [fq-fq_dict['width'], fq+fq_dict['width']]
-                    fq_peaksdict = peak.get_dominant_peaks(fq_range)
-                    fq_color = fq_dict.get('color', 'k')
-                    fq_marker = fq_dict.get('marker', 'o')
-                    fq_label = fq_dict.get('label', str(round(fq, 1)))
-
-                    for t, data_dict in fq_peaksdict.items():
-                        time_t = time[t]
-                
-                        for n, attr in enumerate(self.attr_list):
-                            data = data_dict[attr]
-                            ax = self.axes[n+1]
-
-                            if data:
-                                h = ax.scatter([time_t]*len(data), data, color=fq_color, ec='k', marker=fq_marker, alpha=0.5)
-
-                                if fq_label not in legend_['t']:
-                                    legend_['h'] += [h]
-                                    legend_['t'] += [fq_label]
-
-                            if show_ylabel:
-
-                                if y_label:
-                                    ax.set_ylabel(default_labels.get(attr, attr))
-
-                                if attr == 'azimuth':
-                                    ax.set_ylim(0, 180)
-                                    ax.invert_yaxis()
-                                    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-                                    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-                            
-                                if attr in ('degree', 'rect'):
-                                    ax.set_ylim(0, 1)
-                                    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-                                    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-                            
-                                if attr == 'elevation':
-                                    ax.set_ylim(0, 90)
-                                    ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-                                    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-                    
-                        show_ylabel = False
-
-        [ax.set_xlim(time[0], time[-1]) for ax in self.axes]
-        [ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2)) for ax in self.axes]
-        [ax.xaxis.set_major_formatter(mtick.NullFormatter()) for ax in self.axes[:-1]]
-        [ax.grid(which='both', axis='both', color='k', alpha=0.35, ls='--', zorder=1) for ax in self.axes]
-
-        self.fig.legend(legend_['h'], legend_['t'], title=r'$f$ [Hz]', ncol=1)
 
