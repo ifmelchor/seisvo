@@ -679,7 +679,7 @@ def plotPeaksPDF(nPeak, plot=True):
     return fig
 
 
-def plotDFreqTimeEvo(dfq, fhigh=None, flow=None, plot=True):
+def plotDFreqTimeEvo(dfq, fhigh=None, flow=None, plot=True, **kwargs):
 
     fig = plt.figure(figsize=(13,8))
     gs = GridSpec(4, 2, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05, width_ratios=[1, 0.02])
@@ -696,6 +696,7 @@ def plotDFreqTimeEvo(dfq, fhigh=None, flow=None, plot=True):
     if not flow:
         flow = np.floor(np.nanmin(dfq["fq"]))
 
+    sxx_ax.set_title(kwargs.get("title", None))
     cmap = plt.get_cmap('Spectral_r')
     norm = mcolor.Normalize(flow, fhigh)
 
@@ -722,8 +723,8 @@ def plotDFreqTimeEvo(dfq, fhigh=None, flow=None, plot=True):
     ele_ax.set_ylabel("Elevation")
 
     minor_locator = mdates.DayLocator(interval=1)
-    major_locator = mdates.DayLocator(interval=10)
-    major_formatt = mdates.DateFormatter('%d-%m')
+    major_locator = mdates.MonthLocator(interval=1)
+    major_formatt = mdates.DateFormatter('%d %b %y')
     for ax in [sxx_ax, rec_ax, azi_ax, ele_ax]:
         ax.set_xlim(dfq["starttime"], dfq["endtime"])
         ax.xaxis.set_minor_locator(minor_locator)

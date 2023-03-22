@@ -434,7 +434,7 @@ class Station(object):
                         n = sort.index(tr.stats.channel[-1]) 
                     else:
                         n = 0
-                    mat[n,nin:nfi] = tr.data[:]
+                    mat[n,nin:nfi] = tr.data[:-1]
             
                 return mat
             else:

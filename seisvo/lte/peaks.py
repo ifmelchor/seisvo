@@ -61,6 +61,82 @@ class Peaks(object):
         return txt_to_return
 
 
+    def get(self, starttime=None, endtime=None, chan=None, return_stats=True):
+                
+        if isinstance(chan, str):
+            chan = [chan]
+        
+        elif isinstance(chan, list):
+            true_chan = [ch for ch in chan if ch in self.chan]
+        
+        else:
+            chan = self.chan
+        
+        if not starttime:
+            starttime = self.starttime
+        else:
+            assert starttime >= self.starttime
+        
+        if not endtime:
+            endtime = self.endtime
+        else:
+            assert endtime <= self.endtime
+        
+        time = self.get_time(to_array=True)
+
+        dout = {}
+        
+        for ch in chan:
+            p = self._dout[ch]["pks"]
+            t = list(p.keys())
+            t.sort()
+            tt = time[t]
+            tn = np.where((starttime <= tt)&(endtime >= tt))
+            t  = np.array(t)[tn]
+            pks = list(map(p.get, t))
+            
+            if len(pks) > 0:
+                pks_dict = {}
+                for attr in ("fq", "sxx", "rect", "azim", "elev"):
+                    pks_dict[attr] = [pk[attr] for pk in pks]
+
+                dout[ch] = {"time":tt[tn], "pks":pks_dict}
+        
+        # get stats
+        if dout and return_stats:
+            for ch in chan:
+                dout[ch]["stats"] = {}
+                for attr in ("fq", "sxx", "rect", "azim", "elev"):
+                    ts = np.array(list(chain(*dout[ch]["pks"][attr])))
+                    ts = ts[np.isfinite(ts)]
+                    ts_kde = scipy.stats.gaussian_kde(ts)
+                    dout[ch]["stats"][attr] = (ts.min(), ts.max(), ts_kde)
+
+        return dout
+
+
+    def get_time(self, starttime=None, endtime=None, to_array=False):
+
+        if not starttime:
+            starttime = self.starttime
+        
+        if not endtime:
+            endtime = self.endtime
+        
+        start_diff = (starttime - self.starttime).total_seconds() # sp
+        n0 =  int(np.floor(start_diff/(self.delta*60)))
+    
+        end_diff = (endtime - self.starttime).total_seconds() # sp
+        nf =  int(np.ceil(end_diff/(self.delta*60))) + 1
+
+        ts = [starttime + dt.timedelta(minutes=float(self.delta/2)) + dt.timedelta(minutes=float(k*self.delta)) for k in range(n0,nf)]
+
+        if to_array:
+            ts = np.array(ts)
+
+        return ts
+
+
     def fit(self, starttime=None, endtime=None, chan=None, ns_min=100, threshold=0.0, peak_width='auto', to_json=True, dpks=None, **kwargs):
         """
         Computes the dominant peaks following Melchor et al. 2022 (https://doi.org/10.1016/j.jsames.2022.103961)
@@ -299,99 +375,6 @@ class Peaks(object):
         return to_return
 
 
-    def __to_json__(self, fout):
-
-        if not fout:
-            if self.file_:
-                fout = '.'.join(os.path.basename(self.file_).split('.')[:-1])
-            else:
-                fout = '.'.join(os.path.basename(self.ltefile_).split('.')[:-1])
-        
-        if fout.split('.')[-1] != "json":
-            fout += ".json"
-
-        if os.path.isfile(fout):
-            os.remove(fout)
-
-        self.df_.to_json(fout)
-
-
-    def get(self, starttime=None, endtime=None, chan=None, return_stats=True):
-                
-        if isinstance(chan, str):
-            chan = [chan]
-        
-        elif isinstance(chan, list):
-            true_chan = [ch for ch in chan if ch in self.chan]
-        
-        else:
-            chan = self.chan
-        
-        if not starttime:
-            starttime = self.starttime
-        else:
-            assert starttime >= self.starttime
-        
-        if not endtime:
-            endtime = self.endtime
-        else:
-            assert endtime <= self.endtime
-        
-        time = self.get_time(to_array=True)
-
-        dout = {}
-        
-        for ch in chan:
-            p = self._dout[ch]["pks"]
-            t = list(p.keys())
-            t.sort()
-            tt = time[t]
-            tn = np.where((starttime <= tt)&(endtime >= tt))
-            t  = np.array(t)[tn]
-            pks = list(map(p.get, t))
-            
-            if len(pks) > 0:
-                pks_dict = {}
-                for attr in ("fq", "sxx", "rect", "azim", "elev"):
-                    pks_dict[attr] = [pk[attr] for pk in pks]
-
-                dout[ch] = {"time":tt[tn], "pks":pks_dict}
-        
-        # get stats
-        if dout and return_stats:
-            for ch in chan:
-                dout[ch]["stats"] = {}
-                for attr in ("fq", "sxx", "rect", "azim", "elev"):
-                    ts = np.array(list(chain(*dout[ch]["pks"][attr])))
-                    ts = ts[np.isfinite(ts)]
-                    ts_kde = scipy.stats.gaussian_kde(ts)
-                    dout[ch]["stats"][attr] = (ts.min(), ts.max(), ts_kde)
-
-        return dout
-
-
-    def get_time(self, starttime=None, endtime=None, to_array=False):
-
-        if not starttime:
-            starttime = self.starttime
-        
-        if not endtime:
-            endtime = self.endtime
-        
-        start_diff = (starttime - self.starttime).total_seconds() # sp
-        n0 =  int(np.floor(start_diff/(self.delta*60)))
-    
-        end_diff = (endtime - self.starttime).total_seconds() # sp
-        nf =  int(np.ceil(end_diff/(self.delta*60))) + 1
-
-        ts = [starttime + dt.timedelta(minutes=float(self.delta/2)) + dt.timedelta(minutes=float(k*self.delta)) for k in range(n0,nf)]
-
-        if to_array:
-            ts = np.array(ts)
-
-        return ts
-
-
     def fit_interval(self, interval, starttime=None, endtime=None, chan=None, olap=0.0, **fitkwargs):
         
         if not starttime:
@@ -492,6 +475,23 @@ class Peaks(object):
         return dout
 
 
+    def __to_json__(self, fout):
+
+        if not fout:
+            if self.file_:
+                fout = '.'.join(os.path.basename(self.file_).split('.')[:-1])
+            else:
+                fout = '.'.join(os.path.basename(self.ltefile_).split('.')[:-1])
+        
+        if fout.split('.')[-1] != "json":
+            fout += ".json"
+
+        if os.path.isfile(fout):
+            os.remove(fout)
+
+        self.df_.to_json(fout)
+
+
     @staticmethod
     def load(pks_file):
         with open(pks_file, 'rb') as handle:
@@ -518,9 +518,41 @@ class Peaks(object):
 
 
     @staticmethod
-    def plot_dfq(dfq_dict, plot=True):
+    def plot_dfq(dfq_dict, times=(), plot=True, **kwargs):
         
-        fig = plotDFreqTimeEvo(dfq_dict, plot=plot)
+        if times:
+            dfq_start = min(dfq_dict["time"])
+            dfq_end   = max(dfq_dict["time"])
+
+            print(times[0], dfq_start)
+            assert times[0] >= dfq_start
+            assert times[1] <= dfq_end
+
+            a = np.array(dfq_dict["time"])
+            nw = np.where( (a>=times[0]) & (a<=times[1]))
+
+            dfq_mod = {
+                "starttime":times[0],
+                "endtime"  :times[1],
+                "time"     :a[nw],
+                "fq"       :dfq_dict["fq"][nw],
+                "sxx"      :dfq_dict["sxx"][nw],
+                "sxx_r1"   :dfq_dict["sxx_r1"][nw],
+                "sxx_r2"   :dfq_dict["sxx_r2"][nw],
+                "rect"     :dfq_dict["rect"][nw],
+                "rect_r1"  :dfq_dict["rect_r1"][nw],
+                "rect_r2"  :dfq_dict["rect_r2"][nw],
+                "azim"     :dfq_dict["azim"][nw],
+                "azim_r1"  :dfq_dict["azim_r1"][nw],
+                "azim_r2"  :dfq_dict["azim_r2"][nw],
+                "elev"     :dfq_dict["elev"][nw],
+                "elev_r1"  :dfq_dict["elev_r1"][nw],
+                "elev_r2"  :dfq_dict["elev_r2"][nw],
+            }
+
+            dfq_dict = dfq_mod
+
+        fig = plotDFreqTimeEvo(dfq_dict, plot=plot, **kwargs)
 
         return fig
 
