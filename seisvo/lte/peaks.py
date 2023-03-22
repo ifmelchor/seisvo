@@ -9,7 +9,7 @@ import pandas as pd
 import datetime as dt
 from itertools import chain
 from seisvo.signal.proba import get_KDE
-from .plotting import plotPeaksSpecPDF, plotPeaksPDF, plotPeakTimeEvo
+from .plotting import plotPeaksSpecPDF, plotPeaksPDF, plotPeakTimeEvo, plotDFreqTimeEvo
 
 
 class Peaks(object):
@@ -392,21 +392,104 @@ class Peaks(object):
         return ts
 
 
-
-    # def get_fq_area(self, fq, fqtol=0.5):
-    #     aW = np.zeros((self.lteout_.lte.stats.nro_time_bins,))
-    #     aL = np.zeros((self.lteout_.lte.stats.nro_time_bins,))
+    def fit_interval(self, interval, starttime=None, endtime=None, chan=None, olap=0.0, **fitkwargs):
         
-    #     for i in range(self.lteout_.lte.stats.nro_time_bins):
-    #         if i in self.dominant_peaks_:
-    #             d = self.dominant_peaks_[i]
-    #             for f, pd, r in zip(d['fq'], d['degree'], d['rect']):
-    #                 if (fq>f-fqtol) and (fq<f+fqtol):
-    #                     if pd and pd > self.peak_thresholds['degree_th']:
-    #                         aW[i] = 1
-    #                         if r and r > self.peak_thresholds['rect_th']:
-    #                             aL[i] = 1
-    #     return aW, aL
+        if not starttime:
+            starttime = self.starttime
+        else:
+            assert starttime >= self.starttime
+        
+        if not endtime:
+            endtime = self.endtime
+        else:
+            assert endtime <= self.endtime
+
+        assert 1 > olap >= 0
+
+        # kwargs
+        ns_min = fitkwargs.get("ns_min", 100)
+        threshold = fitkwargs.get("threshold", 0.)
+        peak_width = fitkwargs.get("peak_width", 'auto')
+
+        half = dt.timedelta(hours=interval/2)
+        delta = dt.timedelta(hours=interval)
+        overlap  = dt.timedelta(hours=interval*olap)
+
+        time = []
+        fq = np.array([])
+        sxx, sxx_r1, sxx_r2 = np.array([]), np.array([]), np.array([])
+        rect, rect_r1, rect_r2 = np.array([]), np.array([]), np.array([])
+        azim, azim_r1, azim_r2 = np.array([]), np.array([]), np.array([])
+        elev, elev_r1, elev_r2 = np.array([]), np.array([]), np.array([])
+
+        start = starttime
+        while start + delta <= endtime:
+            ans = self.fit(starttime=start, endtime=start+delta, chan=chan, ns_min=10, threshold=threshold, peak_width=peak_width, to_json=False)
+            if ans:
+                for _, cfq in ans[1].items():
+                    fq = np.hstack((fq, cfq["fq"]))
+                    time.append(start+half)
+
+                    sxx = np.hstack((sxx, cfq["sp"]["val"]))
+                    sxx_r1 = np.hstack((sxx_r1, np.abs(cfq["sp"]["range"][0]-cfq["sp"]["val"])))
+                    sxx_r2 = np.hstack((sxx_r2, np.abs(cfq["sp"]["range"][1]-cfq["sp"]["val"])))
+
+                    if cfq["rect"]:
+                        rect = np.hstack((rect, cfq["rect"]["val"]))
+                        rect_r1 = np.hstack((rect_r1, np.abs(cfq["rect"]["range"][0]-cfq["rect"]["val"])))
+                        rect_r2 = np.hstack((rect_r2, np.abs(cfq["rect"]["range"][1]-cfq["rect"]["val"])))
+                        
+                        if cfq["thH"]:
+                            azim = np.hstack((azim, cfq["thH"]["val"]))
+                            azim_r1 = np.hstack((azim_r1, np.abs(cfq["thH"]["range"][0]-cfq["thH"]["val"])))
+                            azim_r2 = np.hstack((azim_r2, np.abs(cfq["thH"]["range"][1]-cfq["thH"]["val"])))
+                        else:
+                            azim = np.hstack((azim, np.nan))
+                            azim_r1 = np.hstack((azim_r1, np.nan))
+                            azim_r2 = np.hstack((azim_r2, np.nan))
+
+                        if cfq["thV"]:
+                            elev = np.hstack((elev, cfq["thV"]["val"]))
+                            elev_r1 = np.hstack((elev_r1, np.abs(cfq["thV"]["range"][0]-cfq["thV"]["val"])))
+                            elev_r2 = np.hstack((elev_r2, np.abs(cfq["thV"]["range"][1]-cfq["thV"]["val"])))
+                        else:
+                            elev = np.hstack((elev, np.nan))
+                            elev_r1 = np.hstack((elev_r1, np.nan))
+                            elev_r2 = np.hstack((elev_r2, np.nan))
+
+                    else:
+                        rect = np.hstack((rect, np.nan))
+                        rect_r1 = np.hstack((rect_r1, np.nan))
+                        rect_r2 = np.hstack((rect_r2, np.nan))
+                        azim = np.hstack((azim, np.nan))
+                        azim_r1 = np.hstack((azim_r1, np.nan))
+                        azim_r2 = np.hstack((azim_r2, np.nan))
+                        elev = np.hstack((elev, np.nan))
+                        elev_r1 = np.hstack((elev_r1, np.nan))
+                        elev_r2 = np.hstack((elev_r2, np.nan))
+            
+            start += delta - overlap
+
+        dout = {
+            "starttime":starttime,
+            "endtime":endtime,
+            "time":time,
+            "fq":fq,
+            "sxx":sxx,
+            "sxx_r1":sxx_r1,
+            "sxx_r2":sxx_r2,
+            "rect":rect,
+            "rect_r1":rect_r1,
+            "rect_r2":rect_r2,
+            "azim":azim,
+            "azim_r1":azim_r1,
+            "azim_r2":azim_r2,
+            "elev":elev,
+            "elev_r1":elev_r1,
+            "elev_r2":elev_r2,
+        }
+
+        return dout
 
 
     @staticmethod
@@ -431,6 +514,14 @@ class Peaks(object):
             fig = None
             print("you should define 'n' or 'fq_out' to plot")
         
+        return fig
+
+
+    @staticmethod
+    def plot_dfq(dfq_dict, plot=True):
+        
+        fig = plotDFreqTimeEvo(dfq_dict, plot=plot)
+
         return fig
 
 

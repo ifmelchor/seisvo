@@ -679,6 +679,71 @@ def plotPeaksPDF(nPeak, plot=True):
     return fig
 
 
+def plotDFreqTimeEvo(dfq, fhigh=None, flow=None, plot=True):
+
+    fig = plt.figure(figsize=(13,8))
+    gs = GridSpec(4, 2, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05, width_ratios=[1, 0.02])
+
+    sxx_ax = fig.add_subplot(gs[0, 0])
+    rec_ax = fig.add_subplot(gs[1, 0])
+    azi_ax = fig.add_subplot(gs[2, 0])
+    ele_ax = fig.add_subplot(gs[3, 0])
+    fq_cax = fig.add_subplot(gs[:, 1])
+
+    if not fhigh:
+        fhigh = np.ceil(np.nanmax(dfq["fq"]))
+
+    if not flow:
+        flow = np.floor(np.nanmin(dfq["fq"]))
+
+    cmap = plt.get_cmap('Spectral_r')
+    norm = mcolor.Normalize(flow, fhigh)
+
+    sxx_ax.errorbar(dfq["time"], dfq["sxx"], yerr=np.vstack((dfq["sxx_r1"], dfq["sxx_r2"])), fmt="k.", capsize=5, zorder=1)
+    sxx_ax.scatter(dfq["time"], dfq["sxx"], c=dfq["fq"], ec="k", norm=norm, cmap=cmap, zorder=2)
+    sxx_min = np.floor(np.min(dfq["sxx"]-dfq["sxx_r1"]))
+    sxx_max = np.ceil(np.max(dfq["sxx"]+dfq["sxx_r2"]))
+    sxx_ax.set_ylim(sxx_min,sxx_max)
+    sxx_ax.set_ylabel("Power [dB]")
+
+    rec_ax.errorbar(dfq["time"], dfq["rect"], yerr=np.vstack((dfq["rect_r1"], dfq["rect_r2"])), fmt="k.", capsize=5, zorder=1)
+    rec_ax.scatter(dfq["time"], dfq["rect"], c=dfq["fq"], ec="k", norm=norm, cmap=cmap, zorder=2)
+    rec_ax.set_ylim(-0.1,1.1)
+    rec_ax.set_ylabel("Rect.")
+
+    azi_ax.errorbar(dfq["time"], dfq["azim"], yerr=np.vstack((dfq["azim_r1"], dfq["azim_r2"])), fmt="k.", capsize=5, zorder=1)
+    azi_ax.scatter(dfq["time"], dfq["azim"], c=dfq["fq"], ec="k", norm=norm, cmap=cmap, zorder=2)
+    azi_ax.set_ylim(-5,185)
+    azi_ax.set_ylabel("Azimuth")
+
+    ele_ax.errorbar(dfq["time"], dfq["elev"], yerr=np.vstack((dfq["elev_r1"], dfq["elev_r2"])), fmt="k.", capsize=5, zorder=1)
+    ele_ax.scatter(dfq["time"], dfq["elev"], c=dfq["fq"], ec="k", norm=norm, cmap=cmap, zorder=2)
+    ele_ax.set_ylim(-5,95)
+    ele_ax.set_ylabel("Elevation")
+
+    minor_locator = mdates.DayLocator(interval=1)
+    major_locator = mdates.DayLocator(interval=10)
+    major_formatt = mdates.DateFormatter('%d-%m')
+    for ax in [sxx_ax, rec_ax, azi_ax, ele_ax]:
+        ax.set_xlim(dfq["starttime"], dfq["endtime"])
+        ax.xaxis.set_minor_locator(minor_locator)
+        ax.xaxis.set_major_locator(major_locator)
+        ax.grid(which="major", ls="--", alpha=0.3, color="k")
+        ax.grid(which="minor", ls=":", alpha=0.2, color="k")
+        if ax != ele_ax:
+            ax.xaxis.set_major_formatter(mtick.NullFormatter())
+        else:
+            ax.xaxis.set_major_formatter(major_formatt)
+
+    fq_im = cm.ScalarMappable(norm=norm, cmap=cmap)
+    fig.colorbar(fq_im, cax=fq_cax, orientation='vertical', label="Hz")
+
+    if plot:
+        plt.show()
+    
+    return fig
+
+
 def plotPeakTimeEvo(pkt, plot=True, **kwargs):
 
     title = kwargs.get("title", None)
