@@ -90,7 +90,7 @@ class Peaks(object):
             p = self._dout[ch]["pks"]
             t = list(p.keys())
             t.sort()
-            tt = time[t]
+            tt = time[np.array(t)-1]
             tn = np.where((starttime <= tt)&(endtime >= tt))
             t  = np.array(t)[tn]
             pks = list(map(p.get, t))

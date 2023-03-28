@@ -575,7 +575,7 @@ class Station(object):
         ltebase["nro_intervals"] = int(ss.nro_intervals)
         ltebase["nro_time_bins"] = int(ss.int_nwin*ss.nro_intervals)
 
-        if isinstance(subwindow, int):
+        if subwindow > 0:
             # if subwindow, a moving average is applied
             lwin = int(subwindow*sample_rate)
             ltebase["lswin"] = lwin

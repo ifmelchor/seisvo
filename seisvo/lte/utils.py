@@ -75,8 +75,8 @@ class LTEProcSTA(object):
             # sta_run_func = jl._LegacyJulia__julia.eval("sta_run")
 
             # exec jl function
+            jlans = jl.sta_run(jldata, jlchan, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
             try:
-                jlans = jl.sta_run(jldata, jlchan, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
 
                 jlans = dict(jlans)
 

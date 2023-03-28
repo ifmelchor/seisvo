@@ -750,19 +750,36 @@ def plotPeakTimeEvo(pkt, plot=True, **kwargs):
     title = kwargs.get("title", None)
     flow  = kwargs.get("flow", None)
     fhigh = kwargs.get("fhigh", None)
+    t_min = kwargs.get("tmin", None)
+    t_max = kwargs.get("tmax", None)
+    ax_dict = kwargs.get("ax_dict", {})
+    date_format = kwargs.get("date_format", mdates.DateFormatter('%d %b\n%H:%M'))
     
-    fig = plt.figure(figsize=(13,8))
-    gs = GridSpec(4, 3, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05, width_ratios=[1, 0.2, 0.02])
-
-    sxx_ax = fig.add_subplot(gs[0, 0])
-    sxx_pdf_ax = fig.add_subplot(gs[0, 1])
-    rec_ax = fig.add_subplot(gs[1, 0])
-    ret_pdf_ax = fig.add_subplot(gs[1, 1])
-    azi_ax = fig.add_subplot(gs[2, 0])
-    azi_pdf_ax = fig.add_subplot(gs[2, 1])
-    ele_ax = fig.add_subplot(gs[3, 0])
-    ele_pdf_ax = fig.add_subplot(gs[3, 1])
-    fq_cax = fig.add_subplot(gs[:, 2])
+    if not ax_dict:
+        fig = plt.figure(figsize=(13,8))
+        gs = GridSpec(4, 3, figure=fig, hspace=0.1, left=0.08, right=0.92, wspace=0.05, top=0.95, bottom=0.05, width_ratios=[1, 0.2, 0.02])
+        sxx_ax = fig.add_subplot(gs[0, 0])
+        sxx_pdf_ax = fig.add_subplot(gs[0, 1])
+        rec_ax = fig.add_subplot(gs[1, 0])
+        ret_pdf_ax = fig.add_subplot(gs[1, 1])
+        azi_ax = fig.add_subplot(gs[2, 0])
+        azi_pdf_ax = fig.add_subplot(gs[2, 1])
+        ele_ax = fig.add_subplot(gs[3, 0])
+        ele_pdf_ax = fig.add_subplot(gs[3, 1])
+        fq_cax = fig.add_subplot(gs[:, 2])
+        ax_dict = {
+            "sxx":sxx_ax,
+            "sxx_pdf":sxx_pdf_ax,
+            "rec":rec_ax,
+            "rec_pdf":rec_pdf_ax,
+            "azi":azi_ax,
+            "azi_pdf":azi_pdf_ax,
+            "ele":ele_ax,
+            "ele_pdf":ele_pdf_ax,
+            "fq_cax":fq_cax
+        }
+    else:
+        plot = False
 
     # sxx norm/cmap
     fq_min = np.floor(np.min([pkt[ch]["stats"]["fq"][0] for ch in list(pkt.keys())]))
@@ -805,7 +822,6 @@ def plotPeakTimeEvo(pkt, plot=True, **kwargs):
                 azn = azn[fql]
                 evn = evn[fql]
 
-
             tnn = np.array([pkt[ch]["time"][n]]*len(fqn))
             ttt = np.hstack((ttt,tnn))
             fqt = np.hstack((fqt,fqn))
@@ -814,75 +830,105 @@ def plotPeakTimeEvo(pkt, plot=True, **kwargs):
             azt = np.hstack((azt,azn))
             evt = np.hstack((evt,evn))
 
-    sxx_ax.scatter(ttt, sxt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
-    rec_ax.scatter(ttt, rct, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
-    azi_ax.scatter(ttt, azt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
-    ele_ax.scatter(ttt, evt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+    ax_list = []
     
-    sxx_min = np.floor(np.min([pkt[ch]["stats"]["sxx"][0] for ch in list(pkt.keys())]))
-    sxx_max = np.ceil(np.max([pkt[ch]["stats"]["sxx"][1] for ch in list(pkt.keys())]))
-    sxx_ax.set_ylim(sxx_min, sxx_max)
-    sxx_ax.set_ylabel("Power [dB]")
-    rec_ax.set_ylim(-0.1, 1.1)
-    rec_ax.set_ylabel("Rect.")
-    azi_ax.set_ylim(-5, 185)
-    azi_ax.set_ylabel("Azimuth")
-    ele_ax.set_ylim(-2, 92)
-    ele_ax.set_ylabel("Elevation")
-    ele_ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
+    if ax_dict["sxx"]:
+        ax_dict["sxx"].scatter(ttt, sxt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+        sxx_min = np.floor(np.min([pkt[ch]["stats"]["sxx"][0] for ch in list(pkt.keys())]))
+        sxx_max = np.ceil(np.max([pkt[ch]["stats"]["sxx"][1] for ch in list(pkt.keys())]))
+        ax_dict["sxx"].set_ylim(sxx_min, sxx_max)
+        ax_dict["sxx"].set_ylabel("Power [dB]")
+        ax_list.append(ax_dict["sxx"])
+    
+    if ax_dict["rec"]:
+        ax_dict["rec"].scatter(ttt, rct, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+        ax_dict["rec"].set_ylim(-0.1, 1.1)
+        ax_dict["rec"].set_ylabel("Rect.")
+        ax_list.append(ax_dict["rec"])
+    
+    if ax_dict["azi"]:
+        ax_dict["azi"].scatter(ttt, azt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+        ax_dict["azi"].set_ylim(-5, 185)
+        ax_dict["azi"].set_ylabel("Azimuth")
+        ax_list.append(ax_dict["azi"])
+    
+    if ax_dict["ele"]:
+        ax_dict["ele"].scatter(ttt, evt, c=fqt, ec="k", alpha=0.5, norm=norm, cmap=cmap)
+        ax_dict["ele"].set_ylim(-2, 92)
+        ax_dict["ele"].set_ylabel("Elevation")
+        ax_list.append(ax_dict["ele"])
+
+    ax_list[-1].xaxis.set_major_formatter(date_format)
     
     # time norm
-    t_min = min([min(pkt[ch]["time"]) for ch in list(pkt.keys())])
-    t_max = max([max(pkt[ch]["time"]) for ch in list(pkt.keys())])
-    for ax in [sxx_ax, rec_ax, azi_ax, ele_ax]:
+    if not t_min:
+        t_min = min([min(pkt[ch]["time"]) for ch in list(pkt.keys())])
+    
+    if not t_max:
+        t_max = max([max(pkt[ch]["time"]) for ch in list(pkt.keys())])
+    
+    for ax in ax_list:
         ax.set_xlim(t_min, t_max)
         ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
         ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(4))
         ax.grid(which="major", ls="--", alpha=0.3, color="k")
         ax.grid(which="minor", ls=":", alpha=0.2, color="k")
-        if ax != ele_ax:
+        if ax != ax_list[-1]:
             ax.xaxis.set_major_formatter(mtick.NullFormatter())
 
     # add colorbar
-    fq_im = cm.ScalarMappable(norm=norm, cmap=cmap)
-    fig.colorbar(fq_im, cax=fq_cax, orientation='vertical', label="Hz")
+    if ax_dict["fq_cax"]:
+        fq_im = cm.ScalarMappable(norm=norm, cmap=cmap)
+        plt.colorbar(fq_im, cax=ax_dict["fq_cax"], orientation='vertical', label="Hz")
 
     # compute probability
-    sxx_space = np.linspace(sxx_min, sxx_max, 500)
-    sxx_kde = scipy.stats.gaussian_kde(sxt)
-    sxx_pdf = sxx_kde(sxx_space)
-    sxx_pdf_ax.plot(sxx_pdf, sxx_space, color='k')
-    sxx_pdf_ax.set_ylim(sxx_min, sxx_max)
-    sxx_pdf_ax.set_title("PDF")
+    ax_pdf_list = []
+    if ax_dict["sxx_pdf"]:
+        sxx_space = np.linspace(sxx_min, sxx_max, 500)
+        sxx_kde = scipy.stats.gaussian_kde(sxt)
+        sxx_pdf = sxx_kde(sxx_space)
+        ax_dict["sxx_pdf"].plot(sxx_pdf, sxx_space, color='k')
+        ax_dict["sxx_pdf"].set_ylim(sxx_min, sxx_max)
+        ax_pdf_list.append(ax_dict["sxx_pdf"])
+        # sxx_pdf_ax.set_title("PDF")
     
-    ret_space = np.linspace(0, 1, 500)
-    ret_kde = scipy.stats.gaussian_kde(rct[np.isfinite(rct)])
-    ret_pdf = ret_kde(ret_space)
-    ret_pdf_ax.plot(ret_pdf, ret_space, color='k')
-    ret_pdf_ax.set_ylim(-0.1, 1.1)
+    if ax_dict["rec_pdf"]:
+        ret_space = np.linspace(0, 1, 500)
+        ret_kde = scipy.stats.gaussian_kde(rct[np.isfinite(rct)])
+        ret_pdf = ret_kde(ret_space)
+        ax_dict["rec_pdf"].plot(ret_pdf, ret_space, color='k')
+        ax_dict["rec_pdf"].set_ylim(-0.1, 1.1)
+        ax_pdf_list.append(ax_dict["rec_pdf"])
     
-    azi_space = np.linspace(0, 180, 500)
-    azi_kde = scipy.stats.gaussian_kde(azt[np.isfinite(azt)])
-    azi_pdf = azi_kde(azi_space)
-    azi_pdf_ax.plot(azi_pdf, azi_space, color='k')
-    azi_pdf_ax.set_ylim(-5, 185)
+    if ax_dict["azi_pdf"]:
+        azi_space = np.linspace(0, 180, 500)
+        azi_kde = scipy.stats.gaussian_kde(azt[np.isfinite(azt)])
+        azi_pdf = azi_kde(azi_space)
+        ax_dict["azi_pdf"].plot(azi_pdf, azi_space, color='k')
+        ax_dict["azi_pdf"].set_ylim(-5, 185)
+        ax_pdf_list.append(ax_dict["azi_pdf"])
     
-    ele_space = np.linspace(0, 90, 500)
-    ele_kde = scipy.stats.gaussian_kde(evt[np.isfinite(evt)])
-    ele_pdf = azi_kde(ele_space)
-    ele_pdf_ax.plot(ele_pdf, ele_space, color='k')
-    ele_pdf_ax.set_ylim(-2, 92)
+    if ax_dict["ele_pdf"]:
+        ele_space = np.linspace(0, 90, 500)
+        ele_kde = scipy.stats.gaussian_kde(evt[np.isfinite(evt)])
+        ele_pdf = ele_kde(ele_space)
+        ax_dict["ele_pdf"].plot(ele_pdf, ele_space, color='k')
+        ax_dict["ele_pdf"].set_ylim(-2, 92)
+        ax_pdf_list.append(ax_dict["ele_pdf"])
 
-    for ax in [sxx_pdf_ax,ret_pdf_ax, azi_pdf_ax,ele_pdf_ax]:
+    for ax in ax_pdf_list:
         ax.xaxis.set_major_formatter(mtick.NullFormatter())
         ax.yaxis.set_major_formatter(mtick.NullFormatter())
         ax.yaxis.set_minor_locator(mtick.AutoMinorLocator(2))
         ax.grid(which="major", ls="--", alpha=0.3, color="k")
         ax.grid(which="minor", ls=":", alpha=0.2, color="k")
 
-    if plot:
-        plt.show()
+    if not ax_dict:
+        if plot:
+            plt.show()
+        return fig
     
-    return fig
+    else:
+        return None
 
 
