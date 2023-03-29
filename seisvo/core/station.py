@@ -331,8 +331,8 @@ class Station(object):
         verbose = kwargs.get('verbose', False)
 
         assert starttime < endtime, "starttime is greater than endtime"
-        assert starttime > self.starttime, "starttime not valid. No data available"
-        assert endtime < self.endtime, "endtime not valid. No data available"
+        assert starttime >= self.starttime, "starttime not valid. No data available"
+        assert endtime <= self.endtime, "endtime not valid. No data available"
 
         # most of MSEED files do not start in 00:00:00 and (finish in 23:59:59), 
         # this is why we need to define time delta to overcome this lack.
@@ -465,8 +465,8 @@ class Station(object):
         """
 
         assert starttime < endtime
-        assert starttime > self.starttime
-        assert endtime < self.endtime
+        assert starttime >= self.starttime
+        assert endtime <= self.endtime
         assert window >= 0
 
         sample_rate = int(kwargs.get('sample_rate', self.stats.sampling_rate))
