@@ -525,8 +525,8 @@ class Station(object):
         """
 
         assert starttime < endtime
-        assert starttime > self.starttime
-        assert endtime < self.endtime
+        assert starttime >= self.starttime
+        assert endtime <= self.endtime
         assert window/60 < interval
 
         # load parameters
