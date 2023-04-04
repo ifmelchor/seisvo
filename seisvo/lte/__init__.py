@@ -11,102 +11,98 @@ from .peaks import Peaks
 
 
 SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'perm_entr', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
-
 VECTOR_PARAMS = ['specgram', 'degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
 
 
-class LTE(object):
+class _LTE(object):
     def __init__(self, lte_file):
-        if not os.path.isfile(lte_file):
-            return ValueError(' lte_file do not found')
-        
         self.file_ = lte_file
-        self.__set_type__()  # define the type of the LTE file: station or network
-        self.__set_stats__() # define self.stats
-        self.__set_attrs__() # set attributes
-    
+        self.__set_type__()
+
 
     def __set_type__(self):
         with h5py.File(self.file_, "r") as f:
             hdr = f['header']
-            self.type = hdr.attrs["type"]
-        
-
-    def __set_stats__(self):
-        with h5py.File(self.file_, "r") as f:
-            hdr = f['header']
-
-            if self.type == "station":
-                dstats = dict(
-                    id              = hdr.attrs['id'],
-                    channel         = list(hdr.attrs['channel']),
-                    starttime       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
-                    endtime         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
-                    sample_rate     = int(hdr.attrs['sample_rate']),
-                    nro_time_bins   = int(hdr.attrs['nro_time_bins']),
-                    last_time_bin   = int(hdr.attrs['last_time_bin']),
-                    fq_band         = [float(fq) for fq in hdr.attrs['fq_band']],
-                    nro_freq_bins   = int(hdr.attrs['nro_freq_bins']),
-                    window          = hdr.attrs['window'],
-                    subwindow       = hdr.attrs['subwindow'],
-                    subwindow_olap  = hdr.attrs['subwindow_olap'],
-                    rm_sens         = bool(hdr.attrs['rm_sens']),
-                    polar           = bool(hdr.attrs['polar']),
-                    opt_params      = bool(hdr.attrs['opt_params']),
-                    opt_th          = float(hdr.attrs['opt_th']),
-                    opt_twin        = float(hdr.attrs['opt_twin']),
-                    PE_tau          = int(hdr.attrs["PE_tau"]),
-                    PE_order        = int(hdr.attrs["PE_order"]),
-                    time_bandwidth  = float(hdr.attrs['time_bandwidth']),
-                    pad             = float(hdr.attrs['pad']),
-                )
-            
-            if self.type == "network":
-                dstats = dict(
-                    id              = hdr.attrs['id'],
-                    stations        = list(hdr.attrs['stations']),
-                    starttime       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
-                    endtime         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
-                    sample_rate     = int(hdr.attrs['sample_rate']),
-                    nro_time_bins   = int(hdr.attrs['nro_time_bins']),
-                    last_time_bin   = int(hdr.attrs['last_time_bin']),
-                    fq_band         = [float(fq) for fq in hdr.attrs['fq_band']],
-                    nro_freq_bins   = int(hdr.attrs['nro_freq_bins']),
-                    window          = hdr.attrs['window'],
-                    window_olap     = hdr.attrs['window_olap'],
-                    subwindow       = hdr.attrs['subwindow'],
-                    subwindow_olap  = hdr.attrs['subwindow_olap'],
-                    rm_sens         = bool(hdr.attrs['rm_sens']),
-                    time_bandwidth  = float(hdr.attrs['time_bandwidth']),
-                    pad             = float(hdr.attrs['pad']),
-                )
-
-            else:
-                dstats = dict()
-                # not implemented yet
-
-        self.stats = LTEstats(dstats)
-        
-
-    def __set_attrs__(self):
-        # by default
-        if self.type == "station":
-            attrs = ['specgram', 'fq_dominant', 'fq_centroid', 'energy', 'perm_entr']
-
-            if self.stats.opt_params:
-                attrs += ['rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
-            
-            if self.stats.polar:
-                attrs += ['degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
-
-        else: # network
-            attrs = ["specgram", "csw", "vt"]
-
-        self.stats.add_attr(attrs)
+            self.type == hdr.attrs["type"]
 
 
     def __str__(self):
         return self.stats.__str__()
+
+
+    def get_time(self, starttime=None, endtime=None, olap=0):
+
+        if not starttime:
+            starttime = self.stats.starttime
+        
+        if not endtime:
+            endtime = self.stats.endtime
+        
+        assert endtime > starttime
+        assert starttime >= self.stats.starttime
+        assert endtime <= self.stats.endtime
+
+        start_diff = (starttime - self.stats.starttime).total_seconds()*self.stats.sample_rate # sp
+        n0 =  int(np.floor(start_diff/(self.stats.window*60*self.stats.sample_rate)))
+    
+        end_diff = (endtime - self.stats.starttime).total_seconds()*self.stats.sample_rate # sp
+        nf =  int(np.ceil(end_diff/(self.stats.window*60*self.stats.sample_rate)))
+
+        datetime_list = [starttime + dt.timedelta(minutes=int(k*self.stats.window)) for k in range(n0,nf)]
+        duration  = (endtime-starttime).total_seconds()/60
+        time_list = np.linspace(0, duration, nf-n0)
+        
+        return time_list, datetime_list, (n0,nf)
+
+
+class staLTE(_LTE):
+    def __init__(self, lte_file):
+        super.__init__(lte_file)
+        self.__set_stats__()
+        self.__set_attrs__()
+
+
+    def __set_stats__(self):
+        with h5py.File(self.file_, "r") as f:
+            hdr = f['header']
+            dstats = dict(
+                id              = hdr.attrs['id'],
+                channel         = list(hdr.attrs['channel']),
+                starttime       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
+                endtime         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
+                sample_rate     = int(hdr.attrs['sample_rate']),
+                nro_time_bins   = int(hdr.attrs['nro_time_bins']),
+                last_time_bin   = int(hdr.attrs['last_time_bin']),
+                fq_band         = [float(fq) for fq in hdr.attrs['fq_band']],
+                nro_freq_bins   = int(hdr.attrs['nro_freq_bins']),
+                window          = hdr.attrs['window'],
+                subwindow       = hdr.attrs['subwindow'],
+                subwindow_olap  = hdr.attrs['subwindow_olap'],
+                rm_sens         = bool(hdr.attrs['rm_sens']),
+                polar           = bool(hdr.attrs['polar']),
+                opt_params      = bool(hdr.attrs['opt_params']),
+                opt_th          = float(hdr.attrs['opt_th']),
+                opt_twin        = float(hdr.attrs['opt_twin']),
+                PE_tau          = int(hdr.attrs["PE_tau"]),
+                PE_order        = int(hdr.attrs["PE_order"]),
+                time_bandwidth  = float(hdr.attrs['time_bandwidth']),
+                pad             = float(hdr.attrs['pad']),
+            )
+
+        self.stats = LTEstats(dstats)
+
+
+    def __set_attrs__(self):
+        # by default
+        attrs = ['specgram', 'fq_dominant', 'fq_centroid', 'energy', 'perm_entr']
+
+        if self.stats.opt_params:
+            attrs += ['rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
+            
+        if self.stats.polar:
+            attrs += ['degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
+
+        self.stats.add_attr(attrs)
 
 
     def check_attr(self, attr, only_scalars=False, only_vectors=False):
@@ -141,7 +137,7 @@ class LTE(object):
             return_list = [attr for attr in return_list if attr in VECTOR_PARAMS]
             
         return return_list
-
+    
 
     def check_chan(self, chan):
         """
@@ -165,31 +161,6 @@ class LTE(object):
                         chan_list = []
             
             return chan_list
-
-
-    def get_time(self, starttime=None, endtime=None):
-
-        if not starttime:
-            starttime = self.stats.starttime
-        
-        if not endtime:
-            endtime = self.stats.endtime
-        
-        assert endtime > starttime
-        assert starttime >= self.stats.starttime
-        assert endtime <= self.stats.endtime
-
-        start_diff = (starttime - self.stats.starttime).total_seconds()*self.stats.sample_rate # sp
-        n0 =  int(np.floor(start_diff/(self.stats.window*60*self.stats.sample_rate)))
-    
-        end_diff = (endtime - self.stats.starttime).total_seconds()*self.stats.sample_rate # sp
-        nf =  int(np.ceil(end_diff/(self.stats.window*60*self.stats.sample_rate)))
-
-        datetime_list = [starttime + dt.timedelta(minutes=int(k*self.stats.window)) for k in range(n0,nf)]
-        duration  = (endtime-starttime).total_seconds()/60
-        time_list = np.linspace(0, duration, nf-n0)
-        
-        return time_list, datetime_list, (n0,nf)
 
 
     def get(self, attr=None, chan=None, starttime=None, endtime=None, db_scale=True, azimuth_ambiguity=True):
@@ -341,7 +312,7 @@ class LTE(object):
         return Peaks(pyout, self.file_, gout.starttime_, gout.endtime_, self.stats.window, fq_range, peak_thresholds)
 
 
-    def __sta_compute__(self, base, headers, njobs):
+    def __compute__(self, base, headers, njobs):
         """
         Process LTE file for station
         """
@@ -378,97 +349,60 @@ class LTE(object):
             ltep.wait(f"{nint}/{nro_ints}")
 
 
-    def __net_compute__(self, base, headers, njobs):
-        """
-        Process LTE file for network
-        """
-
-        # init process and starttime
-        ltep = LTEProcNET(self, headers["nswin"], headers["lswin"], eaderhs["nadv"])
-
-        start = self.stats.starttime
-        step  = dt.timedelta(hours=headers["window"])
-        olap  = dt.timedelta(hours=headers["window"]*headers["window_olap"])
-        
-        nro_ints = headers['nwin']
-        nint = 1
-
-        while start + interval <= self.stats.endtime:
-            end = start + interval
-
-            # compute
-            mdata = base.get_mdata()
-
-            ltep.run(mdata, start, end)
-
-            # stack jobs until njobs
-            if len(ltep.processes) == njobs:
-                ltep.wait(f"{nint}/{nro_ints}")
-
-            start += interval - olap
-            nint += 1
-        
-        # check if there are any process running
-        if len(ltep.processes) > 0:
-            ltep.wait(f"{nint}/{nro_ints}")
-
-
     def __write__(self, ltedict, nwin):
-        if self.type == "station":
-            with h5py.File(self.file_, "r+") as h5f:
-                nbin = h5f['header'].attrs["last_time_bin"]
+        with h5py.File(self.file_, "r+") as h5f:
+            nbin = h5f['header'].attrs["last_time_bin"]
 
-                # base params
-                for chan in self.stats.channel:
-                    h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = ltedict[chan]["perm_entr"]
-                    for attr in ("energy", "fq_dominant", "fq_centroid", "specgram"):
-                        if attr == "specgram":
-                            h5f[chan][attr][nbin+1:nbin+1+nwin,:] = ltedict[chan][attr]
-                        else:
-                            h5f[chan][attr][nbin+1:nbin+1+nwin] = ltedict[chan][attr]
+            # base params
+            for chan in self.stats.channel:
+                h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = ltedict[chan]["perm_entr"]
+                for attr in ("energy", "fq_dominant", "fq_centroid", "specgram"):
+                    if attr == "specgram":
+                        h5f[chan][attr][nbin+1:nbin+1+nwin,:] = ltedict[chan][attr]
+                    else:
+                        h5f[chan][attr][nbin+1:nbin+1+nwin] = ltedict[chan][attr]
 
-                # opt params
-                if self.stats.opt_params:
-                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
-                        h5f["opt"][attr][nbin+1:nbin+1+nwin] = ltedict["opt"][attr]
-                    h5f["opt"]["dsar"][nbin+1:nbin+1+nwin] = ltedict["opt"]["dsar"]
+            # opt params
+            if self.stats.opt_params:
+                for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                    h5f["opt"][attr][nbin+1:nbin+1+nwin] = ltedict["opt"][attr]
+                h5f["opt"]["dsar"][nbin+1:nbin+1+nwin] = ltedict["opt"]["dsar"]
 
-                # polar params
-                if self.stats.polar:
-                    for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
-                        h5f["polar"][attr][nbin+1:nbin+1+nwin,:] = ltedict["polar"][attr]
+            # polar params
+            if self.stats.polar:
+                for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
+                    h5f["polar"][attr][nbin+1:nbin+1+nwin,:] = ltedict["polar"][attr]
 
-                h5f['header'].attrs.modify('last_time_bin', nbin+nwin)
-                h5f.flush()
+            h5f['header'].attrs.modify('last_time_bin', nbin+nwin)
+            h5f.flush()
 
 
     def __read__(self, attr, n0, nf, chan, db_scale, azimuth_ambiguity):
-        if self.type == "station":
-            ts = None
+        ts = None
 
-            with h5py.File(self.file_, "r") as f:
-                if attr == 'specgram':
-                    ts = f.get(chan)[attr][n0:nf,:]
+        with h5py.File(self.file_, "r") as f:
+            if attr == 'specgram':
+                ts = f.get(chan)[attr][n0:nf,:]
 
-                    if db_scale:
-                        ts = 10*np.log10(ts)
-                
-                if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr'):
-                    ts = f.get(chan)[attr][n0:nf]
-
-                    if attr == "energy" and db_scale:
-                        ts = 10*np.log10(ts)
+                if db_scale:
+                    ts = 10*np.log10(ts)
             
-                if attr in ('degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh'):
-                    ts = f.get("polar")[attr][n0:nf,:]
+            if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr'):
+                ts = f.get(chan)[attr][n0:nf]
 
-                    if attr == "azimuth" and azimuth_ambiguity:
-                        ts = np.where(ts>180, ts-180, ts)
-                
-                if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
-                    ts = f.get("opt")[attr][n0:nf]
+                if attr == "energy" and db_scale:
+                    ts = 10*np.log10(ts)
         
-            return ts
+            if attr in ('degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh'):
+                ts = f.get("polar")[attr][n0:nf,:]
+
+                if attr == "azimuth" and azimuth_ambiguity:
+                    ts = np.where(ts>180, ts-180, ts)
+            
+            if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
+                ts = f.get("opt")[attr][n0:nf]
+    
+        return ts
 
 
     def plot(self, attr, chan, day_interval, starttime=None, lde=None):
@@ -481,7 +415,7 @@ class LTE(object):
 
 
     @staticmethod
-    def sta_new(station, lte_file, headers, njobs):
+    def new(station, lte_file, headers, njobs):
         """
         Create new LTE (hdf5) file
         """
@@ -573,9 +507,113 @@ class LTE(object):
 
         return lte
 
-    
+
     @staticmethod
-    def net_new(station_list, lte_file, headers, njobs):
+    def any_vector(attr_list):
+        """
+        Check if any attribute of attr_list is a VECTOR_PARAM
+        """
+
+        check_list = [attr in VECTOR_PARAMS for attr in attr_list]
+        return any(check_list)
+    
+
+    @staticmethod
+    def attr_filt(attr_list, which):
+        """
+        Filter a list of attributes to only vector or scalar.
+        which must be a string of "scalar" or "vector"
+        """
+
+        assert which in ("scalar", "vector")
+        assert isinstance(attr_list, list)
+
+        filter_list = []
+
+        for attr in attr_list:
+            if which == "scalar" and attr in SCALAR_PARAMS:
+                filter_list.append(attr)
+            
+            if which == "vector" and attr in VECTOR_PARAMS:
+                filter_list.append(attr)
+                
+        return filter_list
+
+
+class netLTE(_LTE):
+    def __init__(self, lte_file):
+        super.__init__(lte_file)
+        self.__set_stats__()
+        self.__set_attrs__()
+
+
+    def __set_stats__(self):
+        with h5py.File(self.file_, "r") as f:
+            hdr = f['header']
+            dstats = dict(
+                id              = hdr.attrs['id'],
+                stations        = list(hdr.attrs['stations']),
+                starttime       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
+                endtime         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
+                sample_rate     = int(hdr.attrs['sample_rate']),
+                nro_time_bins   = int(hdr.attrs['nro_time_bins']),
+                last_time_bin   = int(hdr.attrs['last_time_bin']),
+                fq_band         = [float(fq) for fq in hdr.attrs['fq_band']],
+                nro_freq_bins   = int(hdr.attrs['nro_freq_bins']),
+                window          = hdr.attrs['window'],
+                window_olap     = hdr.attrs['window_olap'],
+                subwindow       = hdr.attrs['subwindow'],
+                subwindow_olap  = hdr.attrs['subwindow_olap'],
+                rm_sens         = bool(hdr.attrs['rm_sens']),
+                time_bandwidth  = float(hdr.attrs['time_bandwidth']),
+                pad             = float(hdr.attrs['pad']),
+            )
+
+        self.stats = LTEstats(dstats)
+        
+
+    def __set_attrs__(self):
+        attrs = ["specgram", "csw", "vt"]
+        self.stats.add_attr(attrs)
+
+
+    def __compute__(self, base, headers, njobs):
+        """
+        Process LTE file for network
+        """
+
+        # init process and starttime
+        ltep = LTEProcNET(self, headers["nswin"], headers["lswin"], eaderhs["nadv"])
+
+        start = self.stats.starttime
+        step  = dt.timedelta(hours=headers["window"])
+        olap  = dt.timedelta(hours=headers["window"]*headers["window_olap"])
+        
+        nro_ints = headers['nwin']
+        nint = 1
+
+        while start + interval <= self.stats.endtime:
+            end = start + interval
+
+            # compute
+            mdata = base.get_mdata()
+
+            ltep.run(mdata, start, end)
+
+            # stack jobs until njobs
+            if len(ltep.processes) == njobs:
+                ltep.wait(f"{nint}/{nro_ints}")
+
+            start += interval - olap
+            nint += 1
+        
+        # check if there are any process running
+        if len(ltep.processes) > 0:
+            ltep.wait(f"{nint}/{nro_ints}")
+
+
+    @staticmethod
+    def new(station_list, lte_file, headers, njobs):
         """
         Create new LTE (hdf5) file
         """
@@ -640,33 +678,26 @@ class LTE(object):
         return lte
 
 
-    @staticmethod
-    def any_vector(attr_list):
-        """
-        Check if any attribute of attr_list is a VECTOR_PARAM
-        """
+def LTE(lte_file):
+    if not os.path.isfile(lte_file):
+        return ValueError(' lte_file do not found')
 
-        check_list = [attr in VECTOR_PARAMS for attr in attr_list]
-        return any(check_list)
+    with h5py.File(lte_file, "r") as f:
+        hdr = f['header']
+        ltetype = hdr.attrs["type"]
+
+    if ltetype == "station":
+        return staLTE(lte_file)
+
+    elif ltetype == "network":
+        return netLTE(lte_file)
+
+    else:
+        print("error reading file")
+        return None
+
+
     
 
-    @staticmethod
-    def attr_filt(attr_list, which):
-        """
-        Filter a list of attributes to only vector or scalar.
-        which must be a string of "scalar" or "vector"
-        """
 
-        assert which in ("scalar", "vector")
-        assert isinstance(attr_list, list)
 
-        filter_list = []
-
-        for attr in attr_list:
-            if which == "scalar" and attr in SCALAR_PARAMS:
-                filter_list.append(attr)
-            
-            if which == "vector" and attr in VECTOR_PARAMS:
-                filter_list.append(attr)
-                
-        return filter_list
