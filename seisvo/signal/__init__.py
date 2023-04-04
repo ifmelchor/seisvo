@@ -164,7 +164,7 @@ class SSteps(object):
     def __init__(self, start_time, end_time, interval, window, win_olap=0, subwindow=0, subw_olap=0, verbose=False, validate=False):
         
         if interval != -1:
-            assert window/60 < interval
+            assert window/60 <= interval
         
         assert subwindow < window
         assert 0 <= win_olap < 1

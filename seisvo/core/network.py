@@ -388,6 +388,118 @@ class Network(object):
             return lte
 
 
+    def lte(self, starttime, endtime, sta_list, window, subwindow, win_olap=0.5, subw_olap=0.75, **kwargs):
+        """ Compute (station) LTE file
+
+        Parameters
+        ----------
+        starttime : datetime
+        
+        endtime : datetime
+        
+        sta_list : list of strings
+            list of stations id
+
+        window : int [hr]
+            length of the time window (in min) to reduce
+        
+        subwindow : int [min]
+            length of the time window (in min) for moving average over the window. 
+            If ``subwindow=0`` no moving average is applied.
+        
+        subwindow_olap : float
+            overlap percent for moving average over the interval, by default 0.75
+
+        Returns
+        -------
+        LTE
+            LTE object
+        """
+
+        assert starttime < endtime
+        assert window < subwindow/60
+
+        # check sta_list
+        sta_ob_list = []
+        true_sta_list = []
+        for sta in sta_list:
+            sta_sp = sta.split(".")
+            sta_name = sta_sp[0]
+            if len(sta_sp) > 1:
+                sta_loc  = sta_sp[1]
+            else:
+                sta_loc  = ""
+            
+            sta_oj = self.get_sta(sta_name, loc=sta_loc)
+            
+            if sta_oj.starttime <= starttime and sta_ob.endtime >= endtime:
+                sta_ob_list.append(sta_ob)
+                true_sta_list.append(sta)
+            else:
+                print("warn:: station {sta} out of temporal bounds")
+        
+        if not sta_ob_list:
+            print("error:: no data to proceed")
+            return None
+
+        # load kwargs
+        sample_rate = kwargs.get('sample_rate', 40)
+        njobs       = kwargs.get('njobs', 1)
+        pad         = kwargs.get("pad", 1.0)
+        fq_band     = kwargs.get('fq_band', (0.5, 10))
+        validate    = kwargs.get("validate", True) # if True, ssteps will ask for confirmation
+        file_name   = kwargs.get("file_name", None)
+        out_dir     = kwargs.get("out_dir", None)
+
+        # defining base params
+        ltebase = dict(
+            id              = self.stats.code,
+            type            = "network",
+            stations        = true_sta_list,
+            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
+            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
+            window          = window,
+            window_olap     = win_olap,
+            subwindow       = subwindow,
+            subwindow_olap  = subw_olap,
+            sample_rate     = int(sample_rate),
+            pad             = pad,
+            fq_band         = fq_band,
+            rm_sens         = kwargs.get('rm_sens', False),
+        )
+
+        ss = SSteps(starttime, endtime, -1, window*3600, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subwindow_olap, validate=validate)
+
+        lwin = int(ss.subwindow*sample_rate)
+        headers["lswin"] = lwin
+        ltebase["nswin"] = int(ss.nsubwin)
+        ltebase["nadv"]  = float(ss.subw_adv)
+        ltebase["nro_freq_bins"] = len(get_freq(lwin, sample_rate, fq_band=fq_band, pad=pad)[0])
+        ltebase["nro_time_bins"] = int(ss.int_nwin*ss.nro_intervals)
+
+        if njobs >= mp.cpu_count() or njobs == -1:
+            njobs = mp.cpu_count() - 2
+
+        # create hdf5 file and process data
+        if not file_name:
+            file_name = '%s.%s%03d-%s%03d_%s.lte' % (self.stats.code, starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, window)
+        
+        if not out_dir:
+            out_dir = os.path.join(LTE_PATH)
+        
+        file_name_full = os.path.join(out_dir, file_name)
+        if file_name_full.split('.')[-1] != 'lte':
+            file_name_full += '.lte'
+
+        if os.path.isfile(file_name_full):
+            os.remove(file_name_full)
+            print(' file %s removed.' % file_name_full)
+
+        lte = LTE.net_new(sta_ob_list, file_name_full, ltebase, njobs)
+        
+        return lte
+
+
 class sArray(Network):
     def __init__(self, net_code, sta_code, comp='Z', locs=None):
         super().__init__(net_code)

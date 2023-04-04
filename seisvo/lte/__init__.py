@@ -60,6 +60,26 @@ class LTE(object):
                     time_bandwidth  = float(hdr.attrs['time_bandwidth']),
                     pad             = float(hdr.attrs['pad']),
                 )
+            
+            if self.type == "network":
+                dstats = dict(
+                    id              = hdr.attrs['id'],
+                    stations        = list(hdr.attrs['stations']),
+                    starttime       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S'),
+                    endtime         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S'),
+                    sample_rate     = int(hdr.attrs['sample_rate']),
+                    nro_time_bins   = int(hdr.attrs['nro_time_bins']),
+                    last_time_bin   = int(hdr.attrs['last_time_bin']),
+                    fq_band         = [float(fq) for fq in hdr.attrs['fq_band']],
+                    nro_freq_bins   = int(hdr.attrs['nro_freq_bins']),
+                    window          = hdr.attrs['window'],
+                    window_olap     = hdr.attrs['window_olap'],
+                    subwindow       = hdr.attrs['subwindow'],
+                    subwindow_olap  = hdr.attrs['subwindow_olap'],
+                    rm_sens         = bool(hdr.attrs['rm_sens']),
+                    time_bandwidth  = float(hdr.attrs['time_bandwidth']),
+                    pad             = float(hdr.attrs['pad']),
+                )
 
             else:
                 dstats = dict()
@@ -70,13 +90,17 @@ class LTE(object):
 
     def __set_attrs__(self):
         # by default
-        attrs = ['specgram', 'fq_dominant', 'fq_centroid', 'energy', 'perm_entr']
+        if self.type == "station":
+            attrs = ['specgram', 'fq_dominant', 'fq_centroid', 'energy', 'perm_entr']
 
-        if self.stats.opt_params:
-            attrs += ['rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
-        
-        if self.stats.polar:
-            attrs += ['degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
+            if self.stats.opt_params:
+                attrs += ['rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
+            
+            if self.stats.polar:
+                attrs += ['degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
+
+        else: # network
+            attrs = ["specgram", "csw", "vt"]
 
         self.stats.add_attr(attrs)
 
@@ -319,9 +343,7 @@ class LTE(object):
 
     def __sta_compute__(self, base, headers, njobs):
         """
-        Process LTE file for station or network mode
-          - base can be a station or network object
-          - njobs controls how many CPUs are used for time optimization
+        Process LTE file for station
         """
 
         # init process and starttime
@@ -349,6 +371,41 @@ class LTE(object):
             
             # advance 
             start += interval
+            nint += 1
+        
+        # check if there are any process running
+        if len(ltep.processes) > 0:
+            ltep.wait(f"{nint}/{nro_ints}")
+
+
+    def __net_compute__(self, base, headers, njobs):
+        """
+        Process LTE file for network
+        """
+
+        # init process and starttime
+        ltep = LTEProcNET(self, headers["nswin"], headers["lswin"], eaderhs["nadv"])
+
+        start = self.stats.starttime
+        step  = dt.timedelta(hours=headers["window"])
+        olap  = dt.timedelta(hours=headers["window"]*headers["window_olap"])
+        
+        nro_ints = headers['nwin']
+        nint = 1
+
+        while start + interval <= self.stats.endtime:
+            end = start + interval
+
+            # compute
+            mdata = base.get_mdata()
+
+            ltep.run(mdata, start, end)
+
+            # stack jobs until njobs
+            if len(ltep.processes) == njobs:
+                ltep.wait(f"{nint}/{nro_ints}")
+
+            start += interval - olap
             nint += 1
         
         # check if there are any process running
@@ -513,6 +570,72 @@ class LTE(object):
 
         lte = LTE(lte_file)
         lte.__sta_compute__(station, headers, njobs)
+
+        return lte
+
+    
+    @staticmethod
+    def net_new(station_list, lte_file, headers, njobs):
+        """
+        Create new LTE (hdf5) file
+        """
+
+        with h5py.File(lte_file, "w-") as f:
+            # header dataset
+            hdr = f.create_dataset('header',(1,))
+            hdr.attrs['id']              = headers['id']
+            hdr.attrs['type']            = headers['type']
+            hdr.attrs['stations']        = headers['stations']
+            hdr.attrs['starttime']       = headers['starttime']
+            hdr.attrs['endtime']         = headers['endtime']
+            hdr.attrs['window']          = headers['window']
+            hdr.attrs['window_olap']     = headers['window_olap']
+            hdr.attrs['subwindow']       = headers['subwindow']
+            hdr.attrs['subwindow_olap']  = headers['subwindow_olap']
+            hdr.attrs['nro_time_bins']   = headers['nro_time_bins']
+            hdr.attrs['last_time_bin']   = -1
+            hdr.attrs['fq_band']         = headers['fq_band']
+            hdr.attrs['nro_freq_bins']   = headers['nro_freq_bins']
+            hdr.attrs['pad']             = headers['pad']
+            hdr.attrs['sample_rate']     = headers['sample_rate']
+            hdr.attrs['time_bandwidth']  = headers['time_bandwidth']
+            # optional param
+            hdr.attrs['rm_sens']         = headers['rm_sens']
+ 
+            # print info
+            freqbins = headers['nro_freq_bins']
+            timebins = headers['nro_time_bins']
+
+            print('')
+            print(' LTE file INFO')
+            print(' -------------')
+            print(" hdf5_memory info: %s " % lte_file)
+            print(' --- dataset size: ', (timebins, freqbins))
+            print('')
+            print(' LTE stats:')
+            
+            for info_key in ['id', 'stations', 'starttime', 'endtime', 'window', 'window_olap', 'subwindow' ,'subwindow_olap' ,'sample_rate' ,'rm_sens' ,'fq_band']:
+
+                if info_key == "window":
+                    print(f' {info_key} [min]:  {headers[info_key]}')
+                
+                elif info_key == "subwindow":
+                    print(f' {info_key} [sec]:  {headers[info_key]}')
+                
+                else:
+                    print(f' {info_key}:  {headers[info_key]}')
+
+            for sta in headers['stations']:
+                stgr = f.create_group(sta)
+                stgr.create_dataset('specgram', (timebins, freqbins), chunks=True, dtype=np.float32)
+            
+            f.create_dataset('csw', (timebins, freqbins), chunks=True, dtype=np.float32)
+            f.create_dataset('vt', (timebins, freqbins, len(headers['stations'])), chunks=True, dtype=np.complex64)
+
+            f.flush()
+
+        lte = LTE(lte_file)
+        lte.__net_compute__(station_list, headers, njobs)
 
         return lte
 

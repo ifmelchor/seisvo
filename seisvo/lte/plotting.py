@@ -761,7 +761,7 @@ def plotPeakTimeEvo(pkt, plot=True, **kwargs):
         sxx_ax = fig.add_subplot(gs[0, 0])
         sxx_pdf_ax = fig.add_subplot(gs[0, 1])
         rec_ax = fig.add_subplot(gs[1, 0])
-        ret_pdf_ax = fig.add_subplot(gs[1, 1])
+        rec_pdf_ax = fig.add_subplot(gs[1, 1])
         azi_ax = fig.add_subplot(gs[2, 0])
         azi_pdf_ax = fig.add_subplot(gs[2, 1])
         ele_ax = fig.add_subplot(gs[3, 0])
@@ -780,6 +780,7 @@ def plotPeakTimeEvo(pkt, plot=True, **kwargs):
         }
     else:
         plot = False
+        fig = None
 
     # sxx norm/cmap
     fq_min = np.floor(np.min([pkt[ch]["stats"]["fq"][0] for ch in list(pkt.keys())]))
@@ -923,12 +924,9 @@ def plotPeakTimeEvo(pkt, plot=True, **kwargs):
         ax.grid(which="major", ls="--", alpha=0.3, color="k")
         ax.grid(which="minor", ls=":", alpha=0.2, color="k")
 
-    if not ax_dict:
-        if plot:
-            plt.show()
-        return fig
+    if plot:
+        plt.show()
     
-    else:
-        return None
+    return fig
 
 
