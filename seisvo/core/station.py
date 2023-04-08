@@ -10,7 +10,7 @@ import multiprocessing as mp
 from glob import glob
 
 from seisvo import LTE_PATH
-from seisvo.lte import LTE
+from seisvo.lte import staLTE
 from seisvo.core import get_respfile
 from .obspyext import UTCDateTime, read2, Stream2
 from seisvo.signal import SSteps, get_freq
@@ -606,7 +606,7 @@ class Station(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
 
-        lte = LTE.sta_new(self, file_name_full, ltebase, njobs)
+        lte = staLTE.new(self, file_name_full, ltebase, njobs)
         
         return lte
 

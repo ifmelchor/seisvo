@@ -41,9 +41,8 @@ class LTEstats(AttribDict):
         return self._pretty_str(priorized_keys)
 
 
-class LTEProcSTA(object):
+class LTEProc(object):
     def __init__(self, lte, nwin, lwin, nswin, lswin, nadv):
-
         self.lte   = lte
         self.nwin  = nwin
         self.lwin  = lwin
@@ -57,11 +56,9 @@ class LTEProcSTA(object):
 
     def sta_wrapper(self, *args):
         start_time = ttime.time()
-
         lte_ans = {}
-        
-        if isinstance(args[0], np.ndarray):
 
+        if isinstance(args[0], np.ndarray):
             # load julia function
             from juliacall import Main as jl
             jl.seval("using LTE")
@@ -77,9 +74,7 @@ class LTEProcSTA(object):
             # exec jl function
             jlans = jl.sta_run(jldata, jlchan, self.lte.stats.sample_rate, self.nwin, self.lwin, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad, self.lte.stats.opt_params, self.lte.stats.polar, self.lte.stats.PE_order, self.lte.stats.PE_tau, self.lte.stats.opt_twin, self.lte.stats.opt_th)
             try:
-
                 jlans = dict(jlans)
-
                 # convert the jl dict into a python dict
                 for chan in self.lte.stats.channel:
                     lte_ans[chan] = {}
@@ -107,9 +102,94 @@ class LTEProcSTA(object):
         self.queue.put((self.n, lte_ans, args[1], args[2], proc_duration))
     
 
+    def net_wrapper(self, *args):
+        start_time = ttime.time()
+        lte_ans = {}
+
+        if isinstance(args[0], np.ndarray):
+            # load julia function
+            from juliacall import Main as jl
+            jl.seval("using LTE")
+
+            # prepare data
+            jldata = jl.Array(args[0])
+            jlstat = "/".join(self.lte.stats.stations)
+            jlband = jl.Tuple(self.lte.stats.fq_band)
+            # jl = julia.Julia(compiled_modules=False)
+            # jl._LegacyJulia__julia.using("LTE")
+            # sta_run_func = jl._LegacyJulia__julia.eval("sta_run")
+
+            # exec jl function
+            jlans = jl.net_run(jldata, jlstat, self.lte.stats.sample_rate, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad)
+            
+            try:
+                jlans = dict(jlans)
+                # convert the jl dict into a python dict
+                for sta in self.lte.stats.stations:
+                    lte_ans[sta] = {}
+                    lte_ans[sta]["specgram"] = np.array(jlans[chan]["specgram"])
+                
+                lte_ans["csw"] = np.array(jlans["csw"])
+                lte_ans["vt"]  = np.array(jlans["vt"])
+                
+            except:
+                # you can catch error here and do whatever
+                pass
+
+        proc_duration = ttime.time() - start_time
+        
+        # save data
+        self.queue.put((self.n, lte_ans, args[1], args[2], proc_duration))
+
+
+    def get_empty_lte(self):
+        lte_ans = {}
+
+        if self.lte.type == "station":
+            nfb  = self.lte.stats.nro_freq_bins
+            matrix_nan = np.full([self.nwin, nfb], np.nan)
+            vector_nan = np.full([self.nwin,], np.nan)
+
+            for chan in self.lte.stats.channel:
+                lte_ans[chan] = {}
+                lte_ans[chan]["specgram"] = matrix_nan
+
+                for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
+                    lte_ans[chan][attr] = vector_nan
+            
+            if self.lte.stats.opt_params:
+                lte_ans["opt"] = {}
+                for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
+                    lte_ans["opt"][attr] = vector_nan
+
+
+            if self.lte.stats.polar:
+                lte_ans["polar"] = {}
+                for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
+                    lte_ans["polar"][attr] = matrix_nan
+        
+        else:
+            nfb  = self.lte.stats.nro_freq_bins
+            matrix_nan = np.full([self.nwin, nfb], np.nan)
+
+            for sta in self.lte.stats.stations:
+                lte_ans[sta] = {}
+                lte_ans[sta]["specgram"] = matrix_nan
+            
+            lte_ans["csw"] = matrix_nan
+            lte_ans["vt"]  = np.full([self.nwin, nfb, len(self.lte.stats.stations)], np.nan)
+
+        return lte_ans
+
+
     def run(self, *args):
         self.n += 1
-        p = mp.Process(target=self.sta_wrapper, args=args)
+
+        if self.lte.type == "station":
+            p = mp.Process(target=self.sta_wrapper, args=args)
+        else:
+            p = mp.Process(target=self.net_wrapper, args=args)
+        
         self.processes.append(p)
         p.start()
     
@@ -153,27 +233,7 @@ class LTEProcSTA(object):
             # if lte_ans is none, create NaN dictionary
             if not lte_ans:
                 proc_status = "FAIL"
-                nfb  = self.lte.stats.nro_freq_bins
-                matrix_nan = np.full([self.nwin, nfb], np.nan)
-                vector_nan = np.full([self.nwin,], np.nan)
-
-                for chan in self.lte.stats.channel:
-                    lte_ans[chan] = {}
-                    lte_ans[chan]["specgram"] = matrix_nan
-
-                    for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
-                        lte_ans[chan][attr] = vector_nan
-                
-                if self.lte.stats.opt_params:
-                    lte_ans["opt"] = {}
-                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
-                        lte_ans["opt"][attr] = vector_nan
-
-
-                if self.lte.stats.polar:
-                    lte_ans["polar"] = {}
-                    for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
-                        lte_ans["polar"][attr] = matrix_nan
+                lte_ans = self.get_empty_lte()
             else:
                 proc_status = "OK"
 

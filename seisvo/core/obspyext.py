@@ -45,6 +45,9 @@ class Trace2(Trace):
         
         data = tr.data
 
+        if detrend:
+            demean = True
+            
         if demean:
             data = data - data.mean()
 

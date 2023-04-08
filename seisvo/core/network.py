@@ -7,15 +7,15 @@ import collections as col
 import datetime as dt
 import multiprocessing as mp
 
-from seisvo import DB_PATH, CC8_PATH
+from seisvo import LTE_PATH, DB_PATH, CC8_PATH
 from seisvo.core import get_network
 from .obspyext import Stream2
 from .station import Station
 from seisvo.sap import CC8, Arfr, plot_array
-from seisvo.signal import SSteps
+from seisvo.signal import SSteps, get_freq
 from seisvo.file.air import AiR
 from seisvo.signal.infrasound import infrasound_model_default, cross_corr
-
+from seisvo.lte import netLTE
 
 
 class Network(object):
@@ -296,7 +296,7 @@ class Network(object):
         """
 
         assert starttime < endtime
-        assert window < subwindow/60
+        assert window*60 > subwindow
 
         # check sta_list
         sta_ob_list = []
@@ -309,9 +309,9 @@ class Network(object):
             else:
                 sta_loc  = ""
             
-            sta_oj = self.get_sta(sta_name, loc=sta_loc)
+            sta_ob = self.get_sta(sta_name, loc=sta_loc)
             
-            if sta_oj.starttime <= starttime and sta_ob.endtime >= endtime:
+            if sta_ob.starttime <= starttime and sta_ob.endtime >= endtime:
                 sta_ob_list.append(sta_ob)
                 true_sta_list.append(sta)
             else:
@@ -320,15 +320,27 @@ class Network(object):
         if not sta_ob_list:
             print("error:: no data to proceed")
             return None
-
+        
         # load kwargs
         sample_rate = kwargs.get('sample_rate', 40)
         njobs       = kwargs.get('njobs', 1)
         pad         = kwargs.get("pad", 1.0)
+        time_bandw  = kwargs.get('time_bandwidth', 3.5)
         fq_band     = kwargs.get('fq_band', (0.5, 10))
         validate    = kwargs.get("validate", True) # if True, ssteps will ask for confirmation
         file_name   = kwargs.get("file_name", None)
-        out_dir     = kwargs.get("out_dir", None)
+        out_dir     = kwargs.get("out_dir", "./")
+        resp_dict   = kwargs.get("resp_dict", {})
+
+        # check resp dict
+        if resp_dict:
+            for key in list(resp_dict.keys()):
+                if key not in true_sta_list:
+                    print("warn:: {key} in resp_dict not valid")
+                    del resp_dict[key]
+            rm_sens = True
+        else:
+            rm_sens = False
 
         # defining base params
         ltebase = dict(
@@ -343,14 +355,15 @@ class Network(object):
             subwindow_olap  = subw_olap,
             sample_rate     = int(sample_rate),
             pad             = pad,
+            time_bandwidth  = time_bandw,
             fq_band         = fq_band,
-            rm_sens         = kwargs.get('rm_sens', False),
+            rm_sens         = rm_sens
         )
 
-        ss = SSteps(starttime, endtime, -1, window*3600, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subwindow_olap, validate=validate)
+        ss = SSteps(starttime, endtime, -1, window*3600, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subw_olap, validate=validate)
 
         lwin = int(ss.subwindow*sample_rate)
-        headers["lswin"] = lwin
+        ltebase["lswin"] = lwin
         ltebase["nswin"] = int(ss.nsubwin)
         ltebase["nadv"]  = float(ss.subw_adv)
         ltebase["nro_freq_bins"] = len(get_freq(lwin, sample_rate, fq_band=fq_band, pad=pad)[0])
@@ -373,8 +386,8 @@ class Network(object):
         if os.path.isfile(file_name_full):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
-
-        lte = LTE.net_new(sta_ob_list, file_name_full, ltebase, njobs)
+        
+        lte = netLTE.new(sta_ob_list, file_name_full, ltebase, njobs, resp_dict)
         
         return lte
 
@@ -450,15 +463,16 @@ class sArray(Network):
             if np.isnan(mdata).any():
                 print("Warning: data containing NaN values")
 
-            if return_stats:
-                return mdata, stats
-
-            else:
-                return mdata
-        
         else:
-            return None
-        
+            mdata = None
+            stats = []
+
+        if return_stats:
+            return mdata, stats
+
+        else:
+            return mdata
+
 
     def cc8(self, starttime, endtime, window, overlap, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1.,5.)], cc_thres=0.05, filename=None, outdir=None, interval=1, **kwargs):
         """ Compute CC8 file

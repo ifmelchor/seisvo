@@ -6,24 +6,30 @@ import h5py
 import datetime as dt
 import numpy as np
 from seisvo.signal import get_freq
-from .utils import LTEstats, LTEProcSTA, LTEoutSTA
+from .utils import LTEstats, LTEProc, LTEoutSTA
 from .peaks import Peaks
 
-
 SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'perm_entr', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
+
 VECTOR_PARAMS = ['specgram', 'degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
 
 
 class _LTE(object):
     def __init__(self, lte_file):
         self.file_ = lte_file
-        self.__set_type__()
-
-
-    def __set_type__(self):
+        
+        # set type
         with h5py.File(self.file_, "r") as f:
             hdr = f['header']
-            self.type == hdr.attrs["type"]
+            self.type = hdr.attrs["type"]
+    
+
+    def __set_stats__(self, dstats):
+        self.stats = LTEstats(dstats)
+    
+
+    def __set_attrs__(self, lattrs):
+        self.stats.add_attr(lattrs)
 
 
     def __str__(self):
@@ -57,12 +63,9 @@ class _LTE(object):
 
 class staLTE(_LTE):
     def __init__(self, lte_file):
-        super.__init__(lte_file)
-        self.__set_stats__()
-        self.__set_attrs__()
+        super().__init__(lte_file)
 
-
-    def __set_stats__(self):
+        # set stats
         with h5py.File(self.file_, "r") as f:
             hdr = f['header']
             dstats = dict(
@@ -88,21 +91,108 @@ class staLTE(_LTE):
                 time_bandwidth  = float(hdr.attrs['time_bandwidth']),
                 pad             = float(hdr.attrs['pad']),
             )
+        self.__set_stats__(dstats)
 
-        self.stats = LTEstats(dstats)
-
-
-    def __set_attrs__(self):
-        # by default
+        # set attr
         attrs = ['specgram', 'fq_dominant', 'fq_centroid', 'energy', 'perm_entr']
-
         if self.stats.opt_params:
             attrs += ['rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
-            
         if self.stats.polar:
             attrs += ['degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
+        self.__set_attrs__(attrs)
 
-        self.stats.add_attr(attrs)
+
+    def __compute__(self, base, headers, njobs):
+        """
+        Process LTE file for station
+        """
+
+        # init process and starttime
+        ltep = LTEProc(self, headers["nwin"], headers["lwin"], headers["nswin"], headers["lswin"], headers["nadv"])
+
+        start = self.stats.starttime
+        interval = dt.timedelta(hours=headers["interval"])
+        nro_ints = headers['nro_intervals']
+        nint = 1
+
+        while start + interval <= self.stats.endtime:
+            end = start + interval
+
+            mdata = base.get_mdata(start, end, self.stats.channel, remove_sensitivity=self.stats.rm_sens, sample_rate=self.stats.sample_rate)
+
+            if not isinstance(mdata, np.ndarray):
+                mdata = None
+                
+            # send to a cpu
+            ltep.run(mdata, start, end)
+
+            # stack jobs until njobs
+            if len(ltep.processes) == njobs:
+                ltep.wait(f"{nint}/{nro_ints}")
+            
+            # advance 
+            start += interval
+            nint += 1
+        
+        # check if there are any process running
+        if len(ltep.processes) > 0:
+            ltep.wait(f"{nint}/{nro_ints}")
+
+
+    def __write__(self, ltedict, nwin):
+        with h5py.File(self.file_, "r+") as h5f:
+            nbin = h5f['header'].attrs["last_time_bin"]
+
+            # base params
+            for chan in self.stats.channel:
+                h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = ltedict[chan]["perm_entr"]
+                for attr in ("energy", "fq_dominant", "fq_centroid", "specgram"):
+                    if attr == "specgram":
+                        h5f[chan][attr][nbin+1:nbin+1+nwin,:] = ltedict[chan][attr]
+                    else:
+                        h5f[chan][attr][nbin+1:nbin+1+nwin] = ltedict[chan][attr]
+
+            # opt params
+            if self.stats.opt_params:
+                for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                    h5f["opt"][attr][nbin+1:nbin+1+nwin] = ltedict["opt"][attr]
+                h5f["opt"]["dsar"][nbin+1:nbin+1+nwin] = ltedict["opt"]["dsar"]
+
+            # polar params
+            if self.stats.polar:
+                for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
+                    h5f["polar"][attr][nbin+1:nbin+1+nwin,:] = ltedict["polar"][attr]
+
+            h5f['header'].attrs.modify('last_time_bin', nbin+nwin)
+            h5f.flush()
+
+
+    def __read__(self, attr, n0, nf, chan, db_scale, azimuth_ambiguity):
+        ts = None
+
+        with h5py.File(self.file_, "r") as f:
+            if attr == 'specgram':
+                ts = f.get(chan)[attr][n0:nf,:]
+
+                if db_scale:
+                    ts = 10*np.log10(ts)
+            
+            if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr'):
+                ts = f.get(chan)[attr][n0:nf]
+
+                if attr == "energy" and db_scale:
+                    ts = 10*np.log10(ts)
+        
+            if attr in ('degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh'):
+                ts = f.get("polar")[attr][n0:nf,:]
+
+                if attr == "azimuth" and azimuth_ambiguity:
+                    ts = np.where(ts>180, ts-180, ts)
+            
+            if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
+                ts = f.get("opt")[attr][n0:nf]
+    
+        return ts
 
 
     def check_attr(self, attr, only_scalars=False, only_vectors=False):
@@ -312,99 +402,6 @@ class staLTE(_LTE):
         return Peaks(pyout, self.file_, gout.starttime_, gout.endtime_, self.stats.window, fq_range, peak_thresholds)
 
 
-    def __compute__(self, base, headers, njobs):
-        """
-        Process LTE file for station
-        """
-
-        # init process and starttime
-        ltep = LTEProcSTA(self, headers["nwin"], headers["lwin"], headers["nswin"], headers["lswin"], headers["nadv"])
-
-        start = self.stats.starttime
-        interval = dt.timedelta(hours=headers["interval"])
-        nro_ints = headers['nro_intervals']
-        nint = 1
-
-        while start + interval <= self.stats.endtime:
-            end = start + interval
-
-            mdata = base.get_mdata(start, end, self.stats.channel, remove_sensitivity=self.stats.rm_sens, sample_rate=self.stats.sample_rate)
-
-            if not isinstance(mdata, np.ndarray):
-                mdata = None
-                
-            # send to a cpu
-            ltep.run(mdata, start, end)
-
-            # stack jobs until njobs
-            if len(ltep.processes) == njobs:
-                ltep.wait(f"{nint}/{nro_ints}")
-            
-            # advance 
-            start += interval
-            nint += 1
-        
-        # check if there are any process running
-        if len(ltep.processes) > 0:
-            ltep.wait(f"{nint}/{nro_ints}")
-
-
-    def __write__(self, ltedict, nwin):
-        with h5py.File(self.file_, "r+") as h5f:
-            nbin = h5f['header'].attrs["last_time_bin"]
-
-            # base params
-            for chan in self.stats.channel:
-                h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = ltedict[chan]["perm_entr"]
-                for attr in ("energy", "fq_dominant", "fq_centroid", "specgram"):
-                    if attr == "specgram":
-                        h5f[chan][attr][nbin+1:nbin+1+nwin,:] = ltedict[chan][attr]
-                    else:
-                        h5f[chan][attr][nbin+1:nbin+1+nwin] = ltedict[chan][attr]
-
-            # opt params
-            if self.stats.opt_params:
-                for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
-                    h5f["opt"][attr][nbin+1:nbin+1+nwin] = ltedict["opt"][attr]
-                h5f["opt"]["dsar"][nbin+1:nbin+1+nwin] = ltedict["opt"]["dsar"]
-
-            # polar params
-            if self.stats.polar:
-                for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
-                    h5f["polar"][attr][nbin+1:nbin+1+nwin,:] = ltedict["polar"][attr]
-
-            h5f['header'].attrs.modify('last_time_bin', nbin+nwin)
-            h5f.flush()
-
-
-    def __read__(self, attr, n0, nf, chan, db_scale, azimuth_ambiguity):
-        ts = None
-
-        with h5py.File(self.file_, "r") as f:
-            if attr == 'specgram':
-                ts = f.get(chan)[attr][n0:nf,:]
-
-                if db_scale:
-                    ts = 10*np.log10(ts)
-            
-            if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr'):
-                ts = f.get(chan)[attr][n0:nf]
-
-                if attr == "energy" and db_scale:
-                    ts = 10*np.log10(ts)
-        
-            if attr in ('degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh'):
-                ts = f.get("polar")[attr][n0:nf,:]
-
-                if attr == "azimuth" and azimuth_ambiguity:
-                    ts = np.where(ts>180, ts-180, ts)
-            
-            if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
-                ts = f.get("opt")[attr][n0:nf]
-    
-        return ts
-
-
     def plot(self, attr, chan, day_interval, starttime=None, lde=None):
         attr_list = self.check_attr(attr)
         chan_list = self.check_chan(chan)
@@ -503,7 +500,7 @@ class staLTE(_LTE):
             f.flush()
 
         lte = LTE(lte_file)
-        lte.__sta_compute__(station, headers, njobs)
+        lte.__compute__(station, headers, njobs)
 
         return lte
 
@@ -542,12 +539,9 @@ class staLTE(_LTE):
 
 class netLTE(_LTE):
     def __init__(self, lte_file):
-        super.__init__(lte_file)
-        self.__set_stats__()
-        self.__set_attrs__()
-
-
-    def __set_stats__(self):
+        super().__init__(lte_file)
+        
+        # set stats
         with h5py.File(self.file_, "r") as f:
             hdr = f['header']
             dstats = dict(
@@ -568,52 +562,58 @@ class netLTE(_LTE):
                 time_bandwidth  = float(hdr.attrs['time_bandwidth']),
                 pad             = float(hdr.attrs['pad']),
             )
-
-        self.stats = LTEstats(dstats)
+        self.__set_stats__(dstats)
         
-
-    def __set_attrs__(self):
-        attrs = ["specgram", "csw", "vt"]
-        self.stats.add_attr(attrs)
+        # set attr
+        self.__set_attrs__(["specgram", "csw", "vt"])
 
 
-    def __compute__(self, base, headers, njobs):
+    def __compute__(self, base, headers, njobs, resp_dict):
         """
         Process LTE file for network
         """
 
         # init process and starttime
-        ltep = LTEProcNET(self, headers["nswin"], headers["lswin"], eaderhs["nadv"])
+        ltep = LTEProc(self, 1, None, headers["nswin"], headers["lswin"], eaderhs["nadv"])
 
         start = self.stats.starttime
         step  = dt.timedelta(hours=headers["window"])
         olap  = dt.timedelta(hours=headers["window"]*headers["window_olap"])
-        
-        nro_ints = headers['nwin']
-        nint = 1
 
-        while start + interval <= self.stats.endtime:
-            end = start + interval
+        for n in range(headers['nro_time_bins']):
+            end = start + step
 
-            # compute
-            mdata = base.get_mdata()
-
+            mdata = self.get_mdata(base, start, end, self.stats.sample_rate, resp_dict)
             ltep.run(mdata, start, end)
 
             # stack jobs until njobs
             if len(ltep.processes) == njobs:
-                ltep.wait(f"{nint}/{nro_ints}")
+                ltep.wait(f"{n+1}/{nro_ints}")
 
-            start += interval - olap
-            nint += 1
-        
-        # check if there are any process running
+            start = end - olap
+            
+        #check if there are any process running
         if len(ltep.processes) > 0:
-            ltep.wait(f"{nint}/{nro_ints}")
+            ltep.wait(f"{n+1}/{nro_ints}")
+
+
+    def __write__(self, ltedict, nwin):
+        with h5py.File(self.file_, "r+") as h5f:
+            nbin = h5f['header'].attrs["last_time_bin"]
+
+            # base params
+            for sta in self.stats.stations:
+                h5f[sta]["specgram"][nbin+1:nbin+1+nwin,:] = ltedict[sta]["specgram"]
+            
+            h5f["csw"][nbin+1:nbin+1+nwin,:]  = ltedict["csw"]
+            h5f["vt"][nbin+1:nbin+1+nwin,:,:] = ltedict["vt"]
+
+            h5f['header'].attrs.modify('last_time_bin', nbin+nwin)
+            h5f.flush()
 
 
     @staticmethod
-    def new(station_list, lte_file, headers, njobs):
+    def new(station_list, lte_file, headers, njobs, resp_dict):
         """
         Create new LTE (hdf5) file
         """
@@ -673,9 +673,41 @@ class netLTE(_LTE):
             f.flush()
 
         lte = LTE(lte_file)
-        lte.__net_compute__(station_list, headers, njobs)
+        lte.__compute__(station_list, headers, njobs, resp_dict)
 
         return lte
+
+
+    @staticmethod
+    def get_mdata(station_list, start, end, fs, resp_dict):
+
+        lwin = int((end-start).total_seconds()*fs) + 1
+        mdata = np.empty((len(station_list), lwin))
+
+        for n, sta in enumerate(station_list):
+            st = sta.get_stream(start, end)
+
+            try:
+                tr = st.get_component("Z")
+            except:
+                return None
+
+            if resp_dict:
+                fact = resp_dict['.'.join([sta.stats.code, sta.stats.loc])]
+            else:
+                fact = False
+
+            data = tr.get_data(rm_sensitivity=fact, sample_rate=fs)
+
+            if lwin-len(data) == 1:
+                data = np.hstack((data, data.mean()))
+                mdata[n,:] = data
+            elif lwin-len(data) > 1:
+                return None
+            else:
+                mdata[n,:] = data
+
+        return mdata
 
 
 def LTE(lte_file):
@@ -697,7 +729,7 @@ def LTE(lte_file):
         return None
 
 
-    
+
 
 
 
