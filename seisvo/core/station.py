@@ -386,7 +386,10 @@ class Station(object):
             if prefilt:
                 st = st.filter2(fq_band=prefilt)
             
-        return st
+            return st
+        
+        else:
+            return None
 
 
     def get_mdata(self, start, end, channel_list, sort=None, verbose=True, **kwargs):

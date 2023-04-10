@@ -679,35 +679,44 @@ class netLTE(_LTE):
 
 
     @staticmethod
-    def get_mdata(station_list, start, end, fs, resp_dict):
+    def get_mdata(station_list, start, end, fs, resp_dict, return_stats=False):
 
-        lwin = int((end-start).total_seconds()*fs) + 1
-        mdata = np.empty((len(station_list), lwin))
-
-        for n, sta in enumerate(station_list):
+        lwin = int((end-start).total_seconds())*fs + 1
+        
+        mdata = None
+        stats = []
+        for sta in station_list:
             st = sta.get_stream(start, end)
 
             try:
                 tr = st.get_component("Z")
             except:
-                return None
+                tr = None
+            
+            if tr:
+                if resp_dict:
+                    fact = resp_dict['.'.join([sta.stats.code, sta.stats.loc])]
+                else:
+                    fact = False
 
-            if resp_dict:
-                fact = resp_dict['.'.join([sta.stats.code, sta.stats.loc])]
-            else:
-                fact = False
+                data = tr.get_data(rm_sensitivity=fact, sample_rate=fs)
 
-            data = tr.get_data(rm_sensitivity=fact, sample_rate=fs)
+                if len(data) == lwin or lwin-len(data) == 1:
+                    if lwin-len(data) == 1:
+                        data = np.hstack((data, np.nanmean(data)))
 
-            if lwin-len(data) == 1:
-                data = np.hstack((data, data.mean()))
-                mdata[n,:] = data
-            elif lwin-len(data) > 1:
-                return None
-            else:
-                mdata[n,:] = data
+                    if isinstance(mdata, np.ndarray):
+                        mdata = np.vstack((mdata, data))
+                    else:
+                        mdata = data
+                
+                    if return_stats:
+                        stats.append(sta.stats)
 
-        return mdata
+        if return_stats:
+            return mdata, stats
+        else:
+            return mdata
 
 
 def LTE(lte_file):

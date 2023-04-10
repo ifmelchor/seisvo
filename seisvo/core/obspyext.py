@@ -28,22 +28,15 @@ class Trace2(Trace):
         This code returns a numpy array of the data
         """
 
-        if starttime:
+        if starttime and endtime:
             st = UTCDateTime(starttime)
-        else:
-            st = self.stats.starttime
-
-        if endtime:
             et = UTCDateTime(endtime)
-        else:
-            et = self.stats.endtime
-
-        tr = self.slice(st, et)
-
-        if sample_rate:
-            tr = self.resample(sample_rate)
+            self = self.slice(st, et)
         
-        data = tr.data
+        if sample_rate:
+            self = self.resample(sample_rate)
+        
+        data = self.data
 
         if detrend:
             demean = True
