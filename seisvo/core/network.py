@@ -449,19 +449,21 @@ class sArray(Network):
         if st:
             fs = st[0].stats.sampling_rate
             lwin = int((end_time-start_time).total_seconds()*fs) + 1
-            mdata = np.empty((len(st), lwin))
+            mdata = None
             stats = []
 
-            n = 0
             for tr in st:
                 tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
                 
                 if len(tr_dat) == lwin:
-                    mdata[n,:] = tr_dat
+                    if isinstance(mdata, np.ndarray):
+                        mdata = np.vstack((mdata, tr_dat))
+                    else:
+                        mdata = tr_dat
+
                     if return_stats:
                         sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
                         stats.append(sta.stats)
-                    n += 1
 
             if np.isnan(mdata).any():
                 print("Warning: data containing NaN values")
