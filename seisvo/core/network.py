@@ -448,7 +448,7 @@ class sArray(Network):
         if st:
             fs = st[0].stats.sampling_rate
             lwin = int((end_time-start_time).total_seconds()*fs) + 1
-            mdata = np.empty((len(st),len(tr_dat)))
+            mdata = np.empty((len(st), lwin))
         
             for n, tr in enumerate(st):
                 tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
