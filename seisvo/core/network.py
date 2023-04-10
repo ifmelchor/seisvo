@@ -465,8 +465,9 @@ class sArray(Network):
                         sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
                         stats.append(sta.stats)
 
-            if np.isnan(mdata).any():
-                print("Warning: data containing NaN values")
+            if isinstance(mdata, np.ndarray):
+                if np.isnan(mdata).any():
+                    print("Warning: data containing NaN values")
 
         else:
             mdata = None
