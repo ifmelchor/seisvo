@@ -438,27 +438,30 @@ class sArray(Network):
         return a
 
 
-    def get_mdata(self, start_time, end_time, toff_sec=10, sample_rate=None, fq_band=(), return_stats=False):
+    def get_mdata(self, start_time, end_time, toff_sec=0, sample_rate=None, fq_band=(), return_stats=False):
         if toff_sec > 0:
             toff = dt.timedelta(seconds=toff_sec)
             start_time -= toff
             end_time += toff
 
         st = self.get_stream(start_time, end_time, sample_rate=sample_rate)
+        
         if st:
             fs = st[0].stats.sampling_rate
             lwin = int((end_time-start_time).total_seconds()*fs) + 1
             mdata = np.empty((len(st), lwin))
-        
-            for n, tr in enumerate(st):
-                tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
-                mdata[n,:] = tr_dat
+            stats = []
 
-                if return_stats:
-                    if n == 0:
-                        stats = []
-                    sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
-                    stats.append(sta.stats)
+            n = 0
+            for tr in st:
+                tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
+                
+                if len(tr_dat) == lwin:
+                    mdata[n,:] = tr_dat
+                    if return_stats:
+                        sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
+                        stats.append(sta.stats)
+                    n += 1
 
             if np.isnan(mdata).any():
                 print("Warning: data containing NaN values")
