@@ -388,7 +388,6 @@ class Network(object):
             print(' file %s removed.' % file_name_full)
         
         lte = netLTE.new(sta_ob_list, file_name_full, ltebase, njobs, resp_dict)
-        
         return lte
 
 
@@ -446,12 +445,13 @@ class sArray(Network):
             end_time += toff
 
         st = self.get_stream(start_time, end_time, sample_rate=sample_rate)
-
         if st:
+            fs = st[0].stats.sampling_rate
+            lwin = int((end_time-start_time).total_seconds()*fs) + 1
+            mdata = np.empty((len(st),len(tr_dat)))
+        
             for n, tr in enumerate(st):
                 tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
-                if n == 0:
-                    mdata = np.empty((len(st),len(tr_dat)))
                 mdata[n,:] = tr_dat
 
                 if return_stats:
