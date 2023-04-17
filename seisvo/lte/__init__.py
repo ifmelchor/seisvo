@@ -686,9 +686,8 @@ class netLTE(_LTE):
         mdata = None
         stats = []
         for sta in station_list:
-            st = sta.get_stream(start, end)
-
             try:
+                st = sta.get_stream(start, end)
                 tr = st.get_component("Z")
             except:
                 tr = None
