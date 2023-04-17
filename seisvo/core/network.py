@@ -308,7 +308,6 @@ class Network(object):
                 sta_loc  = sta_sp[1]
             else:
                 sta_loc  = ""
-            
             sta_ob = self.get_sta(sta_name, loc=sta_loc)
             
             if sta_ob.starttime <= starttime and sta_ob.endtime >= endtime:
