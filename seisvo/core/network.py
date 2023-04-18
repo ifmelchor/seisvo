@@ -279,7 +279,7 @@ class Network(object):
         sta_list : list of strings
             list of stations id
 
-        window : int [hr]
+        window : int [min]
             length of the time window (in min) to reduce
         
         subwindow : int [min]
@@ -296,7 +296,7 @@ class Network(object):
         """
 
         assert starttime < endtime
-        assert window*60 > subwindow
+        assert window > subwindow
 
         # check sta_list
         sta_ob_list = []
@@ -359,7 +359,7 @@ class Network(object):
             rm_sens         = rm_sens
         )
 
-        ss = SSteps(starttime, endtime, -1, window*3600, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subw_olap, validate=validate)
+        ss = SSteps(starttime, endtime, -1, window*60, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subw_olap, validate=validate)
 
         lwin = int(ss.subwindow*sample_rate)
         ltebase["lswin"] = lwin

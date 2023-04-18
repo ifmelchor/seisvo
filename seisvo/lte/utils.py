@@ -122,19 +122,13 @@ class LTEProc(object):
             # exec jl function
             jlans = jl.net_run(jldata, jlstat, self.lte.stats.sample_rate, self.nswin, self.lswin, self.nadv, jlband, self.lte.stats.time_bandwidth, self.lte.stats.pad)
             
-            try:
-                jlans = dict(jlans)
-                # convert the jl dict into a python dict
-                for sta in self.lte.stats.stations:
-                    lte_ans[sta] = {}
-                    lte_ans[sta]["specgram"] = np.array(jlans[chan]["specgram"])
-                
-                lte_ans["csw"] = np.array(jlans["csw"])
-                lte_ans["vt"]  = np.array(jlans["vt"])
-                
-            except:
-                # you can catch error here and do whatever
-                pass
+            # convert the jl dict into a python dict
+            jlans = dict(jlans)
+            for sta in self.lte.stats.stations:
+                lte_ans[sta] = np.array(jlans[sta]).reshape(1,-1)
+            
+            lte_ans["csw"] = np.array(jlans["csw"]).reshape(1,-1)
+            lte_ans["vt"]  = np.array(jlans["vt"]).reshape(1, -1, len(self.lte.stats.stations))
 
         proc_duration = ttime.time() - start_time
         
@@ -171,13 +165,13 @@ class LTEProc(object):
         else:
             nfb  = self.lte.stats.nro_freq_bins
             matrix_nan = np.full([self.nwin, nfb], np.nan)
-
+            station_matnan = np.full([self.nwin, nfb, len(self.lte.stats.stations)], np.nan, dtype=np.complex64)
+            
             for sta in self.lte.stats.stations:
-                lte_ans[sta] = {}
-                lte_ans[sta]["specgram"] = matrix_nan
+                lte_ans[sta] = matrix_nan
             
             lte_ans["csw"] = matrix_nan
-            lte_ans["vt"]  = np.full([self.nwin, nfb, len(self.lte.stats.stations)], np.nan)
+            lte_ans["vt"]  = station_matnan
 
         return lte_ans
 

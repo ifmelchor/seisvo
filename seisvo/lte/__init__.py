@@ -574,13 +574,14 @@ class netLTE(_LTE):
         """
 
         # init process and starttime
-        ltep = LTEProc(self, 1, None, headers["nswin"], headers["lswin"], eaderhs["nadv"])
+        ltep = LTEProc(self, 1, None, headers["nswin"], headers["lswin"], headers["nadv"])
 
         start = self.stats.starttime
-        step  = dt.timedelta(hours=headers["window"])
-        olap  = dt.timedelta(hours=headers["window"]*headers["window_olap"])
+        step  = dt.timedelta(minutes=headers["window"])
+        olap  = dt.timedelta(minutes=headers["window"]*headers["window_olap"])
 
-        for n in range(headers['nro_time_bins']):
+        nro_ints = headers['nro_time_bins']
+        for n in range(nro_ints):
             end = start + step
 
             mdata = self.get_mdata(base, start, end, self.stats.sample_rate, resp_dict)
@@ -603,7 +604,7 @@ class netLTE(_LTE):
 
             # base params
             for sta in self.stats.stations:
-                h5f[sta]["specgram"][nbin+1:nbin+1+nwin,:] = ltedict[sta]["specgram"]
+                h5f[sta]["specgram"][nbin+1:nbin+1+nwin,:] = ltedict[sta]
             
             h5f["csw"][nbin+1:nbin+1+nwin,:]  = ltedict["csw"]
             h5f["vt"][nbin+1:nbin+1+nwin,:,:] = ltedict["vt"]
@@ -658,7 +659,7 @@ class netLTE(_LTE):
                     print(f' {info_key} [min]:  {headers[info_key]}')
                 
                 elif info_key == "subwindow":
-                    print(f' {info_key} [sec]:  {headers[info_key]}')
+                    print(f' {info_key} [min]:  {headers[info_key]}')
                 
                 else:
                     print(f' {info_key}:  {headers[info_key]}')
