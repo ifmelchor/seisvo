@@ -34,6 +34,7 @@ class CC8(object):
         with h5py.File(self.file_, "r") as f:
             hdr = f['header']
             stats_dict["id"]              = str(hdr.attrs['id'])
+            stats_dict["locs"]              = list(hdr.attrs['locs'])
             stats_dict["starttime"]       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S')
             stats_dict["endtime"]         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S')
             stats_dict["window"]          = int(hdr.attrs['window'])
