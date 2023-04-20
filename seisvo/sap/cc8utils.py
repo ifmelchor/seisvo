@@ -285,7 +285,7 @@ class CC8out(object):
         return dout
 
 
-    def get_pdf(self, attr, fq_idx=None, slow_idx=None, bandwidth=0.02):
+    def get_pdf(self, attr, fq_idx=None, slow_idx=None, bandwidth=0.02, maac_th=None, rel_prob=False, **kwargs):
         
         attr_list = self.__check_attr__(attr, "scalar")
         
@@ -301,8 +301,27 @@ class CC8out(object):
         
         if attr == "rms":
             data = 10*np.log10(data)
+        
+        if isinstance(maac_th, float) and "maac" in attr_list:
+            # filter data to fullfill with maac values
+            key = "/".join([fqslo, "maac"])
+            maac_data = self._dout[key]
+            wm = np.where(maac_data>maac_th)
+            data = data[wm]
+        else:
+            if isinstance(maac_th, float):
+                print("warn :: no maac data found in attr_list")
 
-        return get_pdf_data(data, bandwidth)
+        if data.any():
+            y, pdf = get_pdf_data(data, bandwidth, db_scale=False, **kwargs)
+            
+            if rel_prob:
+                pdf *= np.log2(data.shape[0])
+            
+            return y, pdf
+        
+        else:
+            return None, None
 
 
     def plot(self, cc_th=0.5, fq_idx=None, slow_idx=None, datetime=False, **kwargs):

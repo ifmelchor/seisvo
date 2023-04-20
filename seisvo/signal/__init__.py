@@ -42,7 +42,7 @@ def get_tseries_stats(x):
     return [v_min, v_max, v_mean, v_mode]
 
 
-def get_pdf_data(x, bandwidth, xmin=None, xmax=None, xspace=1000, db_scale=False, **kwargs):
+def get_pdf_data(x, bandwidth, db_scale=False, **kwargs):
 
     if len(x.shape) == 1:
         x = x.reshape(-1,1)
@@ -53,12 +53,15 @@ def get_pdf_data(x, bandwidth, xmin=None, xmax=None, xspace=1000, db_scale=False
     if db_scale:
         data = 10*np.log10(data)
     
+    xmin = kwargs.get("xmin", None)
     if not xmin:
         xmin = data.min()
     
+    xmax = kwargs.get("xmax", None)
     if not xmax:
         xmax = data.max()
 
+    xspace = kwargs.get("xspace", 1000)
     y_space = np.linspace(xmin, xmax, xspace).reshape(xspace, 1)
     pdf = get_PDF(data, y_space, bandwidth, **kwargs)
 
@@ -198,7 +201,7 @@ class SSteps(object):
 
     
     @staticmethod
-    def nsteps(total_sec, window, olap, return_rest=True):
+    def nsteps(total_sec, window, olap):
         num = total_sec - olap*window
         denom = window * (1 - olap)
         steps = np.floor(num/denom)
