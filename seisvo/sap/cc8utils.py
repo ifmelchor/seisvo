@@ -325,7 +325,6 @@ class CC8out(object):
             y, pdf = get_pdf_data(data, bandwidth, db_scale=False, **kwargs)
             
             if rel_prob:
-                print(data.shape[0])
                 pdf *= np.log2(data.shape[0])
             
             return y, pdf
