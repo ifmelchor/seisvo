@@ -311,7 +311,7 @@ class CC8out(object):
         if attr == "rms":
             data = 10*np.log10(data)
         
-        if isinstance(maac_th, float) and "maac" in attr_list:
+        if isinstance(maac_th, float) and "maac" in self.attr_list:
             # filter data to fullfill with maac values
             key = "/".join([fqslo, "maac"])
             maac_data = self._dout[key]
