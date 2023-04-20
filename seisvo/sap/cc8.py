@@ -83,13 +83,15 @@ class CC8(object):
 
 
     def __checkidx__(self, idx, type):
-
         if isinstance(idx, (str, int)):
-            cond1 = type == "slow" and str(idx) in self.sidx_
-            cond2 = type == "fq" and str(idx) in self.fqidx_
+            if isinstance(idx, int):
+                idx = str(idx)
+            
+            cond1 = type == "slow" and idx in self.sidx_
+            cond2 = type == "fq" and idx in self.fqidx_
             
             if cond1 or cond2:
-                return [str(idx)]
+                return [idx]
             else:
                 return []
                 
@@ -99,8 +101,6 @@ class CC8(object):
             
             if type == "slow":
                 return [str(ix) for ix in idx if str(ix) in self.sidx_]
-            
-        return []
     
 
     def __checkattr__(self, attr):
@@ -113,8 +113,6 @@ class CC8(object):
 
         if isinstance(attr, (list, tuple)):
             return [at for at in attr if at in ATTR_LIST]
-        
-        return []
 
 
     def __str__(self):
