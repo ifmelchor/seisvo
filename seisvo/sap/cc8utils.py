@@ -289,16 +289,20 @@ class CC8out(object):
         
         attr_list = self.__check_attr__(attr, "scalar")
         
-        fq_idx = self.cc8.__checkidx__(fq_idx, "fq")
-        slow_idx = self.cc8.__checkidx__(slow_idx, "slow")
-
-        if fq_idx and slow_idx:
-            fqslo = "/".join([fq_idx[0], slow_idx[0]])
-            key = "/".join([fqslo, attr_list[0]])
+        if not fq_idx:
+            fq_idx = self._fqidx[0]
         else:
-            print("error:: no freq_idx and slow_idx found")
-            return None, None
+            fq_idx = str(fq_idx)
+            assert fq_idx in self._fqidx
+        
+        if not slow_idx:
+            slow_idx = self._slidx[0]
+        else:
+            slow_idx = str(slow_idx)
+            assert slow_idx in self._slidx
 
+        fqslo = "/".join([fq_idx, slow_idx])
+        key = "/".join([fqslo, attr_list[0]])
         data = self._dout[key]
         
         if attr == "bazm":
