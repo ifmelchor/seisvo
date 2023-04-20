@@ -309,6 +309,7 @@ class CC8out(object):
             data[data>400] = np.nan
         
         if attr == "rms":
+            data[data<=0] = np.nan 
             data = 10*np.log10(data)
         
         if isinstance(maac_th, float) and "maac" in self.attr_list:
@@ -321,6 +322,8 @@ class CC8out(object):
             if isinstance(maac_th, float):
                 print("warn :: no maac data found in attr_list")
 
+        # remove nan
+        data = data[np.isfinite(data)]
         if data.any():
             y, pdf = get_pdf_data(data, bandwidth, db_scale=False, **kwargs)
             
