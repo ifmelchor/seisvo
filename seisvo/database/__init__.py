@@ -41,28 +41,30 @@ class SDErow(SQLbase):
     station = sql.Column(sql.String, nullable=False)
     location = sql.Column(sql.String, nullable=True)
     
-    label = sql.Column(sql.String, nullable=True)
+    label = sql.Column(sql.String, nullable=False)
     sublabel = sql.Column(sql.String, nullable=True)
     
-    starttime = sql.Column(sql.DateTime(timezone=False), nullable=True)
-    duration = sql.Column(sql.Float, nullable=True)
+    starttime = sql.Column(sql.DateTime(timezone=False), nullable=False)
+    duration = sql.Column(sql.Float, nullable=False)
 
     # event attributes
-    onset_P = sql.Column(sql.String, nullable=True)
-    first_motion_P = sql.Column(sql.String, nullable=True)
     time_P = sql.Column(sql.Float, nullable=True)
     weight_P = sql.Column(sql.Integer, nullable=True)
+    onset_P = sql.Column(sql.String, nullable=True)
+
     time_S = sql.Column(sql.Float, nullable=True)
     weight_S = sql.Column(sql.Integer, nullable=True)
+
+    time_F = sql.Column(sql.Float, nullable=True)
+    
     peak_to_peak = sql.Column(sql.Float, nullable=True)
-    max_period = sql.Column(sql.Float, nullable=True)
 
     # others
-    event_amplitude = sql.Column(sql.Float, nullable=True)
-    event_duration = sql.Column(sql.Float, nullable=True)
-    event_frequency = sql.Column(sql.Float, nullable=True)
-    azimuth = sql.Column(sql.Float, nullable=True)
-    incidence = sql.Column(sql.Float, nullable=True)
+    # event_amplitude = sql.Column(sql.Float, nullable=True)
+    # event_duration = sql.Column(sql.Float, nullable=True)
+    # event_frequency = sql.Column(sql.Float, nullable=True)
+    # azimuth = sql.Column(sql.Float, nullable=True)
+    # incidence = sql.Column(sql.Float, nullable=True)
 
     # additional floats
     value_1 = sql.Column(sql.Float, nullable=True)
@@ -83,6 +85,9 @@ class SDErow(SQLbase):
             self.event_id, self.id, self.event_type, 
             self.network, self.station, self.location)
         return text_info
+    
+    def get_station_id(self):
+        return '.'.join([self.network, self.station, self.location])
 
 
     def get_network(self):
@@ -90,8 +95,31 @@ class SDErow(SQLbase):
 
 
     def get_station(self):
-        net = self.get_network()
-        return net.get_sta(self.station, self.location)
+        return self.get_network().get_sta(self.station, self.location)
+    
+
+    def get_stream(self, off_seconds=0, **kwargs):
+        sta = self.get_station()
+        start = self.starttime - dt.timedelta(seconds=off_seconds)
+        end   = self.starttime + dt.timedelta(seconds=duration+off_seconds)
+        st = sta.get_stream(start, end, **kwargs)
+        return st
+    
+
+    def get_Pdate(self):
+        return self.starttime + dt.timedelta(seconds=time_P)
+    
+
+    def get_Sdate(self):
+        return self.starttime + dt.timedelta(seconds=time_S)
+    
+
+    def get_Fdate(self):
+        return self.starttime + dt.timedelta(seconds=time_F)
+    
+
+    
+
 
 
 class LDErow(SQLbase):
@@ -382,7 +410,7 @@ class _DataBase(object):
 class SDE(_DataBase):
     def __init__(self, sql_path):
         super().__init__(sql_path, 'SDE')
-        self.__check__()
+        #self.__check__() # this is too slow
 
     
     def __len__(self):
@@ -394,7 +422,7 @@ class SDE(_DataBase):
         return Event(eid, self)
 
 
-    def __check__(self):
+    def check(self):
         # this function checks the database is ready for operate
         for eid in self.get_eid_list():
             stations = Event(eid, self).stations
@@ -473,21 +501,19 @@ class SDE(_DataBase):
 
 
     def is_eid(self, eid):
-        if isinstance(eid, int):
-            return eid in self.get_eid_list()
-        
-        else:
-            print(' event_id must be an integer')
-    
+        return eid in self.get_eid_list()
 
-    def get_row(self, eid, network, station, location, return_row=False):
+
+    def get_row(self, eid, network, station, location):
         rows = self.get_id(with_info=False)
         events_filt = list(filter(lambda e: e.event_id == eid and e.network == network and e.station == station and e.location == location, rows))
+        
         if events_filt:
-            events_filt = [e.id for e in events_filt]
             if len(events_filt) > 1:
                 print( 'warn: more than one id found')
-            return self.get_id(id=events_filt[0])
+            
+            return self.get_id(id=events_filt[0].id)
+        
         else:
             return None
 

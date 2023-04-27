@@ -83,7 +83,6 @@ class Station(object):
                 
                 if isinstance(endtime, dt.datetime):
                     endtime = UTCDateTime(endtime)
-
                 return read2(file, starttime=starttime, endtime=endtime, headonly=headonly)
             
             else:
@@ -92,37 +91,37 @@ class Station(object):
             return False
 
 
-    def __set_dates__(self, chan=None):
+    def __set_dates__(self):
         """
         Set startdate and enddate of the station object.
-        By default, first channel is used to compute.
-        :param chan: optional, first channel by default
         """
 
-        if not chan:
-            chan = self.stats.chan[0]
-        else:
-            if chan not in self.stats.chan:
-                raise TypeError('Channel not loaded')
+        start = dt.datetime(2969,1,1)
+        end   = dt.datetime(1969,1,1)
 
-        flist = glob(os.path.join(self.stats.sdsdir, '*', self.stats.net, self.stats.code, '%s.D' % chan, '*'))
-        flist = list(filter(lambda x : len(x.split('.')[-1]) == 3, flist))
-        datelist = [i[-8:] for i in flist]
-        datelist.sort()
+        for chan in self.stats.chan:
+            flist = glob(os.path.join(self.stats.sdsdir, '*', self.stats.net, self.stats.code, '%s.D' % chan, '*'))
+            flist = list(filter(lambda x : len(x.split('.')[-1]) == 3, flist))
+            datelist = [i[-8:] for i in flist]
+            datelist.sort()
 
-        if datelist:
-            startdate = dt.datetime.strptime(datelist[0], '%Y.%j')
-            enddate = dt.datetime.strptime(datelist[-1], '%Y.%j')
+            if datelist:
+                startdate = dt.datetime.strptime(datelist[0], '%Y.%j')
+                sd_st = self.__read_file__(chan, date=startdate, stream=True, headonly=True)
+                if sd_st:
+                    starttime = sd_st[0].stats.starttime.datetime
+                    if starttime < start:
+                        start = starttime
+                
+                enddate = dt.datetime.strptime(datelist[-1], '%Y.%j')
+                ed_st = self.__read_file__(chan, date=enddate, stream=True, headonly=True)
+                if ed_st:
+                    endtime   = ed_st[0].stats.endtime.datetime                    
+                    if endtime > end:
+                        end = endtime
 
-            sd_st = self.__read_file__(chan, date=startdate, stream=True)
-            ed_st = self.__read_file__(chan, date=enddate, stream=True)
-
-            self.starttime = sd_st[0].stats.starttime.datetime
-            self.endtime = ed_st[0].stats.endtime.datetime
-
-        else:
-            self.starttime = None
-            self.endtime = None
+        self.starttime = start
+        self.endtime   = end
 
 
     def __rm_sensitivity__(self, st, disp=False):

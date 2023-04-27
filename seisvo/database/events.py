@@ -15,14 +15,26 @@ class Event(object):
     def __init__(self, event_id, sde):
         self.id = event_id
         self.sde = sde
-        self.label = None
-        self.starttime = None
-        self.endtime = None
-        self.duration = None
+        self.rows_ = self.sde.get_event(self.id)
+        
+        max_duration = []
         self.stations = []
-        self.event_duration = None
-        self._setattr()
+        for row in self.rows_:
+            if row.label:
+                self.label     = row.label
+                self.starttime = row.starttime
+                self.duration  = row.duration
+                self.endtime   = row.starttime + dt.timedelta(seconds=row.duration)
 
+            if row.event_duration:
+                max_duration.append(row.event_duration)
+            
+            station_id = '.'.join([row.network, row.station, row.location])
+            self.stations.append(station_id)
+        
+        if max_duration:
+            self.event_duration = max(max_duration)
+        
 
     def __len__(self):
         return len(self.stations)
@@ -36,42 +48,17 @@ class Event(object):
         text_info += "    Duration [min] : %.2f\n" % self.duration
         text_info += "    Stations       : %s\n" % (self.stations)
         return text_info
-
-
-    def _setattr(self):
-        self.events = self.sde.get_event(self.id)
-
-        max_duration = []
-        for e in self.events:
-            if e.label:
-                self.label = e.label
-                self.starttime = e.starttime
-                self.duration = e.duration
-                self.endtime = e.starttime + dt.timedelta(seconds=e.duration)
-
-            if e.event_duration:
-                max_duration.append(e.event_duration)
-            
-            station_id = '.'.join([e.network, e.station, e.location])
-            self.stations.append(station_id)
-        
-        if max_duration:
-            self.event_duration = max(max_duration)
-            
+     
 
     def __getitem__(self, i):
-        return self.events[i]
+        return self.rows_[i]
 
 
     def get_row(self, station_id):
-        network = station_id.split('.')[0]
-        station = station_id.split('.')[1]
-        location = station_id.split('.')[2]
-        n_row = self.sde.get_row(self.id, network, station, location)
-        if n_row:
-            return self.sde.get_id(n_row)
-        else:
-            return None
+        for row in self.rows_:
+            staid = '.'.join([row.network, row.station, row.location])
+            if staid == station_id:
+                return row
 
 
     def plot(self, **kwargs):
@@ -173,20 +160,31 @@ class Event(object):
         return return_string
 
 
-    def get_stream(self, remove_response=True, **kwargs):
-        stream = None
+    def get_stream(self, **kwargs):
         
-        for sta in self.stations:
-            row = self.get_row(sta)
+        stream = None
+        for row in self.rows_:
             sta = row.get_station()
-            st1 = sta.get_stream(self.starttime, self.starttime+dt.timedelta(seconds=self.duration), remove_response=remove_response, **kwargs)
+            print(row)
+            st1 = sta.get_stream(self.starttime, self.starttime+dt.timedelta(seconds=self.duration), **kwargs)
+            if st1:
+                if not stream:
+                    stream = st1
+                else:
+                    stream += st1
             
-            if not stream:
-                stream = st1
-            else:
-                stream += st1
 
         return stream
+
+
+    def pick_phase(self, station_id):
+
+        row = self.get_row(station_id)
+
+        if row:
+
+            
+
 
 
 class Episode(object):

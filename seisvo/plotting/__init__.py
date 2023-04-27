@@ -764,7 +764,7 @@ def get_colors(*args):
     return color_dict
 
 
-def plot_sde_event(event, **kwargs):
+def plot_sde_event(event, return_axes=False, fig=None, **kwargs):
     """
     This function plots the event of SDE database.
 
@@ -773,31 +773,11 @@ def plot_sde_event(event, **kwargs):
     event : Event (object) of SDE database
     """
 
-    fq_band = kwargs.get('fq_band', (0.5,10))
+    fq_band = kwargs.get('fq_band', (0.5,15))
     avg_step = kwargs.get('avg_step', None)
     olap = kwargs.get('olap', 0.25)
-    add_sta = kwargs.get('stations', None)
-    fig = kwargs.get('fig', None)
-    return_axes = kwargs.get('return_axes', False)
-    remove_response = kwargs.get('remove_response', True)
-    sample_rate = kwargs.get('sample_rate', None)
     off_time = kwargs.get('off_time', 0)
-
-    if sample_rate:
-        del kwargs['sample_rate']
-
-    del kwargs['remove_response']
-
-    def __check__(sta_id):
-        try:
-            net_code = sta_id.split('.')[0]
-            sta_code = sta_id.split('.')[1]
-            loc_code = sta_id.split('.')[2]
-            return True
-        
-        except IndexError:
-            return False
-
+    component = kwargs.get('component', None)
 
     def __getstream__(station_list):
         # create row if station_id not exist but stream does
@@ -830,19 +810,20 @@ def plot_sde_event(event, **kwargs):
 
         return stream
 
-    station_list = event.stations
-    if add_sta:
-        if isinstance(add_sta, str):
-            if add_sta not in station_list and __check__(add_sta):
-                station_list.append(add_sta)
+    # if add_sta:
+    #     if isinstance(add_sta, str):
+    #         if add_sta not in station_list and __check__(add_sta):
+    #             station_list.append(add_sta)
         
-        elif isinstance(add_sta, (list, tuple)): 
-            for s in add_sta:
-                if s not in station_list and __check__(s):
-                    station_list.append(s)
-        else:
-            raise ValueError(' add_stations should be list, sring or tuple')
+    #     elif isinstance(add_sta, (list, tuple)): 
+    #         for s in add_sta:
+    #             if s not in station_list and __check__(s):
+    #                 station_list.append(s)
+    #     else:
+    #         raise ValueError(' add_stations should be list, sring or tuple')
     
+    station_list = event.stations
+    stream = event.get_stream(**kwargs)
     nro_rows = len(station_list)
     stream = __getstream__(station_list)
     

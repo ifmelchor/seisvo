@@ -23,7 +23,7 @@ class Trace2(Trace):
         super().__init__(data=trace.data, header=trace.stats)
     
 
-    def get_data(self, starttime=None, endtime=None, demean=True, detrend=True, fq_band=(), abs=False, sample_rate=None, rm_sensitivity=False, **kwargs):
+    def get_data(self, starttime=None, endtime=None, demean=True, detrend=True, fq_band=(), abs=False, sample_rate=None, rm_sensitivity=False, norm=False, **kwargs):
         """
         This code returns a numpy array of the data
         """
@@ -56,6 +56,10 @@ class Trace2(Trace):
         
         if abs:
             data = np.abs(data)
+        
+        if norm:
+            maxval = np.abs(data).max()
+            data = data / maxval
         
         return data
 

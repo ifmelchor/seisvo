@@ -36,7 +36,7 @@ class MplCanvas(FigureCanvas):
         self.eid_list = eid_list
         self.index = self.eid_list.index(eid)
 
-        self.remove_response = kwargs.get('remove_response', True)
+        self.remove_response = kwargs.get('remove_response', False)
         self.fq_band = kwargs.get('fq_band', (1,10))
         self.stations = kwargs.get('stations', None)
         self.off_time = kwargs.get('off_time', 0)

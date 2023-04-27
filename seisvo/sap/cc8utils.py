@@ -312,14 +312,13 @@ class CC8out(object):
             data[data<=0] = np.nan 
             data = 10*np.log10(data)
         
-        if isinstance(maac_th, float) and "maac" in self.attr_list:
-            # filter data to fullfill with maac values
-            key = "/".join([fqslo, "maac"])
-            maac_data = self._dout[key]
-            wm = np.where(maac_data>maac_th)
-            data = data[wm]
-        else:
-            if isinstance(maac_th, float):
+        if isinstance(maac_th, float):
+            if "maac" in self.attr_list:
+                # filter data to fullfill with maac values
+                key = "/".join([fqslo, "maac"])
+                maac_data = self._dout[key]
+                data = data[maac_data>=maac_th]
+            else:
                 print("warn :: no maac data found in attr_list")
 
         # remove nan
@@ -328,7 +327,7 @@ class CC8out(object):
             y, pdf = get_pdf_data(data, bandwidth, db_scale=False, **kwargs)
             
             if rel_prob:
-                pdf *= np.log2(data.shape[0])
+                pdf *= np.log(data.shape[0])
             
             return y, pdf
         
