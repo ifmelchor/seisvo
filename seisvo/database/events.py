@@ -16,24 +16,11 @@ class Event(object):
         self.id = event_id
         self.sde = sde
         self.rows_ = self.sde.get_event(self.id)
-        
-        max_duration = []
-        self.stations = []
-        for row in self.rows_:
-            if row.label:
-                self.label     = row.label
-                self.starttime = row.starttime
-                self.duration  = row.duration
-                self.endtime   = row.starttime + dt.timedelta(seconds=row.duration)
-
-            if row.event_duration:
-                max_duration.append(row.event_duration)
-            
-            station_id = '.'.join([row.network, row.station, row.location])
-            self.stations.append(station_id)
-        
-        if max_duration:
-            self.event_duration = max(max_duration)
+        self.label     = self.rows_[0].label
+        self.starttime = self.rows_[0].starttime
+        self.duration  = self.rows_[0].duration
+        self.endtime   = self.rows_[0].starttime + dt.timedelta(seconds=row.duration)
+        self.stations = ['.'.join([row.network, row.station, row.location]) for row in self.rows_]
         
 
     def __len__(self):
@@ -45,7 +32,7 @@ class Event(object):
         text_info += "    Database       : %s\n" % self.sde.sql_path
         text_info += "    Label          : %s\n" % self.label
         text_info += "    Starttime      : %s\n" % self.starttime.strftime('%Y-%m-%d %H:%M')
-        text_info += "    Duration [min] : %.2f\n" % self.duration
+        text_info += "    Duration [sec] : %.2f\n" % self.duration
         text_info += "    Stations       : %s\n" % (self.stations)
         return text_info
      
@@ -54,19 +41,54 @@ class Event(object):
         return self.rows_[i]
 
 
+    def get_stream(self, toff_sec=0, **kwargs):
+        stream = None
+        toff = dt.timedelta(seconds=toff_sec)
+        for row in self.rows_:
+            sta = row.get_station()
+            st1 = sta.get_stream(self.starttime-toff, self.endtime+toff, **kwargs)
+            if st1:
+                if not stream:
+                    stream = st1
+                else:
+                    stream += st1
+        return stream
+
+
+    def append_station(self, station_id, etype="S"):
+        if station_id not in self.stations:
+            dinfo = {
+                'network'   : station_id.split(".")[0],
+                'station'   : station_id.split(".")[1],
+                'location'  : station_id.split(".")[2],
+                'event_type': etype,
+                'label'     : self.label,
+                'starttime' : self.starttime,
+                'duration'  : self.duration,
+                'event_id'  : self.eid,
+            }
+            self.sde.add_row(dinfo)
+            self.stations.append(station_id)
+    
+
+    def remove_station(self, station_id):
+        row = self.get_row(station_id)
+        if row and len(self.stations)>1:
+            self.sde.remove_row(row.id)
+            self.stations.remove(station_id)
+
+
+    def relabel(self, new_label):
+        for row in self.rows_:
+            self.sde.update_row(row.id, dict(label=new_label))
+            self.label = new_label
+
+
     def get_row(self, station_id):
         for row in self.rows_:
             staid = '.'.join([row.network, row.station, row.location])
             if staid == station_id:
                 return row
-
-
-    def plot(self, **kwargs):
-        from seisvo.plotting import plot_sde_event
-        
-        ans = plot_sde_event(self, **kwargs)
-
-        return ans
 
 
     def to_hypo71(self, out_dir=None):
@@ -160,30 +182,31 @@ class Event(object):
         return return_string
 
 
-    def get_stream(self, **kwargs):
-        
-        stream = None
-        for row in self.rows_:
-            sta = row.get_station()
-            print(row)
-            st1 = sta.get_stream(self.starttime, self.starttime+dt.timedelta(seconds=self.duration), **kwargs)
-            if st1:
-                if not stream:
-                    stream = st1
-                else:
-                    stream += st1
+    def get_phases(self, nro_phases=False):
+        phase = {}
+        nphase = 0
+        for sta in self.stations:
+            row = self.get_row(sta)
             
+            if row.time_P or row.time_S or row.time_F:
+                phase[sta] = {}
+                
+                if row.time_P:
+                    phase[sta]["P"] = row.time_P
+                    nphase += 1
+                
+                if row.time_S:
+                    phase[sta]["S"] = row.time_S
+                    nphase += 1
+                
+                if row.time_F:
+                    phase[sta]["F"] = row.time_F
+                    nphase += 1
 
-        return stream
+        if nro_phases:
+            return nphase
 
-
-    def pick_phase(self, station_id):
-
-        row = self.get_row(station_id)
-
-        if row:
-
-            
+        return phase
 
 
 
@@ -373,6 +396,7 @@ class Episode(object):
         from seisvo.gui.glde import plot_event_polar
         if self.lte_file_sup:
             plot_event_polar(self, **kwargs)
+
 
 
 class iEvent(object):

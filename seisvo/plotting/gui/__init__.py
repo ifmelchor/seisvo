@@ -2,21 +2,15 @@
 # coding=utf-8
 
 import os
-import numpy as np
-
-from matplotlib.figure import Figure
-from matplotlib.backends.qt_compat import QtCore, QtWidgets, QtGui
-from matplotlib.backends.backend_qt5agg import FigureCanvas, NavigationToolbar2QT as NavigationToolbar
-from matplotlib.widgets import AxesWidget
-
-from seisvo.plotting import plot_multiple_psd
-from seisvo.plotting.gui.frames import PSDPDWindow
-
 from pynotifier import Notification
-import pyqtgraph
+from matplotlib.widgets import AxesWidget
+import matplotlib.dates as mdates
 
 path = os.path.dirname(os.path.realpath(__file__))
 icons_path = os.path.join(path, 'icons')
+
+P_PICKER_KEYS = ['P', 'p', '1', '2', '3', '4']
+S_PICKER_KEYS = ['S', 's', '!', '"', '·', '$']
 
 
 def notify(title, description, status='info', duration=2):
@@ -32,38 +26,119 @@ def notify(title, description, status='info', duration=2):
     n.send()
 
 
-class Navigation(object):
-    def __init__(self, ax, imshow_axes=None, base_scale=2, parent=None, **kwargs):
+class _Cursor(AxesWidget):
+    def __init__(self, ax, horizOn=True, vertOn=True, useblit=False, **lineprops):
         
-        self.parent = parent
-        self.ax = ax
-        self.imshow_axes = imshow_axes
+        AxesWidget.__init__(self, ax)
+
+        self.connect_event('motion_notify_event', self.onmove)
+        self.connect_event('draw_event', self.clear)
+
+        self.visible = True
+        self.horizOn = horizOn
+        self.vertOn = vertOn
+        self.useblit = useblit and self.canvas.supports_blit
+
+        if self.useblit:
+            lineprops['animated'] = True
+
+        self.lineh = ax.axhline(ax.get_ybound()[0], visible=False, **lineprops)
+        self.linev = ax.axvline(ax.get_xbound()[0], visible=False, **lineprops)
+
+        self.background = None
+        self.needclear = False
+
+
+    def clear(self, event):
+        """Internal event handler to clear the cursor."""
+        if self.ignore(event):
+            return
+        if self.useblit:
+            self.background = self.canvas.copy_from_bbox(self.ax.bbox)
+        
+        self.linev.set_visible(False)
+        self.lineh.set_visible(False)
+
+
+    def onmove(self, event):
+        """Internal event handler to draw the cursor when the mouse moves."""
+        
+        if self.ignore(event):
+            return
+        
+        if not self.canvas.widgetlock.available(self):
+            return
+        
+        if event.inaxes != self.ax:
+            self.linev.set_visible(False)
+            self.lineh.set_visible(False)
+
+            if self.needclear:
+                self.canvas.draw()
+                self.needclear = False
+            return
+        
+        self.needclear = True
+        
+        if not self.visible:
+            return
+        
+        self.linev.set_xdata((event.xdata, event.xdata))
+        self.linev.set_visible(self.visible and self.vertOn)
+
+        self.lineh.set_ydata((event.ydata, event.ydata))
+        self.lineh.set_visible(self.visible and self.horizOn)
+
+        self._update()
+
+
+    def _update(self):
+        if self.useblit:    
+            if self.background is not None:
+                self.canvas.restore_region(self.background)
+            
+            self.ax.draw_artist(self.linev)
+            self.ax.draw_artist(self.lineh)
+            self.canvas.blit(self.ax.bbox)
+
+        else:
+            self.canvas.draw_idle()
+        
+        return False
+
+
+
+class _Navigate(object):
+    def __init__(self, axes, canvas, im_axis=None, base_scale=2, **lineprops):
+        # lineprops --> color='red', linewidth=0.5, alpha=0.5
+        """
+        axes is a list of Axes
+        """
+
+        self.ax  = axes
+        self.canvas = canvas
         self.base_scale = base_scale
-
-        if not (isinstance(ax, np.ndarray) or isinstance(ax, list)):
-            self.ax = [ax]
+        self.imshow_axes = im_axis
+        self.cursors = []
+        for ax in axes:
+            cursor = _Cursor(ax, useblit=True, **lineprops)
+            self.cursors.append(cursor)
         
-        if not (isinstance(imshow_axes, np.ndarray) or isinstance(imshow_axes, list)) and imshow_axes:
-            self.imshow_axes = [imshow_axes]
-        
-        self.fig = self.ax[0].get_figure()
-        self.cursors = [Cursor(ax, useblit=True, color='red', linewidth=0.5, alpha=0.5) for ax in self.ax]
-        self.max_xlim = self.ax[0].get_xlim()
-
-        self.press = None
-        self.cur_xlim = None
         self.x0 = None
         self.x1 = None
-        self.xpress = None
+        self.press    = None
+        self.xpress   = None
+        self.cur_xlim = None
         self.new_xlim = None
+        self.max_xlim = ax[0].get_xlim()
 
         self.ticks = dict(left=[None, []], right=[None, []]) # tick data and list of axvline
-        self.fig.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
-        self.fig.canvas.setFocus()
-        self.fig.canvas.mpl_connect('scroll_event', self.onZoom)
-        self.fig.canvas.mpl_connect('button_press_event', self.onClkPress)
-        self.fig.canvas.mpl_connect('button_release_event', self.onClkRelease)
-        self.fig.canvas.mpl_connect('motion_notify_event', self.onMotion)
+        self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
+        self.canvas.setFocus()
+        self.canvas.mpl_connect('scroll_event', self.onZoom)
+        self.canvas.mpl_connect('button_press_event', self.onClkPress)
+        self.canvas.mpl_connect('button_release_event', self.onClkRelease)
+        self.canvas.mpl_connect('motion_notify_event', self.onMotion)
 
 
     def reset(self):
@@ -84,13 +159,8 @@ class Navigation(object):
             [line.remove() for line in self.ticks['right'][1]]
             self.ticks['right'][0] = None
 
-    def draw(self):
-        with pyqtgraph.BusyCursor():
-            self.fig.canvas.draw()
-
 
     def set_xlim(self, new_lim):
-
         if new_lim[0] < self.max_xlim[0]:
             new_lim[0] = self.max_xlim[0]
 
@@ -128,7 +198,7 @@ class Navigation(object):
             new_lim = [xdata - new_width * (1-relx), xdata + new_width * (relx)]
 
             self.set_xlim(new_lim)
-            self.draw()
+            self.canvas.draw()
 
 
     def onClkPress(self, event):
@@ -185,7 +255,7 @@ class Navigation(object):
                     self.ticks['left'][1].append(ax.axvline(self.old_tick, color='k', alpha=0.7, ls='--', lw=1))
 
         self.press = None
-        self.draw()
+        self.canvas.draw()
 
 
     def onMotion(self, event):
@@ -206,289 +276,147 @@ class Navigation(object):
         self.set_xlim(self.new_xlim)
 
 
-class Cursor(AxesWidget):
-    def __init__(self, ax, horizOn=True, vertOn=True, useblit=False,
-                 **lineprops):
-        
-        AxesWidget.__init__(self, ax)
 
-        self.connect_event('motion_notify_event', self.onmove)
-        self.connect_event('draw_event', self.clear)
-
-        self.visible = True
-        self.horizOn = horizOn
-        self.vertOn = vertOn
-        self.useblit = useblit and self.canvas.supports_blit
-
-        if self.useblit:
-            lineprops['animated'] = True
-        self.lineh = ax.axhline(ax.get_ybound()[0], visible=False, **lineprops)
-        self.linev = ax.axvline(ax.get_xbound()[0], visible=False, **lineprops)
-
-        self.background = None
-        self.needclear = False
-
-    def clear(self, event):
-        """Internal event handler to clear the cursor."""
-        if self.ignore(event):
-            return
-        if self.useblit:
-            self.background = self.canvas.copy_from_bbox(self.ax.bbox)
-        
-        self.linev.set_visible(False)
-        self.lineh.set_visible(False)
-
-    def onmove(self, event):
-        """Internal event handler to draw the cursor when the mouse moves."""
-        if self.ignore(event):
-            return
-        if not self.canvas.widgetlock.available(self):
-            return
-        if event.inaxes != self.ax:
-            self.linev.set_visible(False)
-            self.lineh.set_visible(False)
-
-            if self.needclear:
-                self.canvas.draw()
-                self.needclear = False
-            return
-        
-        self.needclear = True
-        
-        if not self.visible:
-            return
-        
-        self.linev.set_xdata((event.xdata, event.xdata))
-        self.linev.set_visible(self.visible and self.vertOn)
-
-        self.lineh.set_ydata((event.ydata, event.ydata))
-        self.lineh.set_visible(self.visible and self.horizOn)
-
-        self._update()
-
-    def _update(self):
-        if self.useblit:
-            
-            if self.background is not None:
-                self.canvas.restore_region(self.background)
-            
-            self.ax.draw_artist(self.linev)
-            self.ax.draw_artist(self.lineh)
-            self.canvas.blit(self.ax.bbox)
-
-        else:
-            self.canvas.draw_idle()
-        return False
-
-
-class LDEfilter(QtWidgets.QDialog):
-    def __init__(self, labels, default=[], **kwargs):
-        QtWidgets.QDialog.__init__(self)
-        self.ui = ldegui_filter.Ui_Dialog()
-        self.ui.setupUi(self)
-        self.items = []
-        self.set_labels(labels)
-        self.check_labels(default)
-        self.ui.pushButton.clicked.connect(self.set_check)
-        self.ui.pushButton_2.clicked.connect(self.set_uncheck)
-        self.show()
-
+class _Picker(object):
+    def __init__(self, axes, phase, sde, row_id, canvas, **kwargs):
+        self.db  = sde
+        self.row_id = row_id
+        self.axes = axes
+        self.phase  = phase
+        self.canvas = canvas
+        self.phase_colors = kwargs.get("phase_colors",{"P":"r", "S":"g", "F":"b"})
+        canvas.callbacks.connect('key_press_event', self.on_key)
     
-    def set_labels(self, labels):
-        j = 0
-        for i in range(int(len(labels)/2)):
-            self.add_items((labels[j], labels[j+1]))
-            j += 2
 
-        if len(labels) % 2 == 1:
-            self.add_items(labels[-1])
+    def clear(self, wave):
+        assert wave in ["P", "S", "F"]
 
+        for artist in self.phase[wave]["artist"]:
+            artist.remove()
+        self.phase[wave]["artist_text"].remove()
 
-    def add_items(self, item):
-        root = self.ui.treeWidget.invisibleRootItem()
-        child_count = root.childCount()
-
-        if isinstance(item, tuple):
-            # add item[0] and item[1] in two-colunm
-            item_0 = QtWidgets.QTreeWidgetItem(self.ui.treeWidget)
-            item_0.setCheckState(0, QtCore.Qt.Unchecked)
-            item_0.setCheckState(1, QtCore.Qt.Unchecked)
-            self.items += [(item_0, item)]
-            __sortingEnabled = self.ui.treeWidget.isSortingEnabled()
-            self.ui.treeWidget.setSortingEnabled(False)
-            self.ui.treeWidget.topLevelItem(child_count).setText(0, item[0])
-            self.ui.treeWidget.topLevelItem(child_count).setText(1, item[1])
-            self.ui.treeWidget.setSortingEnabled(__sortingEnabled)
-
-        else:
-            # add item in first column
-            item_0 = QtWidgets.QTreeWidgetItem(self.ui.treeWidget)
-            item_0.setCheckState(0, QtCore.Qt.Unchecked)
-            self.items += [(item_0, item)]
-            __sortingEnabled = self.ui.treeWidget.isSortingEnabled()
-            self.ui.treeWidget.setSortingEnabled(False)
-            self.ui.treeWidget.topLevelItem(child_count).setText(0, item)
-            self.ui.treeWidget.setSortingEnabled(__sortingEnabled)
-
-
-    def check_labels(self, items):
-        if items:
-            for it in self.items:
-                if isinstance(it[1], tuple):
-                    if it[1][0] in items:
-                        it[0].setCheckState(0, QtCore.Qt.Checked)
-
-                    if it[1][1] in items:
-                        it[0].setCheckState(1, QtCore.Qt.Checked)
-                else:
-                    if it[1] in items:
-                        it[0].setCheckState(0, QtCore.Qt.Checked)
-
-        else:
-            for it in self.items:
-                if isinstance(it[1], tuple):
-                    it[0].setCheckState(0, QtCore.Qt.Checked)
-                    it[0].setCheckState(1, QtCore.Qt.Checked)
-                else:
-                    it[0].setCheckState(0, QtCore.Qt.Checked)
-
-
-    def set_check(self):
-        for it in self.items:
-            if isinstance(it[1], tuple):
-                it[0].setCheckState(0, QtCore.Qt.Checked)
-                it[0].setCheckState(1, QtCore.Qt.Checked)
-            else:
-                it[0].setCheckState(0, QtCore.Qt.Checked)
-
-
-    def set_uncheck(self):
-        for it in self.items:
-            if isinstance(it[1], tuple):
-                it[0].setCheckState(0, QtCore.Qt.Unchecked)
-                it[0].setCheckState(1, QtCore.Qt.Unchecked)
-            else:
-                it[0].setCheckState(0, QtCore.Qt.Unchecked)
-
-
-    def get_labels(self):
-        checked_labels = []
-        for it in self.items:
-            if isinstance(it[1], tuple):
-                if it[0].checkState(0) == QtCore.Qt.Checked:
-                    checked_labels += [it[1][0]]
-                
-                if it[0].checkState(1) == QtCore.Qt.Checked:
-                    checked_labels += [it[1][1]]
-            else:
-                if it[0].checkState(0) == QtCore.Qt.Checked:
-                    checked_labels += [it[1]]
-
-        return checked_labels
-
-
-class PSD_GUI(QtWidgets.QMainWindow):
-    def __init__(self, freq, **kwargs):
-        
-        QtWidgets.QMainWindow.__init__(self)
-        self.ui = PSDPDWindow()
-        self.ui.setupUi(self)
-        
-        self.canvas = PSDCanvas(freq, parent=self, **kwargs)
-        
-        self.ui.verticalLayout.addWidget(self.canvas)
-        self.ui.pushButton.clicked.connect(self.canvas.logPSD)
-        self.ui.pushButton3.clicked.connect(self.canvas.normPSD)
-        self.ui.pushButton2.clicked.connect(self.canvas.logFreq)
-
-        self.setWindowTitle(kwargs.get("title", "PSD_GUI"))
-
-
-class PSDCanvas(FigureCanvas):
-    def __init__(self, freq, parent=None, **kwargs):
-
-        figsize = kwargs.get("figsize", (9, 4))
-
-        self.freq = freq
-        self.psd_array = kwargs.get('psds', None)
-        self.pd_array = kwargs.get('pds', None)
-
-        self.plot_kwargs = {
-            "db_scale":kwargs.get('db_scale', False),
-            "log_fq":kwargs.get('log_fq', False),
-            "norm":kwargs.get('norm', False),
-            "colors":kwargs.get('colors', []),
-            "labels":kwargs.get('labels', []),
-            "plot":False
+        if wave == "P":
+            self.phase[wave] = {
+                "time":None,
+                "weight":None,
+                "onset":None,
+                "artist":[],
+                "artist_text":None
             }
 
-        self.fig = Figure(figsize=figsize)
-        FigureCanvas.__init__(self, self.fig)
-        FigureCanvas.setSizePolicy(self, QtWidgets.QSizePolicy.Expanding, 
-            QtWidgets.QSizePolicy.Expanding)
-        FigureCanvas.updateGeometry(self)
-        # self.setParent(self.parent)
-        self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self.setFocus()
-        self.mpl_connect('button_release_event', self.print_tickinfo)
-        self.__plot__()
+        if wave == "S":
+            self.phase[wave] = {
+                "time":None,
+                "weight":None,
+                "artist":[],
+                "artist_text":None
+            }
 
-    def __plot__(self):
-        self.fig.clf()
-        with pyqtgraph.BusyCursor():
-            _, self.axes = plot_multiple_psd(self.freq, self.psd_array, self.pd_array, fig=self.fig, **self.plot_kwargs)
-        self.nav_n = Navigation(self.axes, parent=self.fig)
-        self.draw()
+        if wave == "F":
+            self.phase[wave] = {
+                "time":None,
+                "artist":[],
+                "artist_text":None
+            }
+        
 
+    def draw(self):
+        "draw the phases without artist"
+        for wave, phase in self.phase.items():
+            if phase["time"] and not phase["artist"]:
+                for ax in self.axes:
+                    phase['artist'].append(ax.axvline(phase["time"], color=self.phase_colors[wave], lw=1.1))
+        
+                txt = self.phase_text(wave, self.phase[wave])
+                phase['artist_text'] = self.axes[0].annotate(txt, xy=(), color=self.phase_colors[wave])
 
-    def logPSD(self):
-        self.plot_kwargs['db_scale'] = np.invert(self.plot_kwargs['db_scale'])
-        self.__plot__()
-
-    def normPSD(self):
-        self.plot_kwargs['norm'] = np.invert(self.plot_kwargs['norm'])
-        self.__plot__()
-
-
-    def logFreq(self):
-        self.plot_kwargs['log_fq'] = np.invert(self.plot_kwargs['log_fq'])
-        self.__plot__()
+        self.canvas.draw()
 
 
-    def print_tickinfo(self, event):
-        if isinstance(self.axes, np.ndarray):
-            if event.inaxes == self.axes[0]:
-                print('\n\n\n--------Tick-Info---------')
-                try:
-                    bfq = self.nav_n.ticks['left'][0]
-                    print('   Black tick: %2.2f Hz' % bfq)
-                except:
-                    bfq = None
+    def update_text(self):
+        "do not draw again, just change the artist text of each phase"
 
-                try:
-                    gfq = self.nav_n.ticks['right'][0]
-                    print('   Green tick: %2.2f Hz' % gfq)
-                except:
-                    gfq = None
+        self.phase["P"]["artist_text"].remove()
+        txt = self.phase_text("P", self.phase["P"])
+        phase['artist_text'] = self.axes[0].annotate(txt)
+        self.canvas.draw()
 
-                if bfq and gfq:
-                    print('   Delta: %2.2f Hz' % np.abs(bfq-gfq))
-                print('-------------------------')
-        else:
-            if event.inaxes == self.axes:
-                print('--------Tick-Info---------')
-                try:
-                    bfq = self.nav_n.ticks['left'][0]
-                    print('   Black tick: %2.2f Hz' % bfq)
-                except:
-                    bfq = None
 
-                try:
-                    gfq = self.nav_n.ticks['right'][0]
-                    print('   Green tick: %2.2f Hz' % gfq)
-                except:
-                    gfq = None
+    def save(self):
+        idict = {
+            'time_P':self.phase["P"]['time'],
+            'weight_P':self.phase["P"]['weight'],
+            'onset_P':self.phase["P"]['onset'],
+            'time_S':self.phase["S"]['time_S'],
+            'weight_S':self.phase["S"]['weight'],
+            'time_F':self.phase["F"]['time']
+        }
+        self.sde.update_row(self.row_id, idict)
 
-                if bfq and gfq:
-                    print('   Delta: %2.2f Hz' % np.abs(bfq-gfq))
-                print('-------------------------')
+
+    def on_key(self, event):
+        if event.inaxes:
+            if event.inaxes in self.axes:
+                t = mdates.num2date(float(event.xdata))
+                t = t.replace(tzinfo=None)
+                
+
+                if event.key in P_PICKER_KEYS:
+                    if event.key == "P": # remove P
+                        self.clear("P")
+                    else: # draw P
+                        if event.key == 'p':
+                            w = 0
+                        else:
+                            w = event.key
+                        self.clear("P")
+                        self.phase["P"]["time"] = t
+                        self.phase["P"]["weight"] = w
+                    self.draw()
+                    self.save()
+                
+
+                if event.key in S_PICKER_KEYS:
+                    if event.key == "S": # remove P
+                        self.clear("S")
+                    else: # draw P
+                        if event.key == 's':
+                            w = 0
+                        else:
+                            w = P_PICKER_KEYS[2:][S_PICKER_KEYS[2:].index(event.key)]
+                        self.clear("S")
+                        t = mdates.num2date(float(event.xdata))
+                        t = t.replace(tzinfo=None)
+                        self.phase["S"]["time"] = t    
+                    self.draw()
+                    self.save()
+                
+
+                if event.key in ['f',  'F']:
+                    if event.key == "F": # remove P
+                        self.clear("F")
+                    else: # draw P
+                        self.clear("F")
+                        self.phase["F"]["time"] = t
+                    self.draw()
+                    self.save()
+
+
+                if event.key in ['c', 'C', 'd', 'D']:
+                    if self.phase["P"]["time"]:
+                        if event.key.lower() == self.phase["P"]['onset']:
+                            self.phase["P"]['onset'] = None
+                        else:
+                            self.phase["P"]['onset'] = event.key
+                        self.update_text()
+                        self.save()
+
+
+    @staticmethod
+    def phase_text(wave, phase_dict):
+        assert wave in ["P", "S", "F"]
+        a = phase_dict.get("onset", None)
+        b = phase_dict.get("weigth", None)
+        txt = "".join([a,wave,b])
+        return txt
+

@@ -48,14 +48,14 @@ class SDErow(SQLbase):
     duration = sql.Column(sql.Float, nullable=False)
 
     # event attributes
-    time_P = sql.Column(sql.Float, nullable=True)
+    time_P = sql.Column(sql.DateTime(timezone=False), nullable=True)
     weight_P = sql.Column(sql.Integer, nullable=True)
     onset_P = sql.Column(sql.String, nullable=True)
 
-    time_S = sql.Column(sql.Float, nullable=True)
+    time_S = sql.Column(sql.DateTime(timezone=False), nullable=True)
     weight_S = sql.Column(sql.Integer, nullable=True)
 
-    time_F = sql.Column(sql.Float, nullable=True)
+    time_F = sql.Column(sql.DateTime(timezone=False), nullable=True)
     
     peak_to_peak = sql.Column(sql.Float, nullable=True)
 
@@ -86,6 +86,7 @@ class SDErow(SQLbase):
             self.network, self.station, self.location)
         return text_info
     
+
     def get_station_id(self):
         return '.'.join([self.network, self.station, self.location])
 
@@ -106,21 +107,9 @@ class SDErow(SQLbase):
         return st
     
 
-    def get_Pdate(self):
-        return self.starttime + dt.timedelta(seconds=time_P)
+    def get_endtime(self):
+        return self.starttime + dt.timedelta(seconds=duration)
     
-
-    def get_Sdate(self):
-        return self.starttime + dt.timedelta(seconds=time_S)
-    
-
-    def get_Fdate(self):
-        return self.starttime + dt.timedelta(seconds=time_F)
-    
-
-    
-
-
 
 class LDErow(SQLbase):
     __tablename__ = 'LDE'
@@ -410,65 +399,68 @@ class _DataBase(object):
 class SDE(_DataBase):
     def __init__(self, sql_path):
         super().__init__(sql_path, 'SDE')
-        #self.__check__() # this is too slow
+        self.__set_attr__()
+
+
+    def __set_attr__(self):
+        eid_list = self.get_event_list() 
+        
+        if eid_list:
+            self.first_eid = eid_list[0]
+            self.last_eid  = eid_list[-1]
+        else:
+            print(" [info]  Empty database")
+            self.first_eid = None
+            self.last_eid = 0
 
     
     def __len__(self):
-        eid_len = len(self.get_eid_list())
-        return eid_len
+        return len(self.get_event_list())
 
 
     def __getitem__(self, eid):
-        return Event(eid, self)
+        if eid in self.get_event_list():
+            return Event(eid, self)
+        else:
+            print(f" eid {eid} not exist")
+            return None
 
 
-    def check(self):
-        # this function checks the database is ready for operate
-        for eid in self.get_eid_list():
-            stations = Event(eid, self).stations
-            if len(stations) != len(set(stations)):
-                # it exist repeated items
-                raise ValueError(' Duplicate stations with same Event ID found.\n SDE database must be revised.')
-            # correct automatically
-
-
-    def __add_event__(self, net_code, sta_code, location, label, starttime, duration, **kwargs):
+    def add_event(self, station_id_list, label, starttime, duration, etype="S"):
         """
         Add a new event in SDE database, for adding a row visit database/__init__ info
         Check database atributes por kwargs
         """
 
-        event_to_save = {}
-        event_to_save['network'] = net_code
-        event_to_save['station'] = sta_code
-        event_to_save['location'] = location
+        eid = self.last_eid + 1
 
-        if self.is_infrasound():
-            event_to_save['event_type'] = 'P'
-        else:
-            event_to_save['event_type'] = 'S'
+        for station_id in list(set(station_id_list)):
+            event_to_save = {
+                'network'   : station_id.split(".")[0],
+                'station'   : station_id.split(".")[1],
+                'location'  : station_id.split(".")[2],
+                'event_type': etype,
+                'label'     : label,
+                'starttime' : starttime,
+                'duration'  : duration,
+                'event_id'  : eid,
+            }
+            id = self.add_row(event_to_save)
         
-        event_to_save['label'] = label
-        event_to_save['starttime'] = starttime #datetime
-        event_to_save['duration'] = duration
-        event_to_save['event_id'] = self.last_eid() + 1
-
-        id = self.add_row(event_to_save)
-        self.update_row(id, **kwargs)
+        self.last_eid += 1
     
 
-    def get_eid_list(self, label=None, time_interval=(), nro_station=None):
+    def get_event_list(self, label=None, time_interval=(), nro_station=None):
         row_list = self.get_id()
 
         if label:
             if isinstance(label, str):
                 row_list = list(filter(lambda e: e.label==label, row_list))
             
-            elif isinstance(label, list):
+            if isinstance(label, list):
                 row_list_copy = []
                 for lbl in label:
                     row_list_copy += list(filter(lambda e: e.label==lbl, row_list))
-                
                 row_list = row_list_copy
         
         if time_interval:
@@ -480,42 +472,20 @@ class SDE(_DataBase):
                     ),row_list))
 
         row_list.sort(key=lambda x: x.starttime)
-        row_list = [e.event_id for e in row_list]
+        eid_list = [e.event_id for e in row_list]
 
         if nro_station:
             out_list = []
-            for eid in row_list:
+            for eid in eid_list:
                 if len(self[eid]) >= nro_station:
                     out_list.append(eid)
             return out_list
         
-        else:
-            return row_list
+        return eid_list
     
 
-    def last_eid(self):
-        if self.get_eid_list():
-            return max(self.get_eid_list())
-        else:
-            return 0
-
-
     def is_eid(self, eid):
-        return eid in self.get_eid_list()
-
-
-    def get_row(self, eid, network, station, location):
-        rows = self.get_id(with_info=False)
-        events_filt = list(filter(lambda e: e.event_id == eid and e.network == network and e.station == station and e.location == location, rows))
-        
-        if events_filt:
-            if len(events_filt) > 1:
-                print( 'warn: more than one id found')
-            
-            return self.get_id(id=events_filt[0].id)
-        
-        else:
-            return None
+        return eid in self.get_event_list()
 
 
     def get_event(self, eid=None):
@@ -524,68 +494,56 @@ class SDE(_DataBase):
         else return a dict of lists.
         """
 
-        eid_list = self.get_eid_list()
-
+        eid_list = self.get_event_list()
         engine = sql.create_engine('sqlite:///%s' % self.sql_path)
         SQLbase.metadata.bind = engine
         DBSession = sessionmaker(bind=engine)
         session = DBSession()
+        
         if eid:
-            if self.is_eid(eid):
+
+            if isinstance(eid, int) and self.is_eid(eid):
                 event = session.query(SDErow).filter(SDErow.event_id == eid).all()
+
+            if isinstance(eid, (list, tuple)):
+                event = {}
+                for eid in eid_list:
+                    if self.is_eid(eid):
+                        event[eid] = session.query(SDErow).filter(SDErow.event_id == eid).all()
+        
         else:
             event = {}
             for eid in eid_list:
                 event[eid] = session.query(SDErow).filter(SDErow.event_id == eid).all()
+        
         session.close()
+
         return event
 
 
-    def relabel_event(self, eid, new_label):
-        if self.is_eid(eid):
-            for row in self.get_event(eid):
-                if row.label:
-                    self.update_row(row.id, dict(label=new_label))
-
-
-    def append_station(self, eid, network, station, location, etype):
-        if self.is_eid(eid):
-            sta_to_save = {}
-            sta_to_save["event_id"]   = eid
-            sta_to_save["event_type"] = etype
-            sta_to_save["network"]    = network
-            sta_to_save["station"]    = station
-            sta_to_save["location"]   = location
-            id = self.add_row(sta_to_save)
-            return id
-
-
-    def remove_station(self, eid, network, station, location):
-        if self.is_eid(eid):
-            all_row = self.get_event(eid)
-            row = self.get_row(eid, network, station, location, return_row=True)
-            
-            if len(all_row) == 1:
-                self.remove_event(eid)
-                return
-            
-            else:
-                if row.label:
-                    # you are removing the row with basic metadata.
-                    # move the metadata to another row entry before delete row
-                    for meta_row in all_row:
-                        if meta_row.id != row.id:
-                            # update metadata
-                            info = dict(starttime=row.starttime, duration=row.duration, label=row.label)
-                            self.update_row(meta_row.id, info)
-                
-                self.remove_row(row.id)
-
-
     def remove_event(self, eid):
-        if self.is_eid(eid):
+        if isinstance(eid, int) and self.is_eid(eid):
             for row in self.get_event(eid):
                 self.remove_row(row.id)
+        
+        if isinstance(eid, (list, tuple)):
+            for eidi, row_list in self.get_event(eid).items():
+                if self.is_eid(eidi):
+                    for row in row_list:
+                        self.remove_row(row.id)
+        
+        self.__set_attr__()
+    
+
+    def clone_event(self, eid):
+        if self.is_eid(eid):
+            row_list = get_event(eid)
+            station_id_list = [row.get_station_id() for row in row_list]
+            label = row_list[0].label
+            starttime = row_list[0].starttime
+            duration = row_list[0].duration
+            etype = row_list[0].event_type
+            self.add_event(station_id_list, label, starttime, duration, etype)
 
 
     def plot_gui(self, eid=None, label=None, time_interval=(), app=False, **gui_kwargs):
@@ -741,3 +699,4 @@ class iSDE(_DataBase):
         row_list = [e.id for e in row_list]
 
         return row_list
+
