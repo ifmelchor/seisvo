@@ -11,14 +11,16 @@
 from seisvo import __seisvo__
 from seisvo.core.network import Network, iArray
 from seisvo.database.events import Event, iEvent, Episode
+from seisvo.plotting.gui import plot_event
 
-import sqlalchemy as sql
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import sessionmaker
 from subprocess import Popen, PIPE, STDOUT
-import datetime as dt
+
 import os
+import sqlalchemy as sql
+import datetime as dt
 
 def in_interval(st, et, time_interval):
     cond1 = st >= time_interval[0] and et <= time_interval[1] # start and end in
@@ -102,13 +104,13 @@ class SDErow(SQLbase):
     def get_stream(self, off_seconds=0, **kwargs):
         sta = self.get_station()
         start = self.starttime - dt.timedelta(seconds=off_seconds)
-        end   = self.starttime + dt.timedelta(seconds=duration+off_seconds)
+        end   = self.starttime + dt.timedelta(seconds=self.duration+off_seconds)
         st = sta.get_stream(start, end, **kwargs)
         return st
     
 
     def get_endtime(self):
-        return self.starttime + dt.timedelta(seconds=duration)
+        return self.starttime + dt.timedelta(seconds=self.duration)
     
 
 class LDErow(SQLbase):
@@ -199,11 +201,8 @@ class _DataBase(object):
 
 
     def is_id(self, id):
-        if isinstance(id, int):
-            return id in self.get_id_list()
-        else:
-            print(' id must be an integer')
-            
+        return int(id) in self.get_id_list()
+        
 
     def get_id_list(self):
         engine = sql.create_engine('sqlite:///%s' % self.sql_path)
@@ -481,7 +480,7 @@ class SDE(_DataBase):
                     out_list.append(eid)
             return out_list
         
-        return eid_list
+        return list(set(eid_list))
     
 
     def is_eid(self, eid):
@@ -546,20 +545,16 @@ class SDE(_DataBase):
             self.add_event(station_id_list, label, starttime, duration, etype)
 
 
-    def plot_gui(self, eid=None, label=None, time_interval=(), app=False, **gui_kwargs):
-        from seisvo.plotting.gui.gsde import plot_SDE_event
+    def plot_gui(self, event_id=None, station_id=None, init_app=True, **kwargs):
+        eid_list = self.get_id_list(**kwargs)
 
-        eid_list = self.get_eid_list(label=label, time_interval=time_interval)
-
-        if eid_list:
-            # gui creation
-            window = plot_SDE_event(self, eid_list, eid=eid, app=app, **gui_kwargs)
-
-            if app:
-                return window
+        if event_id:
+            assert event_id in eid_list
         
-        else:
-            print(' Empty EID list')
+        event_id = eid_list[0]
+        widget = plot_event(self, event_id, station_id, init_app=init_app)
+
+        return widget
 
 
 class LDE(_DataBase):

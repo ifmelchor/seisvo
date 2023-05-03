@@ -19,8 +19,8 @@ class Event(object):
         self.label     = self.rows_[0].label
         self.starttime = self.rows_[0].starttime
         self.duration  = self.rows_[0].duration
-        self.endtime   = self.rows_[0].starttime + dt.timedelta(seconds=row.duration)
-        self.stations = ['.'.join([row.network, row.station, row.location]) for row in self.rows_]
+        self.endtime   = self.rows_[0].get_endtime()
+        self.stations = [row.get_station_id() for row in self.rows_]
         
 
     def __len__(self):
@@ -65,7 +65,7 @@ class Event(object):
                 'label'     : self.label,
                 'starttime' : self.starttime,
                 'duration'  : self.duration,
-                'event_id'  : self.eid,
+                'event_id'  : self.id,
             }
             self.sde.add_row(dinfo)
             self.stations.append(station_id)

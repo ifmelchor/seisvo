@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
+import pyqtgraph
+import matplotlib.ticker as mtick
+import matplotlib.dates as mdates
 from seisvo.plotting import get_colors
-from seisvo.plotting.gui import _Navigate, _Picker
 from matplotlib.figure import Figure, SubplotParams
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
+from .utils import Navigate, Picker, getYesNo
 
 
 phase_colors = {
@@ -51,11 +54,12 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=(0.5,15)):
         axes[n].plot(time, y, color=comp_colors[comp])
         axes[n].set_xlim(time[0], time[-1])
         axes[n].set_ylim(-1.1, 1.1)
-        axes[n].yaxis.set_major_formatter(mtick.NullFormatter)
+        axes[n].yaxis.set_major_formatter(mtick.NullFormatter())
         axes[n].set_ylabel(trace.stats.channel)
         axes[n].grid(axis='x',which='major',ls='--',color='k',alpha=0.2)
         # axes[n].annotate(txt, xy=(0,1.1), xycoords='axes fraction', color='k')
 
+    axes[0].set_title(row.get_station_id())
     # build phase dictionary
     phases = {
         "P":{
@@ -68,12 +72,12 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=(0.5,15)):
         "S":{
             "time":None,
             "weight":None,
-            "artist":None,
+            "artist":[],
             "artist_text":None
         },
         "F":{
             "time":None,
-            "artist":None,
+            "artist":[],
             "artist_text":None
         }
     }
@@ -98,7 +102,7 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=(0.5,15)):
         if phase["time"]:
             for ax in axes:
                 phase['artist'].append(ax.axvline(phase["time"], color=phase_colors[wave], lw=1.1))
-            txt = _Picker.phase_text(wave, phase)
+            txt = Picker.phase_text(wave, phase)
             phase['artist_text'] = axes[0].annotate(txt, xy=(phase["time"], 1),color=phase_colors[wave])
 
 
@@ -121,6 +125,7 @@ class _Canvas(FigureCanvas):
             subplotpars=SubplotParams(left=0.08, right=0.92, wspace=0.1, top=0.95, bottom=0.05))
         FigureCanvas.__init__(self, self.fig)
         self.callbacks.connect('button_press_event', self.on_click)
+        self.callbacks.connect('key_press_event', self.on_key)
         
         self.event = event
         self.max_row = len(event.rows_)
@@ -150,18 +155,13 @@ class _Canvas(FigureCanvas):
             self.axes_, self.phase_ = _plot_row(self.row, fig=self.fig)
         
         # load picker
-        self.picker_ = _Picker(self.axes_, self.phase_, sde, row, self.canvas, phase_colors=phase_colors)
+        self.picker_ = Picker(self.axes_, self.phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
 
         # load navigation
-        self.nav_ = _Navigate(self.axes_, self.canvas, color='red', linewidth=0.5, alpha=0.5)
+        self.nav_ = Navigate(self.axes_, self, color='red', linewidth=0.5, alpha=0.5)
 
         self.draw()
 
-    
-    def clean_nav(self):
-        for nav in self.nav_:
-            nav.reset_ticks()
-    
 
     def print_ticks(self):
         print("\n :: Ticks info :: ")
@@ -177,7 +177,7 @@ class _Canvas(FigureCanvas):
     def on_click(self, event):
         if event.inaxes:
             if event.inaxes in self.axes_:
-                self.clean_nav()
+                self.nav_.reset_ticks()
                 
                 t = mdates.num2date(float(event.xdata))
                 t = t.replace(tzinfo=None)
@@ -192,7 +192,6 @@ class _Canvas(FigureCanvas):
     
 
     def on_key(self, event):
-
         if event.key =='up':
             r = self.row_index + 1
 
@@ -215,12 +214,26 @@ class _Canvas(FigureCanvas):
             self.plot()
         
 
+        if event.key =='-':
+            ans = getYesNo("Clear phases", "Estás seguro de que quieres eliminas las fases?")
+            if ans.exec():
+                self.picker_.clear()
+                self.picker_.save()
+                self.draw()
+
+
         if event.key == 'backspace':
-            print("eliminar station_id del evento")
+            print("seleccionar station_id")
+            sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID', 'Selecciona:', self.event.stations, self.station_id, False)
+            if ok and sid != self.station_id:
+                for n, row in enumerate(self.event):
+                    if row.get_station_id() == sid:
+                        self.load_row(n)
+                self.plot()
         
 
 
-class _Widget(QtWidgets.QWidget):
+class EventWidget(QtWidgets.QWidget):
     def __init__(self, sde, event_id, station_id):
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
@@ -245,6 +258,7 @@ class _Widget(QtWidgets.QWidget):
         else:
             self.station_id = self.event[0].get_station_id()
         
+        self.setWindowTitle(f"Evento ID :: {eid}")
         self.load_canvas()
 
 
@@ -277,14 +291,14 @@ class _Widget(QtWidgets.QWidget):
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Right:
             idx = self.event_idx + 1
-            if new_idx == self.max_index:
-                idx = 0 
+            if idx == self.max_index:
+                idx = 0
             self.load_event(self.event_list[idx], self.station_id)
 
 
         if event.key() == QtCore.Qt.Key_Left:
             idx = self.event_idx - 1
-            if new_idx < 0:
+            if idx < 0:
                 idx = self.max_index-1
             self.load_event(self.event_list[idx], self.station_id)
         
@@ -319,16 +333,3 @@ class _Widget(QtWidgets.QWidget):
             self.print_event()
         
          
-def plot_event(sde, event_id, station_id, init_app=True):
-
-    if init_app:
-        app = QtWidgets.QApplication([])
-    
-    SDE_widget = _Widget(sde, event_id=event_id, station_id=station_id)
-    SDE_widget.show()
-
-    if init_app:
-        app.exec_()
-    
-    return SDE_widget
-    

@@ -51,7 +51,7 @@ class Trace2(Trace):
             data /= rm_sensitivity
 
         if list(fq_band):
-            tr_filt = tr.filter2(fq_band, **kwargs)
+            tr_filt = self.filter2(fq_band, **kwargs)
             data = tr_filt.data
         
         if abs:
