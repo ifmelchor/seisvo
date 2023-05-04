@@ -6,7 +6,7 @@ from matplotlib.widgets import AxesWidget
 import matplotlib.dates as mdates
 
 P_PICKER_KEYS = ['P', 'p', '1', '2', '3', '4']
-S_PICKER_KEYS = ['S', 's', '!', '"', '·', '$']
+S_PICKER_KEYS = ['S', 's', '6', '7', '8', '9']
 
 
 class getYesNo(QtWidgets.QDialog):
@@ -135,8 +135,8 @@ class Navigate(object):
         self.max_xlim = axes[0].get_xlim()
 
         self.ticks = dict(left=[None, []], right=[None, []]) # tick data and list of axvline
-        self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
-        self.canvas.setFocus()
+        # self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
+        # self.canvas.setFocus()
         self.canvas.mpl_connect('scroll_event', self.onZoom)
         self.canvas.mpl_connect('button_press_event', self.onClkPress)
         self.canvas.mpl_connect('button_release_event', self.onClkRelease)
@@ -287,8 +287,7 @@ class Picker(object):
         self.phase  = phase
         self.canvas = canvas
         self.phase_colors = kwargs.get("phase_colors",{"P":"r", "S":"g", "F":"b"})
-        canvas.callbacks.connect('key_press_event', self.on_key)
-    
+        self.canvas.mpl_connect('key_press_event', self.on_key)
 
     def clear(self, wave):
         assert wave in ["P", "S", "F"]
@@ -390,7 +389,8 @@ class Picker(object):
                         self.clear("S")
                         t = mdates.num2date(float(event.xdata))
                         t = t.replace(tzinfo=None)
-                        self.phase["S"]["time"] = t    
+                        self.phase["S"]["time"] = t
+                        self.phase["S"]["weight"] = w
                     self.draw()
                     self.save()
                 

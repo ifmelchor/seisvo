@@ -117,16 +117,15 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=(0.5,15)):
 
 
 
-class _Canvas(FigureCanvas):
-    def __init__(self, event, station_id):
+class EventCanvas(FigureCanvas):
+    def __init__(self, event, station_id, parent=None):
 
         # add Fig frame and linked with canvas
-        self.fig = Figure(figsize=(12,9),
-            subplotpars=SubplotParams(left=0.08, right=0.92, wspace=0.1, top=0.95, bottom=0.05))
+        self.parent = parent
+        self.fig = Figure(figsize=(12,9), subplotpars=SubplotParams(left=0.08, right=0.92, wspace=0.1, top=0.95, bottom=0.05))
         FigureCanvas.__init__(self, self.fig)
         self.callbacks.connect('button_press_event', self.on_click)
         self.callbacks.connect('key_press_event', self.on_key)
-        
         self.event = event
         self.max_row = len(event.rows_)
         
@@ -138,13 +137,12 @@ class _Canvas(FigureCanvas):
             print(" warn :: station {station_id} not found")
             self.load_row(0)
 
-        self.plot()
-
 
     def load_row(self, r):
         self.row_index  = r
         self.station_id = self.event[r].get_station_id()
         self.row        = self.event[r]
+        self.plot()
 
 
     def plot(self):
@@ -154,13 +152,13 @@ class _Canvas(FigureCanvas):
         with pyqtgraph.BusyCursor():
             self.axes_, self.phase_ = _plot_row(self.row, fig=self.fig)
         
-        # load picker
-        self.picker_ = Picker(self.axes_, self.phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
+            # load picker
+            self.picker_ = Picker(self.axes_, self.phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
 
-        # load navigation
-        self.nav_ = Navigate(self.axes_, self, color='red', linewidth=0.5, alpha=0.5)
+            # load navigation
+            self.nav_ = Navigate(self.axes_, self, color='red', linewidth=0.5, alpha=0.5)
 
-        self.draw()
+            self.draw()
 
 
     def print_ticks(self):
@@ -177,7 +175,7 @@ class _Canvas(FigureCanvas):
     def on_click(self, event):
         if event.inaxes:
             if event.inaxes in self.axes_:
-                self.nav_.reset_ticks()
+                # self.nav_.reset_ticks()
                 
                 t = mdates.num2date(float(event.xdata))
                 t = t.replace(tzinfo=None)
@@ -191,45 +189,45 @@ class _Canvas(FigureCanvas):
                 self.print_ticks()
     
 
-    def on_key(self, event):
-        if event.key =='up':
+    def change_row(self, arg):
+        if arg == "up":
             r = self.row_index + 1
-
             if r == self.max_row:
                 self.load_row(0)
             else:
                 self.load_row(r)
-            
-            self.plot()
         
 
-        if event.key =='down':
+        if arg == "down":
             r = self.row_index - 1
-
             if r < 0:
                 self.load_row(self.max_row-1)
             else:
                 self.load_row(r)
-            
-            self.plot()
-        
 
-        if event.key =='-':
-            ans = getYesNo("Clear phases", "Estás seguro de que quieres eliminas las fases?")
-            if ans.exec():
-                self.picker_.clear()
+
+        if arg in self.event.stations:
+            for n, row in enumerate(self.event):
+                if row.get_station_id() == arg:
+                    self.load_row(n)
+
+
+    def on_key(self, event):
+        if event.key =='escape':
+            print("  <<< [Info]  EXIT of the Insert/Picker mode ")
+            self.parent.setCursor(QtCore.Qt.ArrowCursor)
+            self.parent.setFocus()
+        
+        if event.key =='delete':
+            change = False
+            for wave in ["P", "S", "F"]:
+                if self.picker_.phase[wave]["artist"]:
+                    change = True
+                    self.picker_.clear(wave)
+            
+            if change:
                 self.picker_.save()
                 self.draw()
-
-
-        if event.key == 'backspace':
-            print("seleccionar station_id")
-            sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID', 'Selecciona:', self.event.stations, self.station_id, False)
-            if ok and sid != self.station_id:
-                for n, row in enumerate(self.event):
-                    if row.get_station_id() == sid:
-                        self.load_row(n)
-                self.plot()
         
 
 
@@ -238,6 +236,8 @@ class EventWidget(QtWidgets.QWidget):
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
         self.canvas = None
+        self.setFocus() 
+        # by default the focus is on the Widget, to change the Focus of the Canvas, press key I(nsert)
 
         self.sde = sde
         self.event_list = sde.get_event_list()
@@ -268,7 +268,7 @@ class EventWidget(QtWidgets.QWidget):
             self.canvas.deleteLater()
         
         self.print_event()    
-        self.canvas = _Canvas(self.event, self.station_id)
+        self.canvas = EventCanvas(self.event, self.station_id, parent=self)
         self.layout.addWidget(self.canvas)
         self.setLayout(self.layout)
 
@@ -294,6 +294,20 @@ class EventWidget(QtWidgets.QWidget):
             if idx == self.max_index:
                 idx = 0
             self.load_event(self.event_list[idx], self.station_id)
+        
+
+        if event.key() == QtCore.Qt.Key_Up:
+            self.canvas.change_row("up")
+
+
+        if event.key() == QtCore.Qt.Key_Down:
+            self.canvas.change_row("down")
+        
+        
+        if event.key() == QtCore.Qt.Key_Backspace:
+            sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID', 'Selecciona:', self.event.stations, self.event.stations.index(self.canvas.station_id), editable=False)
+            if ok and sid != self.station_id:
+                self.canvas.change_row(sid)
 
 
         if event.key() == QtCore.Qt.Key_Left:
@@ -311,6 +325,11 @@ class EventWidget(QtWidgets.QWidget):
 
         if event.key() == QtCore.Qt.Key_Delete:
             print("DELETE event")
+        
+        if event.key() == QtCore.Qt.Key_I:
+            print("  >>> [Info]  ENTRY on Insert/Picker mode ")
+            self.setCursor(QtCore.Qt.CrossCursor)
+            self.canvas.setFocus()
 
         
         if event.key() == QtCore.Qt.Key_Insert:
@@ -332,4 +351,4 @@ class EventWidget(QtWidgets.QWidget):
             # Print event info
             self.print_event()
         
-         
+        
