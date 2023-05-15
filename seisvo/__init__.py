@@ -15,6 +15,7 @@ except KeyError:
     print('"seisvo_path" not defined in bashrc. Please, see documentation')
     exit()
 
+from .core.obspyext import read2 as read
 from .core.network import Network, iArray, Station
 from .lte import LTE, Peaks
 from .sap.cc8 import CC8

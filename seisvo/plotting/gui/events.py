@@ -213,11 +213,22 @@ class EventCanvas(FigureCanvas):
 
 
     def on_key(self, event):
+        # print(event.key)
+
         if event.key =='escape':
             print("  <<< [Info]  EXIT of the Insert/Picker mode ")
             self.parent.setCursor(QtCore.Qt.ArrowCursor)
             self.parent.setFocus()
         
+
+        if event.key =='right':
+            self.change_row("up")
+        
+
+        if event.key =='left':
+            self.change_row("down")
+        
+
         if event.key =='delete':
             change = False
             for wave in ["P", "S", "F"]:
@@ -229,6 +240,23 @@ class EventCanvas(FigureCanvas):
                 self.picker_.save()
                 self.draw()
         
+
+        if event.key == "tab":
+            sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID', 'Selecciona:', self.event.stations, self.event.stations.index(self.station_id), editable=False)
+            if ok and sid != self.station_id:
+                self.change_row(sid)
+        
+
+        if event.key == " ":
+            print("\n ------ INFO -----")
+            print(" <-- / --> :: cambiar estación")
+            print("    tab    :: elige estación")
+            print("    supr   :: elimina picks")
+            print(" p/1/2/3/4 :: pica fase P")
+            print(" s/5/6/7/8 :: pica fase S")
+            print("     f     :: pica fase F")
+            print("    esc    :: salir del modo PICKER")
+            print("")
 
 
 class EventWidget(QtWidgets.QWidget):
@@ -250,6 +278,7 @@ class EventWidget(QtWidgets.QWidget):
         
 
     def load_event(self, eid, station_id):
+        # self.idx = eid
         self.event_idx = self.event_list.index(eid)
         self.event = self.sde[eid]
 
@@ -296,20 +325,6 @@ class EventWidget(QtWidgets.QWidget):
             self.load_event(self.event_list[idx], self.station_id)
         
 
-        if event.key() == QtCore.Qt.Key_Up:
-            self.canvas.change_row("up")
-
-
-        if event.key() == QtCore.Qt.Key_Down:
-            self.canvas.change_row("down")
-        
-        
-        if event.key() == QtCore.Qt.Key_Backspace:
-            sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID', 'Selecciona:', self.event.stations, self.event.stations.index(self.canvas.station_id), editable=False)
-            if ok and sid != self.station_id:
-                self.canvas.change_row(sid)
-
-
         if event.key() == QtCore.Qt.Key_Left:
             idx = self.event_idx - 1
             if idx < 0:
@@ -318,14 +333,15 @@ class EventWidget(QtWidgets.QWidget):
         
 
         if event.key() == QtCore.Qt.Key_Tab:
-            eid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de evento', 'Selecciona ID:', self.event_list, self.event.id, False)
+            eid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de evento', 'Selecciona ID:', list(map(str, self.event_list)), self.event_idx, False)
             if ok and int(eid) != self.event.id:
-                self.load_event(eid, self.station_id)
+                self.load_event(int(eid), self.station_id)
 
 
         if event.key() == QtCore.Qt.Key_Delete:
             print("DELETE event")
         
+
         if event.key() == QtCore.Qt.Key_I:
             print("  >>> [Info]  ENTRY on Insert/Picker mode ")
             self.setCursor(QtCore.Qt.CrossCursor)
@@ -350,5 +366,18 @@ class EventWidget(QtWidgets.QWidget):
         if event.key() == QtCore.Qt.Key_Enter:
             # Print event info
             self.print_event()
+
+        
+        if event.key() == QtCore.Qt.Key_Space:
+            print("\n ------ INFO -----")
+            print(" <-- / --> :: cambiar evento")
+            print("    tab    :: elige evento")
+            print("    supr   :: elimina evento")
+            print("     i     :: entra en modo PICKER")
+            print("    ins    :: clonar evento")
+            print("     r     :: re-etiqueta evento")
+            print("     +     :: info fases")
+            print("   enter   :: info evento")
+            print("")
         
         
