@@ -150,7 +150,12 @@ class EventCanvas(FigureCanvas):
         self.ticks = dict(right=None, left=None)
         
         with pyqtgraph.BusyCursor():
-            self.axes_, self.phase_ = _plot_row(self.row, fig=self.fig)
+
+            try:
+                self.axes_, self.phase_ = _plot_row(self.row, fig=self.fig)
+            except:
+                print("warn :: error on plot")
+                return
         
             # load picker
             self.picker_ = Picker(self.axes_, self.phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
