@@ -23,8 +23,16 @@ comp_colors = {
     'N':get_colors('zesty')[3]
 }
 
+default_fqband = {
+    "f1" : (),
+    "f2" : (0.5,15),
+    "f3" : (1,10),
+    "f4" : (2,5),
+    "f5" : (1,3),
+}
 
-def _plot_row(row, fig=None, off_sec=0, fq_band=(0.5,15)):
+
+def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"]):
     stream = row.get_stream(off_seconds=off_sec)
 
     if not stream:
@@ -118,7 +126,7 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=(0.5,15)):
 
 
 class EventCanvas(FigureCanvas):
-    def __init__(self, event, station_id, parent=None):
+    def __init__(self, event, station_id, fb="f1", parent=None):
 
         # add Fig frame and linked with canvas
         self.parent = parent
@@ -128,6 +136,7 @@ class EventCanvas(FigureCanvas):
         self.callbacks.connect('key_press_event', self.on_key)
         self.event = event
         self.max_row = len(event.rows_)
+        self.fb = fb
         
         try:
             for n, row in enumerate(self.event):
@@ -145,20 +154,21 @@ class EventCanvas(FigureCanvas):
         self.plot()
 
 
+    def reload_event(self):
+        self.event = self.parent.sde[self.event.id]
+
+
     def plot(self):
         self.fig.clf()
         self.ticks = dict(right=None, left=None)
+        self.reload_event()
         
         with pyqtgraph.BusyCursor():
 
-            try:
-                self.axes_, self.phase_ = _plot_row(self.row, fig=self.fig)
-            except:
-                print("warn :: error on plot")
-                return
-        
+            self.axes_, phase_ = _plot_row(self.row, fig=self.fig, fq_band=default_fqband[self.fb])
+
             # load picker
-            self.picker_ = Picker(self.axes_, self.phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
+            self.picker_ = Picker(self.axes_, phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
 
             # load navigation
             self.nav_ = Navigate(self.axes_, self, color='red', linewidth=0.5, alpha=0.5)
@@ -195,6 +205,7 @@ class EventCanvas(FigureCanvas):
     
 
     def change_row(self, arg):
+
         if arg == "up":
             r = self.row_index + 1
             if r == self.max_row:
@@ -203,7 +214,7 @@ class EventCanvas(FigureCanvas):
                 self.load_row(r)
         
 
-        if arg == "down":
+        if arg == "down":    
             r = self.row_index - 1
             if r < 0:
                 self.load_row(self.max_row-1)
@@ -220,8 +231,16 @@ class EventCanvas(FigureCanvas):
     def on_key(self, event):
         # print(event.key)
 
+        if event.key in list(default_fqband.keys()):
+            if event.key != self.fb:
+                print(f"\n  [info]  >>>  new freq. band  set to  {default_fqband[self.fb]}")
+                self.fb = event.key
+                self.plot()
+
+
         if event.key =='escape':
-            print("  <<< [Info]  EXIT of the Insert/Picker mode ")
+            print("\n  <<< [Info]  EXIT of the Insert/Picker mode ")
+            self.parent.setWindowTitle(f"Evento ID :: {self.event.id}")
             self.parent.setCursor(QtCore.Qt.ArrowCursor)
             self.parent.setFocus()
         
@@ -256,10 +275,13 @@ class EventCanvas(FigureCanvas):
             print("\n ------ INFO -----")
             print(" <-- / --> :: cambiar estación")
             print("    tab    :: elige estación")
+            print("  f1---f5  :: cambia filtro")
             print("    supr   :: elimina picks")
             print(" p/1/2/3/4 :: pica fase P")
-            print(" s/5/6/7/8 :: pica fase S")
-            print("     f     :: pica fase F")
+            print("     P     :: elimina fase P")
+            print(" s/6/7/8/9 :: pica fase S")
+            print("     S     :: elimina fase S")
+            print("    f/F    :: pica/elimina fase F")
             print("    esc    :: salir del modo PICKER")
             print("")
 
@@ -348,7 +370,8 @@ class EventWidget(QtWidgets.QWidget):
         
 
         if event.key() == QtCore.Qt.Key_I:
-            print("  >>> [Info]  ENTRY on Insert/Picker mode ")
+            print("\n  >>> [Info]  ENTRY on Insert/Picker mode ")
+            self.setWindowTitle(f"[P]  Evento ID :: {self.event.id}")
             self.setCursor(QtCore.Qt.CrossCursor)
             self.canvas.setFocus()
 
