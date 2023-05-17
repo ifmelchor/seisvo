@@ -245,12 +245,13 @@ class EventCanvas(FigureCanvas):
             self.parent.setFocus()
         
 
-        if event.key =='right':
-            self.change_row("up")
-        
+        if event.key in ("up", "down"):
+            self.change_row(event.key)
 
-        if event.key =='left':
-            self.change_row("down")
+        
+        # if event.key in ("right", "left"):
+        #     key = [QtCore.Qt.Key_Right, QtCore.Qt.Key_Left][["right", "left"].index(event.key)]
+        #     self.parent.change_event(key)
         
 
         if event.key =='delete':
@@ -331,6 +332,22 @@ class EventWidget(QtWidgets.QWidget):
 
     def print_event(self):
         print(self.event)
+
+
+    def change_event(self, event_key):
+
+        if event_key == QtCore.Qt.Key_Right:
+            idx = self.event_idx + 1
+            if idx == self.max_index:
+                idx = 0
+            self.load_event(self.event_list[idx], self.station_id)
+
+        if event_key == QtCore.Qt.Key_Left:
+            idx = self.event_idx - 1
+            if idx < 0:
+                idx = self.max_index-1
+            self.load_event(self.event_list[idx], self.station_id)
+
     
 
     def print_event_phases(self):
@@ -345,18 +362,15 @@ class EventWidget(QtWidgets.QWidget):
 
 
     def keyPressEvent(self, event):
-        if event.key() == QtCore.Qt.Key_Right:
-            idx = self.event_idx + 1
-            if idx == self.max_index:
-                idx = 0
-            self.load_event(self.event_list[idx], self.station_id)
-        
+        # print(event.key())
 
-        if event.key() == QtCore.Qt.Key_Left:
-            idx = self.event_idx - 1
-            if idx < 0:
-                idx = self.max_index-1
-            self.load_event(self.event_list[idx], self.station_id)
+        if event.key() in [QtCore.Qt.Key_Right, QtCore.Qt.Key_Left]:
+            self.change_event(event.key())
+
+
+        if event.key() in [QtCore.Qt.Key_Up, QtCore.Qt.Key_Down]:
+            action = ["up", "down"][[QtCore.Qt.Key_Up, QtCore.Qt.Key_Down].index(event.key())]
+            self.canvas.change_row(action)
         
 
         if event.key() == QtCore.Qt.Key_Tab:
