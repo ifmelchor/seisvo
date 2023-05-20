@@ -2,20 +2,40 @@
 # coding=utf-8
 
 import os
+import glob
+import json
 import numpy as np
 import collections as col
 import datetime as dt
 import multiprocessing as mp
 
-from seisvo import LTE_PATH, DB_PATH, CC8_PATH
-from seisvo.core import get_network
+from seisvo import seisvo_paths
+from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
-from seisvo.sap import CC8, Arfr, plot_array
-from seisvo.signal import SSteps, get_freq
-from seisvo.file.air import AiR
-from seisvo.signal.infrasound import infrasound_model_default, cross_corr
-from seisvo.lte import netLTE
+from .sap import CC8, Arfr, plot_array
+from .signal import SSteps, get_freq
+from .file.air import AiR
+from .signal.infrasound import infrasound_model_default, cross_corr
+from .lte import NetworkLTE
+
+
+def get_network(net_code):
+    availabel_network_codes = []
+    
+    for netfile in glob.glob(seisvo_paths["networks"]+"/*.json"):
+        netcode = os.path.basename(netfile).split('.')[0]
+        availabel_network_codes.append(netcode)
+        
+        if netcode == net_code:
+            with open(netfile, 'r') as f:
+                network_dict = json.load(f)
+
+            network_dict["file"] = netfile
+            return NetworkStats(netcode, network_dict)
+    
+    print(" warn :: no network file found ")
+    print(f"    loaded networks are: {availabel_network_codes}")
 
 
 class Network(object):
@@ -54,15 +74,15 @@ class Network(object):
             if sta.stats.code == sta_code:
                 chan_to_remove = []
                 
-                for ch in sta.stats.chan:
+                for ch in sta.stats.channels:
                     if ch[-1] != component:
                         chan_to_remove.append(ch)
                 
                 if chan_to_remove:
                     for ch in chan_to_remove:
-                        sta.stats.chan.remove(ch)
+                        sta.stats.channels.remove(ch)
 
-                if not sta.stats.chan:
+                if not sta.stats.channels:
                     sta_to_remove += [sta]
            
             else:
@@ -72,35 +92,6 @@ class Network(object):
             self.station.remove(sta)
         
         self.stations_info = [sta.stats.id for sta in self.station]
-
-
-    def get_datebound(self, sta_code=None):
-        """
-        This code get the bound dates of the network
-        """
-
-        start = None
-        end = None
-        
-        n = 0
-        for sta in self.station:
-            if not sta_code or sta.stats.code == sta_code:
-                st = sta.stats.starttime
-                et = sta.stats.endtime
-
-                if n >= 1:
-                    if st < start:
-                        start = st
-
-                    if et > end:
-                        end = et
-                else:
-                    start = st
-                    end = et
-
-                n += 1
-
-        return (start, end)
 
 
     def get_iarray(self, sta_code, model=None):
@@ -122,7 +113,7 @@ class Network(object):
         Get a station object
         """
         for sta in self.station:
-            if sta_code == sta.stats.code and loc ==sta.stats.loc:
+            if sta_code == sta.stats.code and loc == sta.stats.location:
                 return sta
         return None
 
@@ -160,14 +151,14 @@ class Network(object):
             if sta_code == sta.stats.code:
                 if loc:
                     if isinstance(loc, str):
-                        if sta.stats.loc == loc:
-                            for chan in sta.stats.chan:
+                        if sta.stats.location == loc:
+                            for chan in sta.stats.channels:
                                 sta_list += ['%s.%s' % (sta.stats.id, chan)]
                     
                     if isinstance(loc, (list, tuple)):
                         for l in loc:
-                            if sta.stats.loc == l:
-                                for chan in sta.stats.chan:
+                            if sta.stats.location == l:
+                                for chan in sta.stats.channels:
                                     sta_list += ['%s.%s' % (sta.stats.id, chan)]
 
         if not sta_list:
@@ -192,79 +183,41 @@ class Network(object):
         
         return list_missing_days
 
-                
-        #         for sta in self.station:
-        #             if sta.stats.id == '.'.join(y.split('.')[0:-1]):
-        #                 #print ('  reading data... (%d%%)' % (100*r/nro_reads), end='\r')
-        #                 status = sta.__read_file__(y.split('.')[-1], date=day)
-                        
-        #                 if plot:
-        #                     if isinstance(status, str):
-        #                         status = 1
-        #                     else:
-        #                         status = 0
-        #                     availability[i,j] = status
-        #                 else:
-        #                     if not status:
-        #                         missing_day = x.strftime('%Y%j')
-        #                         missing_day_str = '%s-%s' %(sta.stats.id, missing_day)
-        #                         list_missing_days += [missing_day_str]
 
-        #                 r += 1
-            
-        # if plot:
-        #     title = "Availability for Network %s" % self.stats.code
-        #     plot_check(title, sta_list, availability, day_list)
+    # def gui(self, starttime, station_list, component="Z", delta=30, sde_file=None, **kwargs):
 
-        # else:
-        #     return list_missing_days
+    #     from seisvo.plotting.gui.gnetwork import init_network_gui
 
+    #     # check station_list
+    #     true_station_list = []
+    #     for sta in self.station:
+    #         sta_id = '.'.join([sta.stats.code, sta.stats.loc])
+    #         if sta_id in station_list:
+    #             true_station_list += [sta_id]
 
-    def remove(self, sta_code, loc):
-        """
-        Remove station from the network class
-        """
-        sta = self.get_sta(sta_code, loc)
-        if sta:
-            sta_id = sta.id
-            self.station.remove(sta)
-            self.stats.stations_info.remove(sta_id)
-
-
-    def gui(self, starttime, station_list, component="Z", delta=30, sde_file=None, **kwargs):
-
-        from seisvo.plotting.gui.gnetwork import init_network_gui
-
-        # check station_list
-        true_station_list = []
-        for sta in self.station:
-            sta_id = '.'.join([sta.stats.code, sta.stats.loc])
-            if sta_id in station_list:
-                true_station_list += [sta_id]
-
-        if not true_station_list:
-            print(" no stations loaded!. Revise network file!")
-            return
+    #     if not true_station_list:
+    #         print(" no stations loaded!. Revise network file!")
+    #         return
         
-        if component not in ["Z", "N", "E"]:
-            print(" componente must be Z, N, or E")
-            return
+    #     if component not in ["Z", "N", "E"]:
+    #         print(" componente must be Z, N, or E")
+    #         return
         
-        if sde_file:
-            if sde_file.split('.')[-1] != '.db':
-                sde_file += '.db'
+    #     if sde_file:
+    #         if sde_file.split('.')[-1] != '.db':
+    #             sde_file += '.db'
 
-        else:
-            sde_file = os.path.join(DB_PATH, self.stats.code + '.db')
+    #     else:
+    #         sde_file = os.path.join(seisvo_paths["database"], self.stats.code + '_sde.db')
         
-        if isinstance(kwargs.get("specgram"), int):
-            specgram = station_list[kwargs.get("specgram")]
-            kwargs["specgram"] = specgram
+    #     if isinstance(kwargs.get("specgram"), int):
+    #         specgram = station_list[kwargs.get("specgram")]
+    #         kwargs["specgram"] = specgram
         
-        if specgram not in true_station_list:
-            kwargs["specgram"] = None
+    #     if specgram not in true_station_list:
+    #         kwargs["specgram"] = None
 
-        init_network_gui(self, true_station_list, starttime, delta, component, sde_file, **kwargs)
+    #     init_network_gui(self, true_station_list, starttime, delta, component, sde_file, **kwargs)
 
 
     def lte(self, starttime, endtime, sta_list, window, subwindow, win_olap=0.5, subw_olap=0.75, **kwargs):
@@ -328,7 +281,7 @@ class Network(object):
         fq_band     = kwargs.get('fq_band', (0.5, 10))
         validate    = kwargs.get("validate", True) # if True, ssteps will ask for confirmation
         file_name   = kwargs.get("file_name", None)
-        out_dir     = kwargs.get("out_dir", "./")
+        out_dir     = kwargs.get("out_dir", seisvo_paths["lte"])
         resp_dict   = kwargs.get("resp_dict", {})
 
         # check resp dict
@@ -376,7 +329,7 @@ class Network(object):
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (self.stats.code, starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, window)
         
         if not out_dir:
-            out_dir = os.path.join(LTE_PATH)
+            out_dir = os.path.join(seisvo_paths["lte"])
         
         file_name_full = os.path.join(out_dir, file_name)
         if file_name_full.split('.')[-1] != 'lte':
@@ -386,11 +339,11 @@ class Network(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
         
-        lte = netLTE.new(sta_ob_list, file_name_full, ltebase, njobs, resp_dict)
+        lte = NetworkLTE.new(sta_ob_list, file_name_full, ltebase, njobs, resp_dict)
         return lte
 
 
-class sArray(Network):
+class SeismicArray(Network):
     def __init__(self, net_code, sta_code, comp='Z', locs=None):
         super().__init__(net_code)
         self.sta_code = sta_code
@@ -400,29 +353,25 @@ class sArray(Network):
         if locs:
             if isinstance(locs, (str, tuple)):
                 locs = list(locs)
-            self.__filterlocs__(locs)
+            self._filterlocs(locs)
 
-        self.locs = [sta.stats.loc for sta in self.station]
-        self.xUTM = np.array([float(sta.stats.lon) for sta in self.station])
-        self.yUTM = np.array([float(sta.stats.lat) for sta in self.station])
+        self.locs = [sta.stats.location for sta in self.station]
+        self._getposition()
+        
+        # load array response
         self.resp = Arfr(self)
     
-    
-    def __filterlocs__(self, loc_list):
 
-        locs_to_remove = []
+    def _getposition(self):
+
+        self.xUTM, self.yUTM, self.utmzone = [], [], []
+
         for sta in self.station:
-            if sta.stats.loc not in loc_list:
-                locs_to_remove.append(sta)
+            x, y, n, l = sta.get_latlon(return_utm=True)
+            self.xUTM.append(x)
+            self.yUTM.append(y)
+            self.utmzone.append(str(n)+l)
         
-        for sta in locs_to_remove:
-            self.station.remove(sta)
-        
-        self.stations_info = [sta.stats.id for sta in self.station]
-
-
-    def get_aperture(self):
-        # only for utm data
         a = 0
         for i in range(len(self.locs)):
             for j in range(i,len(self.locs)):
@@ -434,7 +383,21 @@ class sArray(Network):
                     d = np.sqrt(np.abs(x1-x2)**2 + np.abs(y2-y1)**2)
                     if d > a:
                         a = d
-        return a
+        
+        self.aperture = a
+
+    
+    def _filterlocs(self, loc_list):
+
+        locs_to_remove = []
+        for sta in self.station:
+            if sta.stats.loc not in loc_list:
+                locs_to_remove.append(sta)
+        
+        for sta in locs_to_remove:
+            self.station.remove(sta)
+        
+        self.stations_info = [sta.stats.id for sta in self.station]
 
 
     def get_mdata(self, start_time, end_time, toff_sec=0, sample_rate=None, fq_band=(), return_stats=False):
@@ -563,11 +526,10 @@ class sArray(Network):
         
         if njobs > int(ss.nro_intervals)*len(fq_bands):
             njobs = int(ss.nro_intervals)*len(fq_bands)
-
             print(f"warn  ::  njobs set to {njobs}")
 
         if validate:
-            self.print_cc8_validation(cc8base)
+            self._print_cc8_validation(cc8base)
             name = input("\n Please, confirm that you are agree (Y/n): ")
             if name not in ('', 'Y', 'y'):
                 return
@@ -580,7 +542,7 @@ class sArray(Network):
                 filename += ".cc8"
 
         if not outdir:
-            outdir = os.path.join(CC8_PATH)
+            outdir = os.path.join(seisvo_paths["cc8"])
         
         filenamef = os.path.join(outdir, filename)
 
@@ -590,8 +552,10 @@ class sArray(Network):
         
         if CC8.__check_process__(self, starttime, endtime, verbose=True):
             cc8 = CC8.new(self, filenamef, cc8base, njobs)
+            return cc8
         
-        return 
+        else:
+            return None
 
 
     def plot(self, save=False, filename="./array_map.png"):
@@ -601,7 +565,7 @@ class sArray(Network):
             fig.savefig(filename)
 
     @staticmethod
-    def print_cc8_validation(cc8dict):
+    def _print_cc8_validation(cc8dict):
         print('')
         print(' CC8base INFO')
         print(' -------------')
@@ -618,7 +582,7 @@ class sArray(Network):
         print('')
 
 
-class iArray(Network):
+class SoundArray(Network):
     def __init__(self, net_code, sta_code, chan='P', **kwargs):
         super().__init__(net_code)
         self.sta_code = sta_code

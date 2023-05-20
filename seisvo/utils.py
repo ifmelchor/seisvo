@@ -97,6 +97,14 @@ def get_times_bounds(starttime_bound, endtime_bound, st, et):
         return(starttime_bound, endtime_bound)
 
 
+def in_interval(st, et, time_interval):
+    cond1 = st >= time_interval[0] and et <= time_interval[1] # start and end in
+    cond2 = time_interval[1] > st > time_interval[0] and et > time_interval[1] # start in, end out
+    cond3 = time_interval[0] > st and time_interval[0] < et < time_interval[1] # end out, start in
+    cond4 = st < time_interval[0] and time_interval[1] < et # start and end out
+    return cond1 or cond2 or cond3 or cond4
+
+
 def get_time_format(datetime, day_interval):
     if datetime:
         if day_interval <= 1:

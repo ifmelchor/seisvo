@@ -5,10 +5,10 @@ import os
 import numpy as np
 import datetime as dt
 from scipy.stats import gaussian_kde
+from seisvo import seisvo_paths
 
-from seisvo import __seisvo__
-import seisvo.file.lte as sfl
-from seisvo.file.air import AiR
+# import seisvo.file.lte as sfl
+# from seisvo.file.air import AiR
 
 
 class Event(object):
@@ -254,7 +254,7 @@ class Episode(object):
     def compute_sup_lte(self, channel, interval, int_olap=0.0, step=1, step_olap=0.0, out_dir=None, replace=True, **ltekwargs):
 
         if not out_dir:
-            out_dir = os.path.join(__seisvo__, 'database', self.row_.network, 'sup')
+            out_dir = os.path.join(seisvo_paths["main"], 'database', self.row_.network, 'sup')
 
         if not os.path.isdir(out_dir):
             os.makedirs(out_dir)

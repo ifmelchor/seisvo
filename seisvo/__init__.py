@@ -1,28 +1,37 @@
 #!/usr/bin/python3
 # coding=utf-8
 
+__all__ = ['get', 'read', 'Network', 'Station', 'LTE', 'CC8', 'SDE', 'LDE', 'seisvo_paths']
+
 import os
 
 try:
     __seisvo__ = os.environ["SEISVO_PATH"]
-    DB_PATH   = os.path.join(__seisvo__, 'database')
-    CC8_PATH  = os.path.join(__seisvo__, 'cc8')
-    LTE_PATH  = os.path.join(__seisvo__, 'lte')
-    NET_PATH  = os.path.join(__seisvo__, 'networks')
-    RESP_PATH = os.path.join(__seisvo__, 'respfiles')
-    
 except KeyError:
-    print('"seisvo_path" not defined in bashrc. Please, see documentation')
+    print(' SEISVO_PATH not defined in bashrc. Please, see documentation')
     exit()
 
-from .core.obspyext import read2 as read
-from .core.network import Network, iArray, Station
-from .lte import LTE, Peaks
-from .sap.cc8 import CC8
-from .file.air import AiR
-from .database import SDE, LDE
-from .signal import SSteps
+seisvo_paths = {
+    "networks":os.path.join(__seisvo__, 'networks'),
+    "database":os.path.join(__seisvo__, 'database'),
+    "cc8":os.path.join(__seisvo__, 'files', 'cc8'),
+    "lte":os.path.join(__seisvo__, 'files', 'lte')
+}
 
+for _, path in seisvo_paths.items():
+    if not os.path.isdir(path):
+        os.makedirs(path)
+        print(f" >>> folder {path} created")
+
+seisvo_paths["main"] = __seisvo__
+
+from .obspyext import read2 as read
+from .network import Network, Station, SeismicArray #,iArray
+from .lte import LTE
+from .sap.cc8 import CC8
+from .database import SDE, LDE
+# from .file.air import AiR
+from .signal import SSteps
 
 def get(sarg):
     argin = sarg.split("/")
@@ -54,4 +63,3 @@ def get(sarg):
     
     else:
         return net
-

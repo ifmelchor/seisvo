@@ -4,23 +4,26 @@
 import os
 import utm
 import scipy
+import pickle
 import numpy as np
 import datetime as dt
 import multiprocessing as mp
-from glob import glob
 
-from seisvo import LTE_PATH
-from seisvo.lte import staLTE
-from seisvo.core import get_respfile
+from glob import glob
+from obspy.core.inventory.response import Response
+
+from seisvo import seisvo_paths
 from .obspyext import UTCDateTime, read2, Stream2
-from seisvo.signal import SSteps, get_freq
-from seisvo.signal.polarization import PolarAnalysis
-from seisvo.plotting import pplot_control
+from .lte import StationLTE
+from .signal import SSteps, get_freq
+from .signal.polarization import PolarAnalysis
+from .plotting import pplot_control
+
 
 class Station(object):
     def __init__(self, StaFile):
         self.stats = StaFile
-        self.resp_ = get_respfile(self.stats.net, self.stats.code, self.stats.loc)
+        # self.resp_ = get_respfile(self.stats.net, self.stats.code, self.stats.loc)
         self.__set_dates__()
 
 
@@ -55,7 +58,7 @@ class Station(object):
 
         """
 
-        if chan not in self.stats.chan:
+        if chan not in self.stats.channels:
             raise ValueError('Channel not loaded')
 
         if julian_date:
@@ -69,8 +72,8 @@ class Station(object):
         else:
             raise TypeError("A 'date' or 'julian_date' not specified")
 
-        file_name = '%s.%s.%s.%s.D.%s.%03d' % (self.stats.net, self.stats.code, self.stats.loc, chan, year, yday)
-        file = os.path.join(self.stats.sdsdir, str(year), self.stats.net, self.stats.code, '%s.D' % chan, file_name)
+        file_name = '%s.%s.%s.%s.D.%s.%03d' % (self.stats.network.code, self.stats.code, self.stats.location, chan, year, yday)
+        file = os.path.join(self.stats.network.sds_path, str(year), self.stats.network.code, self.stats.code, '%s.D' % chan, file_name)
         
         if os.path.isfile(file):
             if stream:
@@ -99,8 +102,12 @@ class Station(object):
         start = dt.datetime(2969,1,1)
         end   = dt.datetime(1969,1,1)
 
-        for chan in self.stats.chan:
-            flist = glob(os.path.join(self.stats.sdsdir, '*', self.stats.net, self.stats.code, '%s.D' % chan, '*'))
+        sds_path = self.stats.network.sds_path
+        net_code = self.stats.network.code
+        sta_code = self.stats.code
+
+        for chan in self.stats.channels:
+            flist = glob(os.path.join(sds_path, '*', net_code, sta_code, f'{chan}.D', '*'))
             flist = list(filter(lambda x : len(x.split('.')[-1]) == 3, flist))
             datelist = [i[-8:] for i in flist]
             datelist.sort()
@@ -124,77 +131,46 @@ class Station(object):
         self.endtime   = end
 
 
-    def __rm_sensitivity__(self, st, disp=False):
+    def remove_response(self, stream, **kwargs):
         """
-        Remove sensitivity of a stream2 using data loaded in RESP file of SEISVO
-        """
-        new_stream = Stream2()
+        Remove response of a stream2 using data loaded in RESP file of SEISVO.
 
-        if self.resp_:
-            sensitivity = self.resp_.load().instrument_sensitivity.value
-        
-        elif self.respfact_:
-            sensitivity = self.respfact_
-        
+        """
+
+        resp = self.stats.get_response()
+
+        if not isinstance(stream, Stream2):
+            stream = Stream2(stream)
+
+        if resp:
+            stream_resp = stream.remove_response2(resp, **kwargs)
+
         else:
-            print(" no sensitivity removed")
+            print(" >>> warn: no response file info")
+            stream_resp = stream
         
-        st_rr = Stream2()
-        for tr in st:
-            tr.data = tr.data / sensitivity
-            
-            if disp:
-                tr.data -= tr.data.mean()
-                tr_disp = scipy.integrate.cumtrapz(tr.data, dx=tr.stats.delta, initial=0)
-                tr_disp = scipy.signal.resample(tr_disp, tr.stats.npts)
-                tr.data = tr_disp
-            
-            st_rr.append(tr)
+        return stream_resp
+    
+
+    def remove_factor(self, stream, disp=False):
+        """
+        Remove sensitivity of a stream2 using data loaded in RESP file of SEISVO.
+
+        """
+
+        factor = self.stats.get_factor()
+
+        if not isinstance(stream, Stream2):
+            stream = Stream2(stream)
+
+        if resp:
+            stream_resp = stream.remove_factor(factor, disp=disp)
+
+        else:
+            print(" >>> warn: no response file info")
+            stream_resp = stream
         
-        return st_rr
-
-
-    def __rm_response__(self, st, **kwargs):
-        """
-        Remove response of a stream2 using data loaded in RESP file of SEISVO
-        """
-
-        if self.resp_: 
-            # can be a list or RespFile
-            if isinstance(self.resp_, list):
-                t1 = st[0].stats.starttime
-                t2 = st[0].stats.endtime
-                for resp in self.resp_:
-                    if resp.endtime > t2 and resp.starttime < t1:
-                        st_rr = st.remove_response2(resp_dict=resp, **kwargs)
-            
-            else:
-                st_rr = st.remove_response2(resp_dict=self.resp_, **kwargs)
-                
-        elif self.respfact_:
-            # just multiply by a sensibility factor
-            st_rr = Stream2()
-            for tr in st:
-                tr.data *= self.respfact_
-                st_rr.append(tr)
-                
-        else:
-            if verbose:
-                print('warn: no response data found')
-                return st
-
-        return st_rr
-
-
-    def is_infrasound(self):
-        """ 
-        Check if the station is an infrasound channel
-        """
-
-        if len(self.stats.chan) == 1 and self.stats.chan[0][-1] == 'P':
-            return True
-        else:
-            return False
+        return stream_resp
 
 
     def is_component(self, component):
@@ -203,7 +179,7 @@ class Station(object):
         """ 
 
         ans = False
-        for true_chan in self.stats.chan:
+        for true_chan in self.stats.channels:
             if true_chan[-1] == component:
                 ans = True
 
@@ -211,12 +187,7 @@ class Station(object):
 
 
     def is_three_component(self):
-        """ 
-        Check if station is a three component sensor
-        """ 
-
-        checklist = list(map(self.is_component, ["Z", "N", "E"]))
-        return all(checklist)
+        return all(list(map(self.is_component, ["Z", "N", "E"])))
 
 
     def get_chan(self, component):
@@ -225,7 +196,7 @@ class Station(object):
         """ 
 
         ans = []
-        for true_chan in self.stats.chan:
+        for true_chan in self.stats.channels:
             if true_chan[-1] == component:
                 ans.append(true_chan)
 
@@ -239,10 +210,10 @@ class Station(object):
         """
 
         if isinstance(channel, type(None)):
-            return self.stats.chan
+            return self.stats.channels
 
         if isinstance(channel, str):
-            if channel not in self.stats.chan:
+            if channel not in self.stats.channels:
                 print('channel %s not available' % channel)
                 return
             else:
@@ -250,46 +221,28 @@ class Station(object):
             
         else:
             # channel is a list/tuple/array
-            true_chan = [ch for ch in channel if ch in self.stats.chan]
+            true_chan = [ch for ch in channel if ch in self.stats.channels]
 
         return true_chan
 
 
-    def get_latlon(self, out_format="degree"):
+    def get_latlon(self, return_utm=False):
         """
         Get longitude coord. in 'degree' or 'utm'.
         """
 
-        try:
-            lat = self.stats.lat
-            lon = self.stats.lon
-            coordtype = self.stats.type
-        except:
-            raise NameError("latitude, longitude and type are not defined in NET file.")
+        if lat not in self.stats.keys_ or lon not in self.stats.keys_:
+            print(" lat/lon not defined in network JSON file")
+            return
         
-        if coordtype == 'utm':
-            try:
-                zn = self.stats.zone_number
-                zl = self.stats.zone_letter
-            except:
-                raise NameError("For utm coordinated, zone_number and zone_letter should be defined in NET file.")
+        lat = self.stats.lat
+        lon = self.stats.lon
 
-
-        if out_format == "degree":
-            if coordtype == 'utm':
-                return utm.to_latlon(lat, lon, zn, zl)
-            else:
-                return (lat, lon)
+        if return_utm:
+            return utm.from_latlon(lat, lon)
         
-
-        if out_format == "utm":
-            if coordtype == 'utm':
-                return (lat, lon, zn, zl)
-            else:
-                return utm.from_latlon(lat, lon)
-
         else:
-            raise ValueError("out_format should be 'degree' or 'utm'")
+            return (lat, lon)
 
 
     def get_filelist(self, chan, startdate=None, enddate=None):
@@ -301,14 +254,14 @@ class Station(object):
         :return: file_path or False
         """
 
-        if chan not in self.stats.chan:
+        if chan not in self.stats.channels:
             raise TypeError('Channel not loaded')
 
         if not startdate:
-            startdate = self.stats.starttime
+            startdate = self.starttime
 
         if not enddate:
-            enddate = self.stats.endtime
+            enddate = self.endtime
 
         day_diff = (enddate - startdate).days
         date_list = [startdate + dt.timedelta(days=i) for i in range(day_diff+1)]
@@ -353,7 +306,7 @@ class Station(object):
                 
                 else:
                     if verbose:
-                        print(' warn [STA.ID: %s.%s]. No data for %s' % (self.stats.code, self.stats.loc, day.strftime('%d %b %Y')))
+                        print(' warn [STA.ID: %s.%s]. No data for %s' % (self.stats.code, self.stats.location, day.strftime('%d %b %Y')))
 
         # if different traces with different sample rates are in date, discard stream
         if len(list(set(sample_rate_list))) > 1:
@@ -370,11 +323,12 @@ class Station(object):
         if st:
             if kwargs.get('remove_response', False):
                 rrkwargs = kwargs.get('rrkwargs', {})
-                st = self.__rm_response__(st, **rrkwargs)
+                st = self.remove_response(st, **rrkwargs)
+                kwargs['remove_sensitivity'] = False
             
             if kwargs.get('remove_sensitivity', False):
                 disp = kwargs.get('disp', False)
-                st = self.__rm_sensitivity__(st, disp=disp)
+                st = self.remove_factor(st, disp=disp)
             
             sample_rate = kwargs.get('sample_rate', None)
             if sample_rate and sample_rate < sample_rate_list[0]:
@@ -471,7 +425,7 @@ class Station(object):
         assert endtime <= self.endtime
         assert window >= 0
 
-        sample_rate = int(kwargs.get('sample_rate', self.stats.sampling_rate))
+        sample_rate = kwargs.get('sample_rate', 40)
         fq_band     = kwargs.get('fq_band', (0.5, 10))
         NW          = float(kwargs.get("NW", 3.5))
         pad         = float(kwargs.get("pad", 1.0))
@@ -486,11 +440,11 @@ class Station(object):
             lwin = None
             nadv = None
 
-        data = self.get_mdata(starttime, endtime, self.stats.chan, sort="ZNE", **kwargs)
+        data = self.get_mdata(starttime, endtime, self.stats.channels, sort="ZNE", **kwargs)
 
         from juliacall import Main as jl
         jl.seval("using LTE")
-        polar_ans = jl.polar_run(jl.Array(data), jl.Tuple(fq_band), sample_rate, NW, pad, nwin, lwin, nadv, full_analysis)
+        polar_ans = jl.polar_run(jl.Array(data), jl.Tuple(fq_band), int(sample_rate), NW, pad, nwin, lwin, nadv, full_analysis)
 
         return polar_ans
 
@@ -533,7 +487,7 @@ class Station(object):
 
         # load parameters
         channel     = self.check_channel(channel)
-        sample_rate = kwargs.get('sample_rate', self.stats.sampling_rate)
+        sample_rate = kwargs.get('sample_rate', 40)
         njobs       = kwargs.get('njobs', -1)
         pad         = kwargs.get("pad",1.0)
         fq_band     = kwargs.get('fq_band', (0.5, 10))
@@ -598,7 +552,7 @@ class Station(object):
         
         out_dir = kwargs.get("out_dir", None)
         if not out_dir:
-            out_dir = os.path.join(LTE_PATH)
+            out_dir = os.path.join(seisvo_paths["lte"])
         
         file_name_full = os.path.join(out_dir, file_name)
         if file_name_full.split('.')[-1] != 'lte':
@@ -608,7 +562,7 @@ class Station(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
 
-        lte = staLTE.new(self, file_name_full, ltebase, njobs)
+        lte = StationLTE.new(self, file_name_full, ltebase, njobs)
         
         return lte
 
@@ -621,7 +575,7 @@ class Station(object):
         :param endtime: datetime object. optinal
         """
 
-        if chan not in self.stats.chan:
+        if chan not in self.stats.channels:
             raise TypeError('Channel not loaded')
 
         if not startdate:
@@ -662,23 +616,23 @@ class Station(object):
         pplot_control(title, date_list, nro_traces, sample_rate, npts, filesize)
 
 
-    def plot(self, starttime, sde, channel='all', delta=30, app=False, **kwargs):
-        """ Plot seismogram of the station in a simple GUI. 
+    # def plot(self, starttime, sde, channel='all', delta=30, app=False, **kwargs):
+    #     """ Plot seismogram of the station in a simple GUI. 
 
-        Args:
-            channel (str or list): string or list of string with the channels to plot
-            starttime (datetime): start time to plot
-            delta (int, optional): in minutes. Defaults to 15.
-            return_fig (bool, optional): Return fig and axes objects. Defaults to False.
-        """
+    #     Args:
+    #         channel (str or list): string or list of string with the channels to plot
+    #         starttime (datetime): start time to plot
+    #         delta (int, optional): in minutes. Defaults to 15.
+    #         return_fig (bool, optional): Return fig and axes objects. Defaults to False.
+    #     """
 
-        from seisvo.plotting.gui.gstation import plot_station_gui
+    #     from seisvo.plotting.gui.gstation import plot_station_gui
 
-        window = plot_station_gui(self, starttime, sde, channel=channel, delta=delta, app=app, **kwargs)
+    #     window = plot_station_gui(self, starttime, sde, channel=channel, delta=delta, app=app, **kwargs)
         
-        if app:
+    #     if app:
             
-            return window
+    #         return window
 
 
 

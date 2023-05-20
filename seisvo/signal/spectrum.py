@@ -1,11 +1,10 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-from __future__ import division
 import functools
 import multiprocessing
-
 import numpy as np
+
 from multitaper import MTSpec
 from mtspec import mtspec
 from scipy import signal

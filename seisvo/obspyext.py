@@ -5,13 +5,15 @@
 '''
 
 import numpy as np
-from scipy import signal
 import datetime as dt
+import scipy
+from .signal.spectrum import power_density_spectrum, cosine_taper
 
+import obspy.signal.invsim as osi
 from obspy import Stream, Trace, read, UTCDateTime
+from obspy.signal.util import _npts2nfft
 from obspy.signal import filter as osf
 
-from seisvo.signal.spectrum import power_density_spectrum, cosine_taper
 
 def read2(*args, **kwargs):
     st = read(*args, **kwargs)
@@ -45,7 +47,7 @@ class Trace2(Trace):
             data = data - data.mean()
 
         if detrend:
-            data = signal.detrend(data)
+            data = scipy.signal.detrend(data)
         
         if rm_sensitivity:
             data /= rm_sensitivity
@@ -281,8 +283,8 @@ class Trace2(Trace):
             if bandstop:
                 data = osf.bandstop(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, zerophase=zerophase)
             else:
-                b, a = signal.butter(corners, fq_band, fs=sample_rate, btype='band')
-                data = signal.filtfilt(b, a, data, method="gust")
+                b, a = scipy.signal.butter(corners, fq_band, fs=sample_rate, btype='band')
+                data = scipy.signal.filtfilt(b, a, data, method="gust")
                 # data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, corners=corners, zerophase=zerophase)
 
         elif fq_band[0] and not fq_band[1]:
@@ -303,9 +305,6 @@ class Trace2(Trace):
         Remove instrument response from the config resp file.
         The function is based on Obspy.
         """
-
-        import obspy.signal.invsim as osi
-        from obspy.signal.util import _npts2nfft
 
         taper          = kwargs.get('taper', True)
         taper_fraction = kwargs.get('taper_fraction', 0.05)
@@ -355,6 +354,25 @@ class Trace2(Trace):
         return new_trace
 
 
+    def remove_factor(self, factor, disp):
+        """
+        Divide the data with a factor (typically, the instrument sensitivity) from the config seisvo file.
+        disp :: return displacement [m] instead of velocity [m/s]
+        """
+
+        tr = self.copy()
+
+        tr.data = tr.data / factor
+            
+        if disp:
+            tr.data -= tr.data.mean()
+            tr_disp = scipy.integrate.cumtrapz(tr.data, dx=tr.stats.delta, initial=0)
+            tr_disp = scipy.signal.resample(tr_disp, tr.stats.npts)
+            tr.data = tr_disp
+        
+        return tr
+
+
 class Stream2(Stream):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -384,9 +402,25 @@ class Stream2(Stream):
         return st
 
 
-    def remove_response2(self, resp_dict, **kwargs):
+    def remove_response2(self, resp, **kwargs):
         st = Stream2()
         for trace in self:
+            if isinstance(resp, dict):
+                resp_dict = resp[trace.stats.channel]
+            else:
+                resp_dict = resp
             tr = Trace2(trace).remove_response2(resp_dict, **kwargs)
+            st.append(tr)
+        return st
+    
+
+    def remove_factor(self, factor, disp=False):
+        st = Stream2()
+        for trace in self:
+            if isinstance(factor, dict):
+                fval = factor[trace.stats.channel]
+            else:
+                fval = factor
+            tr = Trace2(trace).remove_factor(fval, disp)
             st.append(tr)
         return st
