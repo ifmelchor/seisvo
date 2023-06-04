@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 from itertools import chain
-from seisvo.signal.proba import get_KDE
-from .plotting import plotPeaksSpecPDF, plotPeaksPDF, plotPeakTimeEvo, plotDFreqTimeEvo
+from ..signal.statistics import get_KDE
+from ..plotting.lte import plotPeaksSpecPDF, plotPeaksPDF, plotPeakTimeEvo, plotDFreqTimeEvo
 
 
 class Peaks(object):
@@ -162,6 +162,7 @@ class Peaks(object):
         all_fq_pks = np.array(list(chain(*all_fq_pks)))
         
         # compute PDF
+
         fq_space = np.linspace(all_fq_pks.min(), all_fq_pks.max(), 1000).reshape(-1, 1)
         fq_bwd  = kwargs.get("fq_bandwidth", 0.01)
         pks_kde = get_KDE(all_fq_pks.reshape(-1, 1), fq_bwd)

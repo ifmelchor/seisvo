@@ -1,30 +1,40 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
+import time
+import h5py
 import numpy as np
-import time as ttime
 import multiprocessing as mp 
-from seisvo.signal import get_tseries_stats, get_pdf_data
-from obspy.core.util.attribdict import AttribDict
-from .plotting import cc8_plot, slowness_map_motion, simple_slowness_plot, plot_slowbaz_tmap
+from ..signal import get_CC8, get_stats, get_pdf_data
 
+# from .plotting import cc8_plot, slowness_map_motion, simple_slowness_plot, plot_slowbaz_tmap
 
-class CC8stats(AttribDict):
-    def __init__(self, header):
-        super(CC8stats, self).__init__(header)
+def attr_filt(attr_list, which):
+    """
+    Filter a list of attributes to only vector or scalar.
+    which must be a string of "scalar" or "vector"
+    """
 
-    def __add_attr__(self, listin):
-        self.attributes = listin
+    assert which in ("scalar", "vector")
+    assert isinstance(attr_list, list)
 
-    def __str__(self):
-        priorized_keys = ['id', 'locs', 'starttime','endtime','window','overlap','nro_time_bins','last_time_bin','sample_rate','fq_bands', 'slow_max','slow_inc', 'cc_thres']
+    filter_list = []
 
-        return self._pretty_str(priorized_keys)
+    for attr in attr_list:
+        if which == "scalar" and attr in ["slow", "bazm", "maac", "rms"]:
+            filter_list.append(attr)
+        
+        if which == "vector" and attr in ["slowmap"]:
+            filter_list.append(attr)
+            
+    return filter_list
+ 
 
-
-class CC8Process(object):
-    def __init__(self, cc8, lwin, nwin, nadv, toff):
-        self.cc8       = cc8
+class _CC8Process(object):
+    def __init__(self, cc8stats, xutm, yutm, lwin, nwin, nadv, toff):
+        self.cc8stats  = cc8stats
+        self.xutm      = xutm
+        self.yutm      = yutm
         self.lwin      = lwin
         self.nwin      = nwin
         self.nadv      = nadv
@@ -34,39 +44,13 @@ class CC8Process(object):
         self.queue     = mp.Queue()
 
 
-    def _wrapper(self, *args):
-        start_time = ttime.time()
-
-        cc8_ans = {}
-        if isinstance(args[0], np.ndarray):
-
-            from juliacall import Main as jl
-            jl.seval("using SAP")
-
-            jlans = jl.CC8(
-                        jl.Array(args[0]),
-                        jl.Array(args[1]),
-                        jl.Array(args[2]),
-                        jl.Array(np.array(self.cc8.stats.slow_max)),
-                        jl.Array(np.array(self.cc8.stats.slow_inc)),
-                        jl.Array(args[3]),
-                        self.cc8.stats.sample_rate, 
-                        self.lwin,
-                        self.nwin,
-                        self.nadv,
-                        self.cc8.stats.cc_thres,
-                        self.toff,
-                        )
-
-            # convert to python dict
-            jlans = dict(jlans)
-            for nsi in range(1, len(self.cc8.nites_)+1):
-                cc8_ans[nsi] = {}
-                for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
-                        cc8_ans[nsi][attr] = np.array(jlans[nsi][attr])
-
-        proc_duration = ttime.time() - start_time
-        self.queue.put((self.n, cc8_ans, args[4], args[5], args[6], proc_duration))
+    def _wrapper(self, data, fqband, fqidx, starttime, endtime):
+        t0 = time.time()
+        cc8_ans = get_CC8(data, self.cc8stats.sample_rate, self.xutm, self.yutm,\
+            fqband, self.cc8stats.slow_max, self.cc8stats.slow_inc,\
+            lwin=self.lwin, nwin=self.nwin, nadv=self.nadv, cc_thres=self.cc8stats.cc_thres, toff=self.toff)
+        t1 = time.time()
+        self.queue.put((self.n, cc8_ans, fqidx, starttime, endtime, t1-t0))
     
 
     def run(self, *args, **kwargs):
@@ -118,8 +102,8 @@ class CC8Process(object):
                 vector_nan = np.full([self.nwin,], np.nan)
 
                 cc8_ans = {}
-                for nsi in range(1, len(self.cc8.nites_)+1):
-                    nite = self.cc8.nites_[nsi-1]
+                for nsi in range(1, len(self.cc8stats.nites)+1):
+                    nite = self.cc8stats.nites[nsi-1]
                     matrix_nan = np.full([self.nwin, nite, nite], np.nan)
                     matrixbnd_nan = np.full([self.nwin, 2], np.nan)
                     cc8_ans[nsi] = {}
@@ -134,16 +118,16 @@ class CC8Process(object):
             else:
                 proc_status = "OK"
             
-            self.cc8.__write__(cc8_ans, nfq, self.nwin)
+            self.cc8stats.__write__(cc8_ans, nfq, self.nwin)
 
-            print(f" >> {start} -- {end}  ::  data wrote  {proc_status}  ::  job {int_prct} :: fq_band {nfq}/{len(self.cc8.stats.fq_bands)}  ::  process time {proct:.1f} sec")
+            print(f" >> {start} -- {end}  ::  data wrote  {proc_status}  ::  job {int_prct} :: fq_band {nfq}/{len(self.cc8stats.fq_bands)}  ::  process time {proct:.1f} sec")
 
         self.reset()
 
 
 class CC8out(object):
-    def __init__(self, cc8, dout):
-        self.cc8 = cc8
+    def __init__(self, cc8stats, dout):
+        self.cc8stats = cc8stats
         self.starttime_ = dout["dtime"][0]
         self.endtime_   = dout["dtime"][-1]
         self._dout = dout
@@ -177,8 +161,8 @@ class CC8out(object):
 
 
     def __str__(self):
-        txt_to_return =  f'\n   >>LTE file    ::: {self.cc8.file_}'
-        txt_to_return += f'\n   > ID           :  {self.cc8.stats.id}'
+        txt_to_return =  f'\n   >>LTE file    ::: {self.cc8stats.file}'
+        txt_to_return += f'\n   > ID           :  {self.cc8stats.id}'
         txt_to_return += f'\n   >starttime     :  {self.starttime_.strftime("%d %B %Y %H:%M")}'
         txt_to_return += f'\n   >endtime       :  {self.endtime_.strftime("%d %B %Y %H:%M")}'
         txt_to_return += f'\n   >attribute     :  {self.attr_list}'
@@ -210,37 +194,9 @@ class CC8out(object):
                 return None
         
         if which:
-            attr_list = self.cc8.attr_filt(attr_list, which)
+            attr_list = attr_filt(attr_list, which)
             
         return attr_list
-
-
-    def get_bounds(self, fq_idx, slow_idx):
-
-        if isinstance(fq_idx, int):
-            fq_idx = str(fq_idx)
-        
-        if isinstance(slow_idx, int):
-            slow_idx = str(slow_idx)
-            
-        julia.Julia(compiled_modules=False)
-        from julia import SAP
-
-        key = "/".join([fq_idx, slow_idx, slowmap])
-        msum = cc8get._dout[key][0,:,:]
-        pmax = cc8.stats.slow_max[0]
-        pinc = cc8.stats.slow_inc[0]
-        ccerr = cc8.stats.cc_thres
-        ccmax = float(cc8get._dout["1/1/maac"][0])
-        
-        dout = {}
-        ans = SAP.bm2(msum, pmax, pinc, ccmax, ccerr)
-        dout["azimin"] = ans.azimin
-        dout["azimax"] = ans.azimax
-        dout["slomin"] = ans.slomin
-        dout["slomax"] = ans.slomax
-        
-        return dout
 
 
     def get_stats(self, attr_list=None, fq_idx=None, slow_idx=None, db_scale=True):
@@ -256,12 +212,12 @@ class CC8out(object):
         if not fq_idx:
             fq_idx = self._fqidx
         else:
-            fq_idx = self.cc8.__checkidx__(fq_idx, "fq")
+            fq_idx = self.cc8stats.check_idx(fq_idx, "fq")
 
         if not slow_idx:
             slow_idx = self._slidx
         else:
-            slow_idx = self.cc8.__checkidx__(slow_idx, "slow")
+            slow_idx = self.cc8stats.check_idx(slow_idx, "slow")
 
         dout = {}
 
@@ -280,7 +236,7 @@ class CC8out(object):
                         if attr == 'rms' and db_scale:
                             data = 10*np.log10(data)
                     
-                        dout[key] = get_tseries_stats(data[np.isfinite(data)])
+                        dout[key] = get_stats(data[np.isfinite(data)])
         
         return dout
 
@@ -340,12 +296,12 @@ class CC8out(object):
         if not fq_idx:
             fq_idx = self._fqidx
         else:
-            fq_idx = self.cc8.__checkidx__(fq_idx, "fq")
+            fq_idx = self.cc8stats.check_idx(fq_idx, "fq")
 
         if not slow_idx:
             slow_idx = self._slidx
         else:
-            slow_idx = self.cc8.__checkidx__(slow_idx, "slow")
+            slow_idx = self.cc8stats.check_idx(slow_idx, "slow")
 
         fq_slo_idx = []
         for nfqi in fq_idx:
@@ -408,8 +364,8 @@ class CC8out(object):
         fileout = kwargs.get("fileout", None)
 
         if plot or fileout:
-            slomax = self.cc8.stats.slow_max[int(slow_idx)-1]
-            sloinc = self.cc8.stats.slow_inc[int(slow_idx)-1]
+            slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+            sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
             title  = f"\n {self.starttime_} -- {self.endtime_}"
             simple_slowness_plot(slowprob, slomax, sloinc, title=title, bar_label="most probable MAAC", **kwargs)
 
@@ -432,8 +388,8 @@ class CC8out(object):
 
         key = "/".join([fq_idx, slow_idx, "slowmap"])
         data = self._dout[key]
-        slomax = self.cc8.stats.slow_max[int(slow_idx)-1]
-        sloinc = self.cc8.stats.slow_inc[int(slow_idx)-1]
+        slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+        sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
 
         from juliacall import Main as jl
         jl.seval("using SAP")

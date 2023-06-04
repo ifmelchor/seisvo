@@ -2,6 +2,7 @@
 # coding=utf-8
 
 import pyqtgraph
+import numpy as np
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
 from seisvo.plotting import get_colors
@@ -32,7 +33,7 @@ default_fqband = {
 }
 
 
-def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"]):
+def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"], focus=None):
     stream = row.get_stream(off_seconds=off_sec)
 
     if not stream:
@@ -58,7 +59,16 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"]):
         n = default_sort.index(comp)-diff
         if n < 0:
             n = 0
-        y = trace.get_data(detrend=True, norm=True, fq_band=fq_band)
+
+        if focus:
+            y = trace.get_data(detrend=True, norm=False, fq_band=fq_band)
+            yfocus = trace.get_data(starttime=focus[0], endtime=focus[1], detrend=True, fq_band=fq_band)
+            max_value = np.abs(yfocus).max()
+            y /= max_value
+
+        else:
+            y = trace.get_data(detrend=True, norm=True, fq_band=fq_band)
+
         axes[n].plot(time, y, color=comp_colors[comp])
         axes[n].set_xlim(time[0], time[-1])
         axes[n].set_ylim(-1.1, 1.1)
@@ -113,7 +123,6 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"]):
             txt = Picker.phase_text(wave, phase)
             phase['artist_text'] = axes[0].annotate(txt, xy=(phase["time"], 1),color=phase_colors[wave])
 
-
     if return_fig:
         return fig
 
@@ -137,6 +146,11 @@ class EventCanvas(FigureCanvas):
         self.event = event
         self.max_row = len(event.rows_)
         self.fb = fb
+
+        self.focus = {
+        "active":False,
+        "ticks":[]
+        }
         
         try:
             for n, row in enumerate(self.event):
@@ -165,7 +179,7 @@ class EventCanvas(FigureCanvas):
         
         with pyqtgraph.BusyCursor():
 
-            self.axes_, phase_ = _plot_row(self.row, fig=self.fig, fq_band=default_fqband[self.fb])
+            self.axes_, phase_ = _plot_row(self.row, fig=self.fig, fq_band=default_fqband[self.fb], focus=self.focus["ticks"])
 
             # load picker
             self.picker_ = Picker(self.axes_, phase_, self.event.sde, self.row.id, self, phase_colors=phase_colors)
@@ -249,7 +263,28 @@ class EventCanvas(FigureCanvas):
             self.change_row(event.key)
 
         
-        # if event.key in ("right", "left"):
+        if event.key == "o":
+            if not self.focus["active"]:
+
+                if self.ticks['right'] and self.ticks['left']:
+                    rtick = self.ticks["right"]
+                    ltick = self.ticks["left"]
+
+                    self.focus = {
+                    "active":True,
+                    "ticks":[min([rtick, ltick]), max([rtick, ltick])]
+                    }
+                    print("\n  <<< [Info]  entry FOCUS mode between ticks")
+                    self.plot()
+
+            else:
+                self.focus = {
+                "active":False,
+                "ticks":[]
+                }
+                print("\n  <<< [Info]  exit FOCUS mode ")
+                self.plot()
+
         #     key = [QtCore.Qt.Key_Right, QtCore.Qt.Key_Left][["right", "left"].index(event.key)]
         #     self.parent.change_event(key)
         
@@ -270,6 +305,9 @@ class EventCanvas(FigureCanvas):
             sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID', 'Selecciona:', self.event.stations, self.event.stations.index(self.station_id), editable=False)
             if ok and sid != self.station_id:
                 self.change_row(sid)
+
+        if event.key == "+":
+            self.parent.print_event_phases()
         
 
         if event.key == " ":
@@ -335,7 +373,6 @@ class EventWidget(QtWidgets.QWidget):
 
 
     def change_event(self, event_key):
-
         if event_key == QtCore.Qt.Key_Right:
             idx = self.event_idx + 1
             if idx == self.max_index:
@@ -351,14 +388,33 @@ class EventWidget(QtWidgets.QWidget):
     
 
     def print_event_phases(self):
-        print(" --  PHASE EVENT info  -- ")
-        print("     EID     |       TIME      |  NPHASE/NSTATION  ")
-        for event in self.sde:
-            time = event.starttime
-            nsta = len(event)
-            nphase = event.get_phases(nro_phases=True)
-            txt = f"  {event.id:^13.0f}  {time:^17.0f}   {nphase}/{nsta} "
-            print(txt)
+        print(f" --  PHASE EVENT [{self.event.id}] info  -- ")
+        print("   STA   |   P   |   S   |   P-S   ")
+        for row in self.sde[self.event.id]:
+            text = f"{row.station:^9}"
+
+            if row.time_P:
+                p_t = (row.time_P - self.event.starttime).total_seconds()
+                text += f" {p_t:^7.2f}"
+            else:
+                p_t = None
+                text += f" {'-':^7}"
+
+            if row.time_S:
+                s_t = (row.time_S - self.event.starttime).total_seconds()
+                text += f" {s_t:^7.2f}"
+            else:
+                s_t = None
+                text += f" {'-':^7}"
+
+            if p_t and s_t:
+                slp = s_t - p_t
+                text += f" {slp:^7.2f}"
+            else:
+                slp = None
+                text += f" {'-':^7}"
+
+            print(text)
 
 
     def keyPressEvent(self, event):
@@ -390,8 +446,24 @@ class EventWidget(QtWidgets.QWidget):
             self.canvas.setFocus()
 
         
-        if event.key() == QtCore.Qt.Key_Insert:
-            print("CLONE event")
+        if event.key() == QtCore.Qt.Key_W:
+            print("Create new Event")
+            # if self.canvas.ticks['right'] and self.canvas.ticks['left']:
+            #     rtick = self.canvas.ticks["right"]
+            #     ltick = self.canvas.ticks["left"]
+                
+            #     end = max([rtick, ltick])
+            #     start = min([rtick, ltick])
+
+            #     # ask for label?
+
+            #     # save into database
+            #     self.sde.add_event()
+
+                # reload events
+
+                # notify 
+
            
 
         if event.key() == QtCore.Qt.Key_R:

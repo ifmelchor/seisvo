@@ -5,19 +5,16 @@ import os
 import glob
 import json
 import numpy as np
-import collections as col
 import datetime as dt
-import multiprocessing as mp
 
 from seisvo import seisvo_paths
 from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
-from .sap import CC8, Arfr, plot_array
-from .signal import SSteps, get_freq
-from .file.air import AiR
-from .signal.infrasound import infrasound_model_default, cross_corr
-from .lte import NetworkLTE
+from .sap import CC8
+from .signal import SSteps, get_freq, array_response
+from .lte.base import _new_LTE
+from .utils import nCPU
 
 
 def get_network(net_code):
@@ -41,7 +38,6 @@ def get_network(net_code):
 class Network(object):
     def __init__(self, net_code):
         self.stats = get_network(net_code)
-        self.station = [Station(x) for x in self.stats.stations]
 
 
     def __str__(self):
@@ -49,12 +45,12 @@ class Network(object):
 
 
     def __len__(self):
-        return len(self.station)
+        return len(self.stats.stations)
 
 
     def __getitem__(self, item):
         if isinstance(item, int):
-            return self.station[item]
+            return Station(self.stats.stations[item])
         
         if isinstance(item, str):
             sta_code = item.split('.')[0]
@@ -67,70 +63,89 @@ class Network(object):
             return self.get_sta(sta_code, loc=loc)
     
 
-    def __setstacode__(self, sta_code, component):
-        sta_to_remove = []
-        
-        for sta in self.station:
-            if sta.stats.code == sta_code:
-                chan_to_remove = []
-                
-                for ch in sta.stats.channels:
-                    if ch[-1] != component:
-                        chan_to_remove.append(ch)
-                
-                if chan_to_remove:
-                    for ch in chan_to_remove:
-                        sta.stats.channels.remove(ch)
+    def check_stalist(self, stalist, time_interval=None, return_sta=False):
 
-                if not sta.stats.channels:
-                    sta_to_remove += [sta]
-           
+        assert isinstance(stalist, (tuple, list))
+
+        true_sta_list = []
+        station_obj_list = []
+
+        if time_interval:
+            starttime = time_interval[0]
+            endtime = time_interval[1]
+
+        for sta in stalist:
+            sta_sp = sta.split(".")
+            sta_code = sta_sp[0]
+            if len(sta_sp) > 1:
+                sta_loc  = sta_sp[1]
             else:
-                sta_to_remove += [sta]
-        
-        for sta in sta_to_remove:
-            self.station.remove(sta)
-        
-        self.stations_info = [sta.stats.id for sta in self.station]
+                sta_loc  = ""
+            sta_id = '.'.join([sta_code, sta_loc])
 
+            if sta_id in ['.'.join([s.stats.code, s.stats.location]) for s in self]:
+                sta_ob = self.get_sta(sta_code, loc=sta_loc)
 
-    def get_iarray(self, sta_code, model=None):
-        """
-        Get a iArray object.
-        """
-        return iArray(self.stats.code, sta_code, model)
-    
+                if time_interval:
+                    if sta_ob.starttime <= starttime and sta_ob.endtime >= endtime:
+                        station_obj_list.append(sta_ob)
+                        true_sta_list.append(sta)
+                else:
+                    station_obj_list.append(sta_ob)
+                    true_sta_list.append(sta)
 
-    def get_sarray(self, sta_code, comp="Z", **kwargs):
-        """
-        Get a sArray object.
-        """
-        return sArray(self.stats.code, sta_code, comp=comp, **kwargs)
+        if return_sta:
+            return true_sta_list, station_obj_list
+
+        else:
+            return true_sta_list
 
 
     def get_sta(self, sta_code, loc=''):
         """
         Get a station object
         """
-        for sta in self.station:
+        for sta in self:
             if sta_code == sta.stats.code and loc == sta.stats.location:
                 return sta
-        return None
+
+        print(" station not found")
+        return
 
 
-    def get_stream(self, starttime, endtime, sta_code=None, **kwargs):
+    def get_stream(self, starttime, endtime, sta_code=[], component="Z", toff_sec=0, avoid_exception=False, return_stats=False, **st_kwargs):
         """
         This code get Stream object for the network.
+        sta_code can be a list or a string
         """
-        
+
+        if toff_sec:
+            starttime = starttime - dt.timedelta(seconds=toff_sec)
+            endtime = endtime + dt.timedelta(seconds=toff_sec)
+
+        if isinstance(sta_code, str):
+            sta_code = [sta_code]
+
         stream = Stream2()
-        for sta in self.station:
-            if not sta_code or sta_code == sta.stats.code:
+        stats = []
+        for sta in self:
+            if (sta_code and sta.stats.code in sta_code) or not sta_code:
+                if component:
+                    kwargs["channel"] = sta.get_chan(component)     
                 try:
-                    stream += sta.get_stream(starttime, endtime, **kwargs)
+                    stream += sta.get_stream(starttime, endtime, **st_kwargs)
+                    stats.append(sta.stats)
                 except:
-                    continue
-        return stream
+                    if avoid_exception:
+                        return None
+                    else:
+                        print(f" error reading stream in {sta.stats.id}")
+                        continue
+
+        if return_stats:
+            return stream, stats
+        else:
+            return stream
 
 
     def check_files(self, startday, endday, sta_code, loc=None, plot=False):
@@ -147,7 +162,7 @@ class Network(object):
         #     from seisvo.utils.plotting import plot_check
 
         sta_list = []
-        for sta in self.station:
+        for sta in self:
             if sta_code == sta.stats.code:
                 if loc:
                     if isinstance(loc, str):
@@ -221,7 +236,7 @@ class Network(object):
 
 
     def lte(self, starttime, endtime, sta_list, window, subwindow, win_olap=0.5, subw_olap=0.75, **kwargs):
-        """ Compute (station) LTE file
+        """ Compute Network LTE file
 
         Parameters
         ----------
@@ -251,26 +266,10 @@ class Network(object):
         assert starttime < endtime
         assert window > subwindow
 
-        # check sta_list
-        sta_ob_list = []
-        true_sta_list = []
-        for sta in sta_list:
-            sta_sp = sta.split(".")
-            sta_name = sta_sp[0]
-            if len(sta_sp) > 1:
-                sta_loc  = sta_sp[1]
-            else:
-                sta_loc  = ""
-            sta_ob = self.get_sta(sta_name, loc=sta_loc)
-            
-            if sta_ob.starttime <= starttime and sta_ob.endtime >= endtime:
-                sta_ob_list.append(sta_ob)
-                true_sta_list.append(sta)
-            else:
-                print("warn:: station {sta} out of temporal bounds")
-        
+        sta_list, sta_obj = check_stalist(sta_list, time_interval=(starttime,endtime), return_sta=True)
+
         if not sta_ob_list:
-            print("error:: no data to proceed")
+            print("error:: no data to proces")
             return None
         
         # load kwargs
@@ -282,23 +281,12 @@ class Network(object):
         validate    = kwargs.get("validate", True) # if True, ssteps will ask for confirmation
         file_name   = kwargs.get("file_name", None)
         out_dir     = kwargs.get("out_dir", seisvo_paths["lte"])
-        resp_dict   = kwargs.get("resp_dict", {})
-
-        # check resp dict
-        if resp_dict:
-            for key in list(resp_dict.keys()):
-                if key not in true_sta_list:
-                    print("warn:: {key} in resp_dict not valid")
-                    del resp_dict[key]
-            rm_sens = True
-        else:
-            rm_sens = False
 
         # defining base params
         ltebase = dict(
             id              = self.stats.code,
             type            = "network",
-            stations        = true_sta_list,
+            stations        = sta_list,
             starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
             endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
             window          = window,
@@ -312,7 +300,7 @@ class Network(object):
             rm_sens         = rm_sens
         )
 
-        ss = SSteps(starttime, endtime, -1, window*60, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subw_olap, validate=validate)
+        ss = SSteps(starttime, endtime, window*60, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subw_olap, validate=validate)
 
         lwin = int(ss.subwindow*sample_rate)
         ltebase["lswin"] = lwin
@@ -321,8 +309,8 @@ class Network(object):
         ltebase["nro_freq_bins"] = len(get_freq(lwin, sample_rate, fq_band=fq_band, pad=pad)[0])
         ltebase["nro_time_bins"] = int(ss.int_nwin*ss.nro_intervals)
 
-        if njobs >= mp.cpu_count() or njobs == -1:
-            njobs = mp.cpu_count() - 2
+        if njobs >= nCPU or njobs == -1:
+            njobs = nCPU - 2
 
         # create hdf5 file and process data
         if not file_name:
@@ -339,110 +327,98 @@ class Network(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
         
-        lte = NetworkLTE.new(sta_ob_list, file_name_full, ltebase, njobs, resp_dict)
+        lte = _new_LTE(self, file_name_full, ltebase, njobs, "network")
         return lte
 
 
-class SeismicArray(Network):
-    def __init__(self, net_code, sta_code, comp='Z', locs=None):
+class Array(Network):
+    def __init__(self, net_code, sta_code):
         super().__init__(net_code)
         self.sta_code = sta_code
-        self.comp = comp
-        self.__setstacode__(sta_code, comp)
 
-        if locs:
-            if isinstance(locs, (str, tuple)):
-                locs = list(locs)
-            self._filterlocs(locs)
+        # change self
+        to_remove = [sta.stats for sta in self if sta.stats.code != sta_code]
+        for sta_stats in to_remove:
+            self.stats.stations.remove(sta_stats)
 
-        self.locs = [sta.stats.location for sta in self.station]
-        self._getposition()
-        
-        # load array response
-        self.resp = Arfr(self)
-    
-
-    def _getposition(self):
-
-        self.xUTM, self.yUTM, self.utmzone = [], [], []
-
-        for sta in self.station:
+        # compute UTM position
+        self.utm = {}
+        for sta in self:
             x, y, n, l = sta.get_latlon(return_utm=True)
-            self.xUTM.append(x)
-            self.yUTM.append(y)
-            self.utmzone.append(str(n)+l)
+            self.utm[sta.stats.location] = {
+                "x":x,
+                "y":y,
+                "zone":(n,l)
+            }
         
+        self.locs = list(self.utm.keys())
+
+
+    def get_aperture(self, exclude_locs=[]):
         a = 0
-        for i in range(len(self.locs)):
-            for j in range(i,len(self.locs)):
+
+        for i in range(len(self)):
+            iloc = self.locs[i]
+
+            if iloc in exclude_locs:
+                continue
+            
+            for j in range(i,len(self)):
+                jloc = self.locs[j]
+                
+                if jloc in exclude_locs:
+                    continue
+
                 if i != j:
-                    x1 = self.xUTM[i]
-                    x2 = self.xUTM[j]
-                    y1 = self.yUTM[i]
-                    y2 = self.yUTM[j]
+                    x1 = self.utm[iloc]["x"]
+                    x2 = self.utm[jloc]["x"]
+                    y1 = self.utm[iloc]["y"]
+                    y2 = self.utm[jloc]["y"]
                     d = np.sqrt(np.abs(x1-x2)**2 + np.abs(y2-y1)**2)
+                    
                     if d > a:
                         a = d
-        
-        self.aperture = a
+        return a
 
     
-    def _filterlocs(self, loc_list):
+    def get_response(self, slow_max, slow_inc, fq_band=(1.,10.), fq_int=0.1, exclude_locs=[]):
+        """
+        Return array response dictionary
+        """
+        xutm, yutm = [],[]
 
-        locs_to_remove = []
-        for sta in self.station:
-            if sta.stats.loc not in loc_list:
-                locs_to_remove.append(sta)
-        
-        for sta in locs_to_remove:
-            self.station.remove(sta)
-        
-        self.stations_info = [sta.stats.id for sta in self.station]
+        for loc, utm in self.utm.item():
+            if loc not in exclude_locs:
+                xutm.append(float(utm["x"]))
+                yutm.append(float(utm["y"]))
+
+        ans = array_response(xutm, yutm, slow_max, slow_inc, fq_band=fq_band, fq_int=fq_int)
+
+        return ans
 
 
-    def get_mdata(self, start_time, end_time, toff_sec=0, sample_rate=None, fq_band=(), return_stats=False):
-        if toff_sec > 0:
-            toff = dt.timedelta(seconds=toff_sec)
-            start_time -= toff
-            end_time += toff
-
-        st = self.get_stream(start_time, end_time, sample_rate=sample_rate)
-        
-        if st:
-            fs = st[0].stats.sampling_rate
-            lwin = int((end_time-start_time).total_seconds()*fs) + 1
-            mdata = None
-            stats = []
-
-            for tr in st:
-                tr_dat = tr.get_data(detrend=True, fq_band=fq_band)
-                
-                if len(tr_dat) == lwin:
-                    if isinstance(mdata, np.ndarray):
-                        mdata = np.vstack((mdata, tr_dat))
-                    else:
-                        mdata = tr_dat
-
-                    if return_stats:
-                        sta = self.get_sta(tr.stats.station, loc=tr.stats.location)
-                        stats.append(sta.stats)
-
-            if isinstance(mdata, np.ndarray):
-                if np.isnan(mdata).any():
-                    print("Warning: data containing NaN values")
-
-        else:
-            mdata = None
-            stats = []
+    def get_stream(self,starttime, endtime, component="Z", toff_sec=0, return_stats=False, exclude_locs=[], **st_kwargs):
+        ans = super().get_stream(starttime, endtime, component=component, toff_sec=toff_sec, return_stats=return_stats, **st_kwargs)
 
         if return_stats:
-            return mdata, stats
-
+            stream, stats = ans
         else:
-            return mdata
+            stream = ans
+
+        if exclude_locs:
+            new_stream = Stream2()
+            for tr in stream:
+                if tr.stats.location not in exclude_locs:
+                    new_stream.append(tr)
+            stream = new_stream
+
+        if return_stats:
+            return stream, stats
+        else:
+            return stream
 
 
-    def cc8(self, starttime, endtime, window, overlap, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1.,5.)], cc_thres=0.05, filename=None, outdir=None, interval=1, **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, interval=60, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1,5)], cc_thres=0.05, filename=None, outdir=None, exclude_locs=[], **kwargs):
         """ Compute CC8 file
 
         Parameters
@@ -457,8 +433,11 @@ class SeismicArray(Network):
         overlap : float [0--1)
             overlap percent
         
-        interval : int [min]
-            length of time window (in min) to store data in memory. By default is 15 min.
+        interval : int (minutes)
+            length of the interval to store in memory
+        
+        exclude_locs : list (optional)
+            list of strings to exclude locations
         
         slow_max : list 
             maximum slowness in km/s, by default [3.]
@@ -485,13 +464,18 @@ class SeismicArray(Network):
         # load parameters
         njobs       = kwargs.get('njobs', -1)
         toff_sec    = kwargs.get('toff_sec', 10)
-        sample_rate = kwargs.get("sample_rate", 40)
+        sample_rate = kwargs.get("sample_rate", self[0].stats.sample_rate)
         validate    = kwargs.get("validate", True) # if False, ss do not ask for confirmation
 
         # defining base params
+        if exclude_locs:
+            locs = [loc for loc in self.locs if loc not in exclude_locs]
+        else:
+            locs = self.locs
+
         cc8base = dict(
             id              = '.'.join([self.stats.code, self.sta_code, self.comp]),
-            locs            = self.locs,
+            locs            = locs,
             starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
             endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
             interval        = interval,
@@ -504,32 +488,36 @@ class SeismicArray(Network):
             cc_thres        = cc_thres
         )
 
-        ss = SSteps(starttime, endtime, interval, window, validate=validate, win_olap=overlap)
-
-        if ss.nwin_eff < ss.total_nwin:
-            diff = ss.total_nwin - ss.nwin_eff
-            nwext = round(diff/ss.nro_intervals)
-            if toff_sec <= nwext*window:
-                toff_sec += int(nwext*window)
-        else:
-            nwext = 0
-
-        cc8base["nwin"] = int(ss.int_nwin)+nwext
+        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap)
+        cc8base["interval"] = float(interval)
+        cc8base["nro_intervals"] = int(ss.nro_intervals)
+        cc8base["nro_time_bins"] = int(ss.total_nwin)
+        cc8base["nwin"] = int(ss.int_nwin)
         cc8base["lwin"] = int(window*sample_rate)
         cc8base["nadv"] = float(ss.win_adv)
         cc8base["toff_sec"] = toff_sec
-        cc8base["nro_intervals"] = int(ss.nro_intervals)
-        cc8base["nro_time_bins"] = int(cc8base["nwin"]*cc8base["nro_intervals"])
 
-        if njobs >= mp.cpu_count() or njobs == -1:
-            njobs = mp.cpu_count() - 2
+        if njobs >= nCPU or njobs == -1:
+            njobs = nCPU - 2
         
         if njobs > int(ss.nro_intervals)*len(fq_bands):
             njobs = int(ss.nro_intervals)*len(fq_bands)
             print(f"warn  ::  njobs set to {njobs}")
 
         if validate:
-            self._print_cc8_validation(cc8base)
+            print('')
+            print(' CC8base INFO')
+            print(' -------------')
+            print(f'{"       ID     ":^5s} : ', cc8base.get("id"))
+            print(f'{"      LOCS    ":^5s} : ', cc8base.get("locs"))
+            print(f'{"    Start time":^5s} : ', cc8base.get("starttime"))
+            print(f'{"      End time":^5s} : ', cc8base.get("endtime"))
+            print(f'{"interval [min]":^5s} : ', cc8base.get("interval"))
+            print(f'{"  window [sec]":^5s} : ', cc8base.get("window"))
+            print(f'{"   window olap":^5s} : ', cc8base.get("overlap"))
+            print(f'{"   nro windows":^5s} : ', cc8base.get("nwin")*cc8base.get("nro_intervals"))
+            print(f'{"    |_ per int":^5s} : ', cc8base.get("nwin"))
+            print('')
             name = input("\n Please, confirm that you are agree (Y/n): ")
             if name not in ('', 'Y', 'y'):
                 return
@@ -545,17 +533,12 @@ class SeismicArray(Network):
             outdir = os.path.join(seisvo_paths["cc8"])
         
         filenamef = os.path.join(outdir, filename)
-
         if os.path.isfile(filenamef):
             os.remove(filenamef)
             print(' file %s removed.' % filenamef)
         
-        if CC8.__check_process__(self, starttime, endtime, verbose=True):
-            cc8 = CC8.new(self, filenamef, cc8base, njobs)
-            return cc8
-        
-        else:
-            return None
+        cc8 = CC8.new(self, filenamef, cc8base, njobs)
+        return cc8
 
 
     def plot(self, save=False, filename="./array_map.png"):
@@ -564,22 +547,14 @@ class SeismicArray(Network):
         if save:
             fig.savefig(filename)
 
-    @staticmethod
-    def _print_cc8_validation(cc8dict):
-        print('')
-        print(' CC8base INFO')
-        print(' -------------')
-        print(f'{"      ID     ":^5s} : ', cc8dict.get("id"))
-        print(f'{"     LOCS    ":^5s} : ', cc8dict.get("locs"))
-        print(f'{"   Start time":^5s} : ', cc8dict.get("starttime"))
-        print(f'{"     End time":^5s} : ', cc8dict.get("endtime"))
-        print(f'{" window [sec]":^5s} : ', cc8dict.get("window"))
-        print(f'{"  window olap":^5s} : ', cc8dict.get("overlap"))
-        print(f'{"Total windows":^5s} : ', cc8dict.get("nwin")*cc8dict.get("nro_intervals"))
-        print(f'{"     interval":^5s} : ', cc8dict.get("interval"))
-        print(f'{"     toff_sec":^5s} : ', cc8dict.get("toff_sec"))
-        print(f'{" nwin per int":^5s} : ', cc8dict.get("nwin"))
-        print('')
+
+    def get_excluded_locs(self, loc_list):
+        exclude_loc = []
+        for loc in self.locs:
+            if loc not in loc_list:
+                exclude_loc.append(loc)
+        
+        return exclude_loc
 
 
 class SoundArray(Network):
@@ -597,7 +572,7 @@ class SoundArray(Network):
 
     def __check__(self):
         # check sample rate
-        sample_rate = list(set([sta.stats.sampling_rate for sta in self.station]))
+        sample_rate = list(set([sta.stats.sampling_rate for sta in self.stations]))
         if len(sample_rate) == 1:
             self.sample_rate = int(sample_rate[0])
         else:

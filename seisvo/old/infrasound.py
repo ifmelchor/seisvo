@@ -13,23 +13,6 @@ infrasound_model_default = {
 }
 
 
-def corr_coeff_index(nro):
-    """
-    Esta function me devuelve los indices de correlacion cruzada entre pares de sensores
-    :return: lista de pares de tuplas
-    """
-    i = 0
-    list1 = []
-    list2 = []
-    nro_sensors = range(nro)
-    while i < nro:
-        list1 += [nro_sensors[i]] * (nro - (i + 1))
-        list2 += [nro_sensors[x - 1] for x in range(i + 2, nro + 1)]
-        i += 1
-
-    return zip(list1, list2)
-
-
 def cross_corr(stream, dtimes, nro_srcs, ss, **kwargs):
     '''
     Compute cross correlation between pair of stations

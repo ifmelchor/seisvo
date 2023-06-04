@@ -399,43 +399,43 @@ class Episode(object):
 
 
 
-class iEvent(object):
-    def __init__(self, event_id, isde):
-        self.id = event_id
-        self.isde = isde
-        self.label = None
-        self.starttime = None
-        self.endtime = None
-        self.duration = None
-        self.air = None
-        self.model_ = None
-        self.channels = []
-        self._setattr()
+# class iEvent(object):
+#     def __init__(self, event_id, isde):
+#         self.id = event_id
+#         self.isde = isde
+#         self.label = None
+#         self.starttime = None
+#         self.endtime = None
+#         self.duration = None
+#         self.air = None
+#         self.model_ = None
+#         self.channels = []
+#         self._setattr()
     
 
-    def _setattr(self):
-        self.row_ = self.lde.get_id(self.id)
-        self.label = self.row_.label
-        self.starttime = self.row_.starttime
-        self.duration = self.row_.duration
-        self.endtime = self.row_.starttime + dt.timedelta(seconds=self.row_.duration)
+#     def _setattr(self):
+#         self.row_ = self.lde.get_id(self.id)
+#         self.label = self.row_.label
+#         self.starttime = self.row_.starttime
+#         self.duration = self.row_.duration
+#         self.endtime = self.row_.starttime + dt.timedelta(seconds=self.row_.duration)
 
-        if os.path.isfile(self.row_.air_file):
-            self.air = AiR(self.row_.lte_file)
-            self.model_ = dict(
-                radii=self.air.stats.radii,
-                vel_air=self.air.stats.vel_air,
-                h_src=self.air.h_src,
-                src_dgr=self.air.stats.src_dgr
-                )
-        else:
-            print('warn: air file not found!')
+#         if os.path.isfile(self.row_.air_file):
+#             self.air = AiR(self.row_.lte_file)
+#             self.model_ = dict(
+#                 radii=self.air.stats.radii,
+#                 vel_air=self.air.stats.vel_air,
+#                 h_src=self.air.h_src,
+#                 src_dgr=self.air.stats.src_dgr
+#                 )
+#         else:
+#             print('warn: air file not found!')
     
-        self.array_ = self.row_.get_array(model=self.model_)
+#         self.array_ = self.row_.get_array(model=self.model_)
     
 
-    def get_stream(self, azm, model=None, time_pad=0, **kwargs):
-        return self.array_.get_stream(self.starttime, self.endtime, azm, model=model, time_pad=time_pad, **kwargs)
+#     def get_stream(self, azm, model=None, time_pad=0, **kwargs):
+#         return self.array_.get_stream(self.starttime, self.endtime, azm, model=model, time_pad=time_pad, **kwargs)
     
 
     

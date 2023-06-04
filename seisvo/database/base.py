@@ -8,7 +8,7 @@ from subprocess import Popen, PIPE, STDOUT
 
 from seisvo.network import Network # iArray
 from seisvo.plotting.gui import plot_event
-from .events import Event, iEvent, Episode
+from .events import Event
 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker

@@ -250,3 +250,7 @@ class SDE(DataBase):
         widget = plot_event(self, event_id, station_id, init_app=init_app)
 
         return widget
+
+
+    def export_mseed(self, label=None, time_interval=(), nro_station=None, path=None):
+        print("export events to mseed in path directory")

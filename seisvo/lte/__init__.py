@@ -5,9 +5,6 @@ import os
 import h5py
 from .base import StationLTE, NetworkLTE
 
-__all__ = ["LTE"]
-
-
 def LTE(lte_file):
     if not os.path.isfile(lte_file):
         return ValueError(' lte_file do not found')

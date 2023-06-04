@@ -1,8 +1,6 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-__all__ = ['get', 'read', 'Network', 'Station', 'LTE', 'CC8', 'SDE', 'LDE', 'seisvo_paths']
-
 import os
 
 try:
@@ -26,12 +24,12 @@ for _, path in seisvo_paths.items():
 seisvo_paths["main"] = __seisvo__
 
 from .obspyext import read2 as read
-from .network import Network, Station, SeismicArray #,iArray
+from .network import Network, Station, Array #,iArray
 from .lte import LTE
 from .sap.cc8 import CC8
 from .database import SDE, LDE
 # from .file.air import AiR
-from .signal import SSteps
+# from .signal import SSteps
 
 def get(sarg):
     argin = sarg.split("/")

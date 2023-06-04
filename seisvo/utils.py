@@ -8,6 +8,11 @@ from obspy.taup import TauPyModel
 from geopy.distance import geodesic
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+import multiprocessing as mp
+
+
+nCPU = mp.cpu_count()
+
 
 def distance_in_degree(coord1, coord2):
     # Convert latitude and longitude to

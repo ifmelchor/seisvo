@@ -4,15 +4,14 @@
  This module extend the obspy modules
 '''
 
+import scipy
 import numpy as np
 import datetime as dt
-import scipy
-from .signal.spectrum import power_density_spectrum, cosine_taper
-
 import obspy.signal.invsim as osi
 from obspy import Stream, Trace, read, UTCDateTime
 from obspy.signal.util import _npts2nfft
 from obspy.signal import filter as osf
+from .signal import get_PSD
 
 
 def read2(*args, **kwargs):
@@ -25,7 +24,7 @@ class Trace2(Trace):
         super().__init__(data=trace.data, header=trace.stats)
     
 
-    def get_data(self, starttime=None, endtime=None, demean=True, detrend=True, fq_band=(), abs=False, sample_rate=None, rm_sensitivity=False, norm=False, **kwargs):
+    def get_data(self, starttime=None, endtime=None, demean=True, detrend=True, fq_band=(), abs=False, sample_rate=None, norm=False):
         """
         This code returns a numpy array of the data
         """
@@ -48,12 +47,9 @@ class Trace2(Trace):
 
         if detrend:
             data = scipy.signal.detrend(data)
-        
-        if rm_sensitivity:
-            data /= rm_sensitivity
 
         if list(fq_band):
-            tr_filt = self.filter2(fq_band, **kwargs)
+            tr_filt = self.filter2(fq_band)
             data = tr_filt.data
         
         if abs:
@@ -204,99 +200,36 @@ class Trace2(Trace):
         return im, (v_min, v_max)
 
 
-    def psd(self, starttime=None, endtime=None, fq_band=(), mov_avg_step=None, olap_step=0.0, drm_params=False, **kwargs):
-        """Compute PSD using multitaper algorithm
-
-        Parameters
-        ----------
-        starttime : _type_, optional
-            _description_, by default None
-        endtime : _type_, optional
-            _description_, by default None
-        fq_band : tuple, optional
-            _description_, by default ()
-        mov_avg_step : _type_, optional
-            _description_, by default None
-        olap_step : int, optional
-            _description_, by default 0
-
-        Returns
-        -------
-        _type_
-            _description_
-        """
-
-        if not starttime:
-            starttime = self.stats.starttime
-
-        if not endtime:
-            endtime = self.stats.endtime
-
-        if starttime < self.stats.starttime:
-            raise ValueError(' no data for this dates')
-        
-        if endtime > self.stats.endtime:
-            raise ValueError(' no data for this dates')
-
-    
-        if isinstance(starttime, dt.datetime):
-            starttime = UTCDateTime(starttime)
-            
-        if isinstance(endtime, dt.datetime):
-            endtime = UTCDateTime(endtime)
-            
-        if mov_avg_step:
-            interval_min = int(endtime - starttime)
-
-            if interval_min < mov_avg_step:
-                raise ValueError ('interval is less than mov_avg_step!')
-        
-            if olap_step > 1:
-                raise ValueError ('overlap percent is greater than 1')
-
-        data = self.get_data(starttime=starttime, endtime=endtime, detrend=True)
-        ans = power_density_spectrum(data, self.stats.sampling_rate, fq_band=fq_band,
-            avg_step=mov_avg_step, olap=olap_step, drm_params=drm_params, **kwargs)
-
-        return ans
-
-
-    def filter2(self, fq_band, taper=False, **kwargs):
+    def filter2(self, fq_band, **kwargs):
         """
         Apply a filter
         """
 
+        assert isinstance(fq_band, (list, tuple, np.ndarray))
+
         sample_rate = self.stats.sampling_rate
         new_trace = self.copy()
-
-        # detrend and taper
         data = self.data - self.data.mean()
+
         zerophase = kwargs.get("zerophase", True)
-        taper_p = kwargs.get("taper_p", 0.05)
-        bandstop = kwargs.get("bandstop", False)
         corners = kwargs.get("corners", 2)
 
+        taper = kwargs.get("taper", False)
         if taper:
-            data = data * cosine_taper(len(data), p=taper_p)
+            taper_p = kwargs.get("taper_p", 0.05)
+            data = data * osi.cosine_taper(len(data), p=taper_p)
 
         if fq_band[0] and fq_band[1]:
-            if bandstop:
-                data = osf.bandstop(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, zerophase=zerophase)
-            else:
-                b, a = scipy.signal.butter(corners, fq_band, fs=sample_rate, btype='band')
-                data = scipy.signal.filtfilt(b, a, data, method="gust")
-                # data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, corners=corners, zerophase=zerophase)
+            data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, corners=corners, zerophase=zerophase)
 
-        elif fq_band[0] and not fq_band[1]:
+        if fq_band[0] and not fq_band[1]:
             data = osf.highpass(data, freq=fq_band[0], df=sample_rate, zerophase=zerophase)
 
-        elif fq_band[1] and not fq_band[0]:
+        if fq_band[1] and not fq_band[0]:
             data = osf.lowpass(data, freq=fq_band, df=sample_rate, zerophase=zerophase)
 
-        else:
-            raise TypeError(' fq_band must be a list')
-
         new_trace.data = data
+
         return new_trace
 
 
@@ -306,7 +239,7 @@ class Trace2(Trace):
         The function is based on Obspy.
         """
 
-        taper          = kwargs.get('taper', True)
+        taper          = kwargs.get('taper', False)
         taper_fraction = kwargs.get('taper_fraction', 0.05)
         water_level    = kwargs.get('water_level', 60)
         output         = kwargs.get('output', 'VEL')
@@ -387,12 +320,12 @@ class Stream2(Stream):
         return Trace2(self.traces[item])
 
 
-    def get_component(self, component, station=None, loc=None):
-        tr = self.select(station=station, location=loc, component=component)
-        if tr:
-            return Trace2(tr[0])
+    def select2(self, **kwargs):
+        st = self.select(**kwargs)
+        if st:
+            return Stream2(st)
         else:
-            raise ValueError('Component do not exist')
+            return None
 
 
     def filter2(self, fq_band, **kwargs):
@@ -424,3 +357,63 @@ class Stream2(Stream):
             tr = Trace2(trace).remove_factor(fval, disp)
             st.append(tr)
         return st
+    
+
+    def get_bounds(self):
+        starttime = max([tr.stats.starttime.datetime for tr in self])
+        endtime   = min([tr.stats.endtime.datetime for tr in self])
+        return (starttime, endtime)
+
+
+    def to_array(self, sort=None, return_info=False, **trace_kwargs):
+        """
+        Return a np.ndarray with the traces of the stream
+
+        sort must be a string or none and is only valid for sort multicomponent stream ZNE
+        """
+
+        channel_list = [tr.stats.channel for tr in self]
+        if len(channel_list) > 3:
+            sort = None
+
+        if sort:
+            assert len(sort) <= len(self)
+            # check that all components are available
+            channel_list = [chan for chan in channel_list if chan[-1] in sort]
+            sort = ''.join([chan[-1] for chan in channel_list])
+        
+        
+        # build an empty array
+        if not trace_kwargs.get("starttime", None):
+            starttime = max([trace.stats.starttime.datetime for trace in self])
+            trace_kwargs["starttime"] = starttime
+            
+
+        if not trace_kwargs.get("endtime", None):
+            endtime = min([trace.stats.endtime.datetime for trace in self])
+            trace_kwargs["endtime"] = endtime
+            
+
+        sample_rate = trace_kwargs.get("sample_rate", self[0].stats.sampling_rate)
+        npts = int((endtime - starttime).total_seconds()*sample_rate + 1)
+        mdata = np.empty((len(self), npts))
+
+        info = []
+        for n, trace in enumerate(self):
+            if sort:
+                n = sort.index(trace.stats.channel[-1])
+                info.append(trace.stats.channel)
+            else:
+                info.append(trace.stats.station + trace.stats.channel[-1])
+
+            trd = trace.get_data(**trace_kwargs)
+            if len(trd) < npts:
+                print(f" [warn] trace {trace.stats.channel} resample {len(trd)} --> {npts}")
+                trd = scipy.signal.resample(trd, npts)
+            
+            mdata[n,:] = trd[:npts]
+        
+        if return_info:
+            return mdata, info
+        else:
+            return mdata
