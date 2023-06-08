@@ -5,7 +5,7 @@ import time
 import h5py
 import numpy as np
 import multiprocessing as mp 
-from ..signal import get_CC8, get_stats, get_pdf_data
+from ..signal import get_CC8, get_Stats, get_PDF
 
 # from .plotting import cc8_plot, slowness_map_motion, simple_slowness_plot, plot_slowbaz_tmap
 
@@ -236,7 +236,7 @@ class CC8out(object):
                         if attr == 'rms' and db_scale:
                             data = 10*np.log10(data)
                     
-                        dout[key] = get_stats(data[np.isfinite(data)])
+                        dout[key] = get_Stats(data[np.isfinite(data)])
         
         return dout
 

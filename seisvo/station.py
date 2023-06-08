@@ -9,7 +9,7 @@ import datetime as dt
 from obspy import UTCDateTime
 from obspy.core.inventory.response import Response
 
-from seisvo import seisvo_paths
+from .utils import nCPU
 from .obspyext import Stream2
 from .lte.base import _new_LTE
 from .signal import SSteps, get_freq, get_Polar, get_PSD, get_PDF
@@ -93,7 +93,7 @@ class Station(object):
         if not isinstance(stream, Stream2):
             stream = Stream2(stream)
 
-        if resp:
+        if factor:
             stream_resp = stream.remove_factor(factor, disp=disp)
 
         else:
@@ -163,6 +163,10 @@ class Station(object):
             if sample_rate and sample_rate < sample_rate_list[0]:
                 st = Stream2(st.resample(sample_rate))
 
+                if st[0].stats.sampling_rate != sample_rate:
+                    print("\n  [warn] stream data could not be resampled. Check your data.")
+                    return None
+        
             prefilt = kwargs.get('prefilt', [])
 
             if prefilt:
@@ -273,7 +277,8 @@ class Station(object):
         return freq, polar
 
 
-    def lte(self, starttime, endtime, window=10, subwindow=1, interval=6, channel=None, window_olap=0.5, subwindow_olap=0.75, **kwargs):
+    def lte(self, starttime, endtime, window, subwindow, interval=None,\
+        channel=None, window_olap=0, subwindow_olap=0, **kwargs):
         """ Compute (station) LTE file
 
         Parameters
@@ -282,14 +287,14 @@ class Station(object):
         
         endtime : datetime
         
-        window : float [min]
+        window : float [sec]
             length of the time window (in min) to reduce
         
         subwindow : float [sec]
             length of the time window (in sec) for moving average over the window. 
             If ``subwindow=0`` no moving average is applied.
         
-        interval : int [h]
+        interval : int [min]
             length of time window (in h) to store data in memory. By default is 1 hour.
         
         channel : _type_, optional
@@ -309,22 +314,24 @@ class Station(object):
         assert endtime <= self.stats.endtime
 
         # load parameters
-        channel     = self.stats.check_channel(channel)
+        channel     = tuple(self.stats.check_channel(channel))
         sample_rate = kwargs.get('sample_rate', 40)
-        njobs       = kwargs.get('njobs', 4)
+        njobs       = kwargs.get('njobs', 2)
         pad         = kwargs.get("pad",1.0)
         fq_band     = kwargs.get('fq_band', (0.5, 10))
+        file_name   = kwargs.get("file_name", None)
+        out_dir     = kwargs.get("out_dir", './')
 
         # defining base params
         ltebase = dict(
             id              = self.stats.id,
             type            = "station",
             channel         = channel,
-            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
-            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
+            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S.%f'),
+            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S.%f'),
             interval        = interval,
             window          = window,
-            window_olap     = subwindow_olap,
+            window_olap     = window_olap,
             subwindow       = subwindow,
             subwindow_olap  = subwindow_olap,
             sample_rate     = int(sample_rate),
@@ -340,42 +347,38 @@ class Station(object):
             time_bandwidth  = kwargs.get('time_bandwidth', 3.5)
         )
 
-        ss = SSteps(starttime, endtime, window*60, interval=None, win_olap=0, subwindow=0, subw_olap=0)
+        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=window_olap, subwindow=subwindow, subw_olap=subwindow_olap)
+        ssdict = ss.to_dict()
+
+        ltebase["lwin"] = int(ss.window*sample_rate)
+        ltebase["nwin"] = ssdict["nwin"]
+        ltebase["last_nwin"] = ssdict["last_nwin"]
+        ltebase["wadv"] = ssdict["wadv"]
+        ltebase["nro_intervals"] = ssdict["nro_intervals"]
+        ltebase["nro_time_bins"] = ssdict["total_nwin"]
+        ltebase["int_extra_sec"] = ssdict["int_extra_sec"]
+
+        if subwindow > 0:
+            ltebase["lswin"] = int(ss.subwindow*sample_rate)
+            ltebase["nswin"] = ssdict["nswin"]
+            ltebase["swadv"] = ssdict["swadv"]
+            nfs, _ = get_freq(ltebase["lswin"], sample_rate, fq_band=fq_band, pad=pad)
+        else:
+            ltebase["lswin"] = ltebase["nswin"] = ltebase["swadv"] = None
+            nfs, _ = get_freq(ltebase["lwin"], sample_rate, fq_band=fq_band, pad=pad)
+
+        ltebase["nro_freq_bins"] = len(nfs)
 
         if njobs >= nCPU or njobs == -1:
             njobs = nCPU - 2
         
-        if njobs > int(ss.nro_intervals):
-            njobs = int(ss.nro_intervals)
+        if njobs > ssdict["nro_intervals"]:
+            njobs = ssdict["nro_intervals"]
             print(f"warn  ::  njobs set to {njobs}")
             
-        ltebase["nwin"] = int(ss.int_nwin)
-        ltebase["lwin"] = int(window*60*sample_rate)
-        ltebase["nro_intervals"] = int(ss.nro_intervals)
-        ltebase["nro_time_bins"] = int(ss.int_nwin*ss.nro_intervals)
-
-        if subwindow > 0:
-            # if subwindow, a moving average is applied
-            lwin = int(subwindow*sample_rate)
-            ltebase["lswin"] = lwin
-            ltebase["nswin"] = int(ss.nsubwin)
-            ltebase["nadv"]  = float(ss.subw_adv)
-            ltebase["nro_freq_bins"] = len(get_freq(lwin, sample_rate, fq_band=fq_band, pad=pad)[0])
-        else:
-            ltebase["lswin"] = None
-            ltebase["nswin"] = None
-            ltebase["nadv"]  = None
-            ltebase["nro_freq_bins"] = len(get_freq(ltebase["lwin"], sample_rate, fq_band=fq_band, pad=pad)[0])
-        
-
         # create hdf5 file and process data
-        file_name = kwargs.get("file_name", None)
         if not file_name:
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (self.stats.id, starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, window)
-        
-        out_dir = kwargs.get("out_dir", None)
-        if not out_dir:
-            out_dir = os.path.join(seisvo_paths["lte"])
         
         file_name_full = os.path.join(out_dir, file_name)
         if file_name_full.split('.')[-1] != 'lte':
@@ -385,7 +388,7 @@ class Station(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
 
-        lte = _new_LTE(self, file_name_full, ltebase, njobs, "station")
+        lte = _new_LTE(self, file_name_full, ltebase, njobs)
         
         return lte
 

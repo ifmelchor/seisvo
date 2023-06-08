@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
+import datetime as dt
 import numpy as np
 import math
-
 
 class SSteps(object):
     """Class for fitting intervals in continuous data matching with window_length and overlap
@@ -19,10 +19,11 @@ class SSteps(object):
     subw_olap  : float [0-1)  by default is 0
     
     """
-    def __init__(self, start_time, end_time, window, interval=None, win_olap=0, subwindow=0, subw_olap=0):
+    def __init__(self, start_time, end_time, window, interval=None,\
+        win_olap=0, subwindow=0, subw_olap=0, verbose=True):
         
         if interval:
-            assert window/60 <= interval
+            assert window <= interval*60
         
         assert subwindow < window
         assert 0 <= win_olap < 1
@@ -40,37 +41,37 @@ class SSteps(object):
         else:
             self.interval   = self.total_time
 
-        self.window     = window # in sec
+        self.window     = window
         self.win_olap   = win_olap
         self.subwindow  = subwindow
         self.subw_olap  = subw_olap
 
+        # make some calculation
         self.win_adv  = 1 - self.win_olap
         self.subw_adv = 1 - self.subw_olap
 
-        self.fit()
-
-        # self.print()
-
-    
-    @staticmethod
-    def nsteps(total_sec, window, olap):
-        num = total_sec - olap*window
-        denom = window * (1 - olap)
-        steps = np.floor(num/denom)
-        return steps
-    
-
-    def fit(self):
         # compute how many intervals you need
-        self.nro_intervals = self.total_time/self.interval
+        nro_intervals = self.total_time/self.interval
         
         # compute number of windows for total time
-        self.total_nwin = self.nsteps(self.total_time, self.window, self.win_olap)
+        total_nwin = self.nsteps(self.total_time, self.window, self.win_olap)
         
-        # compute number of windows for interval
-        self.int_nwin   = self.total_nwin/self.nro_intervals
+        # compute number the maximum windows per interval
+        self.int_nwin   = int(np.ceil(total_nwin/nro_intervals))
         
+        # toff seconds per interval
+        self.int_toff = self.window*self.win_adv*(self.int_nwin-1) + self.window - self.interval
+        
+        # # expected nro of intervals
+        # self.nro_intervals = int(nro_intervals-np.floor(self.int_toff*nro_intervals/self.interval))
+
+        # # last interval
+        # diff = self.int_toff*nro_intervals/self.interval - np.floor(self.int_toff*nro_intervals/self.interval)
+        # self.last_nwin = round(self.int_nwin*(1-diff))
+
+        # # total nwin
+        # self.total_nwin = (self.nro_intervals-1)*self.int_nwin + self.last_nwin
+
         # compute steps in subwindow
         if self.subwindow > 0:
             self.nsubwin = self.nsteps(self.window, self.subwindow, self.subw_olap)       
@@ -78,12 +79,111 @@ class SSteps(object):
         else:
             self.nsubwin = None
             self.total_subwin = None
+
+        self.fit()
+        self.print()
+
+
+    @staticmethod
+    def nsteps(total_sec, window, olap):
+        num = total_sec - olap*window
+        denom = window * (1 - olap)
+        return int(np.floor(num/denom))
+    
+
+    def fit(self):
+        """
+        Function for testing the iteration procedure in LTE and CC8 files
+        """
+
+        toff = dt.timedelta(seconds=self.int_toff)
+        delta = dt.timedelta(seconds=self.interval)
+        interval = 0
+        total_nwin = 0
+        start = self.start_time
+        verbose = True
+
+        # print("\n--------------          INIT TEST SSTEPS          --------------\n")
+
+        while start + delta <= self.end_time:
+            interval += 1
+            start_win = start
+            end_win = start + delta + toff
+
+            # if interval in (1, 2):
+            #     verbose = True
+            # else:
+            #     if interval == 3:
+            #         print("\n                             ...\n")
+            #     verbose = False
+
+            if verbose:
+                print(f"\n  INTERVAL {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
+            
+            for i in range(self.int_nwin):
+                total_nwin += 1
+                ew = start_win + dt.timedelta(seconds=int(self.window*self.win_adv*i))
+                
+                if verbose:
+                    if i in (0,1):
+                        print(f"{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
+                    elif i == 2:
+                        print("                             ...")
+                    elif i in (self.int_nwin-2, self.int_nwin-1):
+                        print(f"{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
+                    else:
+                        pass
+                
+            start = end_win
+        
+        # last interval
+        last_delta = self.end_time - start
+
+        if last_delta.total_seconds() > 1:
+            end_win = start + last_delta
+            interval += 1
+            if verbose:
+                print(f"\n    LAST   {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
+            
+            start_win = start
+            i = 1
+            while start + dt.timedelta(seconds=self.window) <= self.end_time:
+                total_nwin += 1
+
+                # print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
+                if verbose:
+                    if i in (1,2):
+                        print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
+                    elif i == 3:
+                        print("                             ...")
+                    else:
+                        pass
+                
+                if start + dt.timedelta(seconds=self.window) >= self.end_time or start +\
+                    dt.timedelta(seconds=int(self.window-(self.win_olap*self.window))) +\
+                    dt.timedelta(seconds=self.window) >= self.end_time:
+
+                    if verbose:
+                        print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
+                    break
+                
+                start += dt.timedelta(seconds=int(self.window-(self.win_olap*self.window)))
+                i += 1
+        
+        else:
+            i = 0
+        
+        self.nro_intervals = interval
+        self.total_nwin =  total_nwin
+        self.last_nwin = i
+        # self.nro_intervals = interval
+        true_end_time = start + dt.timedelta(seconds=self.window)
+
+        return True
     
 
     def print(self):
-        print('')
-        print(' SSteps INFO')
-        print(' -------------')
+        print('\n --------------- SSTEPS INFO -------------------')
         print(f'{"     Start time":^25s} :', self.start_time)
         print(f'{"       End time":^25s} :', self.end_time)
         print(f'{"   window [sec]":^25s} :', self.window)
@@ -91,18 +191,62 @@ class SSteps(object):
         print(f'{"  Total windows":^25s} :', self.total_nwin)
         print(f'{"subwindow [sec]":^25s} :', self.subwindow)
         print(f'{" subwindow olap":^25s} :', self.subw_olap)
-
-        print('\n    ------------ INTERVALS -------------------\n')
-        
+        print('\n --------------- INTERVALS -------------------\n')
         for k, v in [
             (f'{"          interval [min]":^25s}', self.interval/60),
             (f'{"           Nro intervals":^25s}', self.nro_intervals),
             (f'{" Nro windows in interval":^25s}', self.int_nwin),
+            (f'{" Nro windows in last int":^25s}', self.last_nwin),
             (f'{"Nro subwindows in window":^25s}', self.nsubwin),
             (f'{"        Total subwindows":^25s}', self.total_subwin)]:
             print(f'{k} :', v)
         
         print('')
+
+
+    def to_dict(self):
+        dout = {
+            "int_extra_sec":self.int_toff,
+            "nro_intervals":self.nro_intervals,
+            "total_nwin":self.total_nwin,
+            "nwin":self.int_nwin,
+            "last_nwin":self.last_nwin,
+            "wadv":self.win_adv,
+            "nswin":self.nsubwin,
+            "swadv":self.subw_adv
+        }
+        return dout
+
+
+def get_time(full_interval, interval, window, olap):
+    """
+    This function get the datetime series between interval and lte file interval
+      >> window [float] of seconds
+      >> olap [float] between 0--1
+    """
+
+    full_starttime, full_endtime = full_interval
+    starttime, endtime = interval
+    
+    # check times
+    assert full_endtime > full_starttime
+    assert endtime > starttime
+    assert starttime >= full_starttime
+    assert endtime <= full_endtime
+    assert endtime > starttime
+
+    start_diff = (starttime - full_starttime).total_seconds()
+    end_diff = (endtime - full_starttime).total_seconds()
+    n0 = int(SSteps.nsteps(start_diff, window, olap))+1
+    nf = int(SSteps.nsteps(end_diff, window, olap))+1
+    # n0 =  int(np.floor(start_diff/window))
+    # nf =  int(np.ceil(end_diff/window))
+
+    datetime_list = [starttime + dt.timedelta(minutes=int(k*window)) for k in range(n0,nf)]
+    duration  = (endtime-starttime).total_seconds()
+    time_list = np.linspace(0, duration, nf-n0)
+
+    return time_list, datetime_list, (n0,nf)
 
 
 def get_freq(npts, fs, fq_band=[], pad=1.0):

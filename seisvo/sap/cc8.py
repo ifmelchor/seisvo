@@ -120,18 +120,10 @@ class CC8(object):
         if not endtime:
             endtime = self.stats.endtime
         
-        assert endtime > starttime
-        assert starttime >= self.stats.starttime
-        assert endtime <= self.stats.endtime
-
-        durmin = (endtime-starttime).total_seconds()/60
-        time_list     = np.linspace(0, durmin, self.stats.nro_time_bins)
-        datetime_list = pd.date_range(starttime, endtime, periods=self.stats.nro_time_bins).to_pydatetime()
-
-        n0 = np.argmin(np.abs(starttime - datetime_list))
-        nf = np.argmin(np.abs(endtime - datetime_list))+1
+        full_interval = (self.stats.starttime, self.stats.endtime)
+        interval = (starttime, endtime)
         
-        return time_list, datetime_list, (n0,nf)
+        return get_time(full_interval, interval, self.stats.window, self.stats.window_olap)
 
 
     def get(self, attr=None, fq_idx=None, slow_idx=None, starttime=None, endtime=None):

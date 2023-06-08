@@ -47,9 +47,9 @@ def get_PSD(data, fs, lwin=None, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0, ful
     return np.array(psd), freq
 
 
-def get_CSM(data, fs, lwin=None, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0,):
+def get_CSW(data, fs, lwin, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0, win_freq=0.33, return_vt=False):
     """
-    Compute the CrossSpectralMatrix (CSM) using multitaper algorithm.
+    Compute the CrossSpectralWidth (CSW) using multitaper algorithm.
     Requires julia packatge LTE.jl
 
     for apply moving average, use lwin and olap:
@@ -58,31 +58,31 @@ def get_CSM(data, fs, lwin=None, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0,):
     
     """
 
-    if lwin:
-        assert lwin < len(data)
-        npts = lwin
-        nsteps = np.floor(SSteps.nsteps(int(len(data)/fs), int(lwin/fs), olap))
-        nwin = int(nsteps)
-        nadv = float(1-olap)
-        assert nadv > 0
-    else:
-        npts = len(data)
-        nwin = None
-        lwin = None
+    ncomp, npts = data.shape
+    assert lwin < npts
 
-    freq, fqr = get_freq(npts, fs, fq_band=fq_band, pad=pad)
+    nsteps = np.floor(SSteps.nsteps(int(npts/fs), int(lwin/fs), olap))
+    nwin = int(nsteps)
+    nadv = float(1-olap)
+    assert nadv > 0
 
     # import LTE in julia
     from juliacall import Main as jl
     jl.seval("using LTE")
 
+    data = jl.Array(data)
+    fq_band = jl.Array(np.array(fq_band))
+
     # compute SVD of CrossSpectralMatrix (CSM)
-    csm = jl.LTE._csm(jl.Array(data), int(fs), lwin, nwin, nadv, jl.Array(fqr), float(NW), float(pad))
+    csm_ans = jl.csw_run(data, fq_band, int(fs), float(NW), float(pad),\
+        nwin, lwin, nadv, return_vt, win_freq=win_freq)
 
-    # for CSW, you should apply spectral normalization before CSM
-    # and then compute the CSW from CSM
-
-    return freq, csm
+    if return_vt:
+        freq, csw, vt = csm_ans
+        return np.array(freq), np.array(csw), np.array(vt)
+    else:
+        freq, csw = csm_ans
+        return np.array(freq), np.array(csw)
 
 
 def get_Polar(data, fs, lwin=None, olap=0, fq_band=(1., 5.), NW=3.5, pad=1.0, return_all=False, full_return=True):
@@ -117,7 +117,7 @@ def get_Polar(data, fs, lwin=None, olap=0, fq_band=(1., 5.), NW=3.5, pad=1.0, re
     from juliacall import Main as jl
     jl.seval("using LTE")
 
-    _, polar = jl.polar_run(jl.Array(data), jl.Tuple(fq_band),\
+    _, polar = jl.polar_run(jl.Array(data), jl.Array(fq_band),\
          int(fs), NW, pad, nwin, lwin, nadv, return_all, full_return)
 
     if full_return:
@@ -193,19 +193,26 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
         # load julia function
         from juliacall import Main as jl
         jl.seval("using LTE")
-        chan = "/".join(chan_list)
+        
+        # convert to julia variables
+        chan = jl.Tuple(chan_list)
         data = jl.Array(data)
-        band = jl.Tuple(fq_band)
+        band = jl.Array(np.array(fq_band))
         fs = int(fs)
-
-        if lte_dict["type"] == "station":
-            nwin  = int(lte_dict["nwin"])
-            lwin  = int(lte_dict["lwin"])
+        nwin  = int(lte_dict["nwin"])
+        lwin  = int(lte_dict["lwin"])
+        wadv  = float(lte_dict["wadv"])
+        NW    = float(lte_dict["time_bandwidth"])
+        pad   = float(lte_dict["pad"])
+        
+        if lte_dict["nswin"]:
             nswin = int(lte_dict["nswin"])
             lswin = int(lte_dict["lswin"])
-            nadv  = float(lte_dict["nadv"])
-            NW    = float(lte_dict["time_bandwidth"])
-            pad   = float(lte_dict["pad"])
+            swadv = float(lte_dict["swadv"])
+        else:
+            nswin = lswin = swadv = None
+        
+        if lte_dict["type"] == "station":
             optp  = lte_dict["opt_params"]
             polar = lte_dict["polar"]
             peo   = int(lte_dict["PE_order"])
@@ -214,9 +221,9 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
             opth  = float(lte_dict["opt_th"])
 
             # run in julia
-            ans = jl.sta_run(data, chan, fs, nwin, lwin, nswin, lswin, nadv, band, NW, pad, optp, polar, peo, pet, optw, opth)
-            
             try:
+                ans = jl.sta_run(data, chan, fs, nwin, lwin, wadv, nswin, lswin,\
+                    swadv, band, NW, pad, optp, polar, peo, pet, optw, opth)    
                 jlans = dict(ans)
                 # convert the jl dict into a python dict
                 for chan in chan_list:
@@ -235,27 +242,25 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
                         lte_ans["polar"] = {}
                         for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
                             lte_ans["polar"][attr] = np.array(jlans["polar"][attr])
-            except:
-                # you can catch error here and do whatever
+            
+            except Exception as exc:
+                print("\n ------ ERROR INFO ------")
+                print(exc)
+                print(" ------------------------\n")
                 pass
         
         if lte_dict["type"] == "network":
-            # nwin  = int(lte_dict["nwin"])
-            # lwin  = int(lte_dict["lwin"])
-            nswin = int(lte_dict["nswin"])
-            lswin = int(lte_dict["lswin"])
-            nadv  = float(lte_dict["nadv"])
-            NW    = float(lte_dict["time_bandwidth"])
-            pad   = float(lte_dict["pad"])
-            ans = jl.net_run(data, chan, fs, nswin, lswin, nadv, band, NW, pad)
+            # run in julia
+            ans = jl.net_run(data, chan, fs, nwin, lwin, wadv, nswin, lswin,\
+                swadv, band, NW, pad)
 
             try:
                 jlans = dict(ans)
                 for sta in chan_list:
-                    lte_ans[sta] = np.array(jlans[sta]).reshape(1,-1)
+                    lte_ans[sta] = np.array(jlans[sta])
             
-                lte_ans["csw"] = np.array(jlans["csw"]).reshape(1,-1)
-                lte_ans["vt"]  = np.array(jlans["vt"]).reshape(1, -1, len(chan_list))
+                lte_ans["csw"] = np.array(jlans["csw"])
+                lte_ans["vt"]  = np.array(jlans["vt"])
             except:
                 # you can catch error here and do whatever
                 pass

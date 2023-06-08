@@ -11,15 +11,16 @@ except KeyError:
 
 seisvo_paths = {
     "networks":os.path.join(__seisvo__, 'networks'),
-    "database":os.path.join(__seisvo__, 'database'),
-    "cc8":os.path.join(__seisvo__, 'files', 'cc8'),
-    "lte":os.path.join(__seisvo__, 'files', 'lte')
+    "database":os.path.join(__seisvo__, 'database')
 }
 
-for _, path in seisvo_paths.items():
+for name, path in seisvo_paths.items():
     if not os.path.isdir(path):
         os.makedirs(path)
         print(f" >>> folder {path} created")
+    
+    if not os.listdir(path):
+        print(' warning  ::  {name} directory is empty! ')
 
 seisvo_paths["main"] = __seisvo__
 

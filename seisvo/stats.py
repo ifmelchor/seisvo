@@ -79,12 +79,16 @@ class StationStats(_Stats):
         Get longitude coord. in 'degree' or 'utm'.
         """
 
-        if lat not in self.keys_ or lon not in self.keys_:
+        if 'lat' not in self.keys_ or 'lon' not in self.keys_:
             print(" lat/lon not defined in network JSON file")
-            return
+            return None
         
         lat = self.lat
         lon = self.lon
+
+        if not lat or not lon:
+            print(f" lat/lon not defined in network JSON file for station {self.id}")
+            return None
 
         if return_utm:
             return utm.from_latlon(lat, lon)
@@ -344,13 +348,12 @@ class LTEstats(_Stats):
     def __init__(self, header):
         super().__init__(header)
 
-
     def get_codelist(self):
         if self.type == "station":
-            return self.channel
+            return tuple(self.channel)
 
         if self.type == "network":
-            return self.stations
+            return tuple(self.stations)
 
 
     def get_kwdict(self):
@@ -372,7 +375,7 @@ class LTEstats(_Stats):
     def __str__(self):
         if self.type == "station":
             priorized_keys = ['type', 'id','channel','starttime',\
-            'endtime','window','subwindow','subwindow_olap','sample_rate',\
+            'endtime','window', 'window_olap', 'subwindow','subwindow_olap','sample_rate',\
             'rm_sens','nro_time_bins','last_time_bin','fq_band',\
             'nro_freq_bins','polar','opt_params']
 
@@ -381,17 +384,18 @@ class LTEstats(_Stats):
             priorized_keys = []
 
         return self._pretty_str(priorized_keys)
+    
 
 
     def __write__(self, wdict, nwin):
         with h5py.File(self.file, "r+") as h5f:
             nbin = h5f['header'].attrs["last_time_bin"]
             
-            if self.stats.type == "station":
+            if self.type == "station":
                 # base params
                 for chan in self.channel:
-                    h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = wdict[chan]["perm_entr"]
-                    for attr in ("energy", "fq_dominant", "fq_centroid", "specgram"):
+                    # h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = wdict[chan]["perm_entr"]
+                    for attr in ("energy", "fq_dominant", "fq_centroid", "specgram", "perm_entr"):
                         if attr == "specgram":
                             h5f[chan][attr][nbin+1:nbin+1+nwin,:] = wdict[chan][attr]
                         else:
@@ -399,9 +403,8 @@ class LTEstats(_Stats):
 
                 # opt params
                 if self.opt_params:
-                    for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                    for attr in ("dsar", "vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
                         h5f["opt"][attr][nbin+1:nbin+1+nwin] = wdict["opt"][attr]
-                    h5f["opt"]["dsar"][nbin+1:nbin+1+nwin] = wdict["opt"]["dsar"]
 
                 # polar params
                 if self.polar:
@@ -414,7 +417,7 @@ class LTEstats(_Stats):
             if self.type == "network":
                 # base params
                 for sta in self.stations:
-                    h5f[sta]["specgram"][nbin+1:nbin+1+nwin,:] = wdict[sta]
+                    h5f[sta][nbin+1:nbin+1+nwin,:] = wdict[sta]
                 
                 h5f["csw"][nbin+1:nbin+1+nwin,:]  = wdict["csw"]
                 h5f["vt"][nbin+1:nbin+1+nwin,:,:] = wdict["vt"]

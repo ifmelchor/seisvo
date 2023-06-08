@@ -12,7 +12,7 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import CC8
-from .signal import SSteps, get_freq, array_response
+from .signal import SSteps, get_freq, array_response, get_CSW
 from .lte.base import _new_LTE
 from .utils import nCPU
 
@@ -63,16 +63,14 @@ class Network(object):
             return self.get_sta(sta_code, loc=loc)
     
 
-    def check_stalist(self, stalist, time_interval=None, return_sta=False):
+    def check_stalist(self, stalist, time_interval, return_sta=False):
 
         assert isinstance(stalist, (tuple, list))
 
         true_sta_list = []
         station_obj_list = []
-
-        if time_interval:
-            starttime = time_interval[0]
-            endtime = time_interval[1]
+        starttime = time_interval[0]
+        endtime = time_interval[1]
 
         for sta in stalist:
             sta_sp = sta.split(".")
@@ -87,7 +85,7 @@ class Network(object):
                 sta_ob = self.get_sta(sta_code, loc=sta_loc)
 
                 if time_interval:
-                    if sta_ob.starttime <= starttime and sta_ob.endtime >= endtime:
+                    if sta_ob.stats.starttime <= starttime and sta_ob.stats.endtime >= endtime:
                         station_obj_list.append(sta_ob)
                         true_sta_list.append(sta)
                 else:
@@ -131,7 +129,7 @@ class Network(object):
         for sta in self:
             if (sta_code and sta.stats.code in sta_code) or not sta_code:
                 if component:
-                    kwargs["channel"] = sta.get_chan(component)     
+                    st_kwargs["channel"] = sta.get_chan(component)     
                 try:
                     stream += sta.get_stream(starttime, endtime, **st_kwargs)
                     stats.append(sta.stats)
@@ -199,43 +197,42 @@ class Network(object):
         return list_missing_days
 
 
-    # def gui(self, starttime, station_list, component="Z", delta=30, sde_file=None, **kwargs):
+    def get_csw(self, starttime, endtime, sta_list, window, win_freq=0.33, olap=0.5, return_vt=False, **kwargs):
+        """
+        Compute the cross spectral width (CSW) between start and end time.
+        window [float, in seconds] > 0
+        if return_pdf is True, return PDF of all window segments of the trace
+        """
 
-    #     from seisvo.plotting.gui.gnetwork import init_network_gui
+        assert starttime < endtime
 
-    #     # check station_list
-    #     true_station_list = []
-    #     for sta in self.station:
-    #         sta_id = '.'.join([sta.stats.code, sta.stats.loc])
-    #         if sta_id in station_list:
-    #             true_station_list += [sta_id]
+        sta_list = self.check_stalist(sta_list, (starttime,endtime))
+        assert sta_list
 
-    #     if not true_station_list:
-    #         print(" no stations loaded!. Revise network file!")
-    #         return
-        
-    #     if component not in ["Z", "N", "E"]:
-    #         print(" componente must be Z, N, or E")
-    #         return
-        
-    #     if sde_file:
-    #         if sde_file.split('.')[-1] != '.db':
-    #             sde_file += '.db'
+        # load kwargs
+        rm_sens     = kwargs.get('rm_sens', True)
+        rm_resp     = kwargs.get('rm_resp', False)
+        sample_rate = kwargs.get('sample_rate', 40)
+        njobs       = kwargs.get('njobs', 1)
+        pad         = kwargs.get("pad", 1.0)
+        time_bandw  = kwargs.get('time_bandwidth', 3.5)
+        fq_band     = kwargs.get('fq_band', (0.5, 10))
 
-    #     else:
-    #         sde_file = os.path.join(seisvo_paths["database"], self.stats.code + '_sde.db')
-        
-    #     if isinstance(kwargs.get("specgram"), int):
-    #         specgram = station_list[kwargs.get("specgram")]
-    #         kwargs["specgram"] = specgram
-        
-    #     if specgram not in true_station_list:
-    #         kwargs["specgram"] = None
+        stream = self.get_stream(starttime, endtime, sta_code=sta_list,\
+            avoid_exception=False, remove_sensitivity=rm_sens, sample_rate=sample_rate)
 
-    #     init_network_gui(self, true_station_list, starttime, delta, component, sde_file, **kwargs)
+        ans = None
+        if stream and stream.get_bounds() == (starttime,endtime):
+            data = stream.to_array()
+            ans = get_CSW(data, sample_rate, window*sample_rate,\
+                olap=olap, fq_band=fq_band, NW=time_bandw, pad=pad,\
+                win_freq=win_freq, return_vt=return_vt)
+
+        return ans
 
 
-    def lte(self, starttime, endtime, sta_list, window, subwindow, win_olap=0.5, subw_olap=0.75, **kwargs):
+    def lte(self, starttime, endtime, sta_list, window, subwindow, win_olap=0.5,\
+        subw_olap=0.75, interval=None, **kwargs):
         """ Compute Network LTE file
 
         Parameters
@@ -266,29 +263,28 @@ class Network(object):
         assert starttime < endtime
         assert window > subwindow
 
-        sta_list, sta_obj = check_stalist(sta_list, time_interval=(starttime,endtime), return_sta=True)
-
-        if not sta_ob_list:
-            print("error:: no data to proces")
-            return None
+        sta_list = check_stalist(sta_list, time_interval=(starttime,endtime))
+        assert sta_list
         
         # load kwargs
+        rm_sens     = kwargs.get('rm_sens', True)
+        rm_resp     = kwargs.get('rm_resp', False)
         sample_rate = kwargs.get('sample_rate', 40)
         njobs       = kwargs.get('njobs', 1)
         pad         = kwargs.get("pad", 1.0)
         time_bandw  = kwargs.get('time_bandwidth', 3.5)
         fq_band     = kwargs.get('fq_band', (0.5, 10))
-        validate    = kwargs.get("validate", True) # if True, ssteps will ask for confirmation
         file_name   = kwargs.get("file_name", None)
-        out_dir     = kwargs.get("out_dir", seisvo_paths["lte"])
+        out_dir     = kwargs.get("out_dir", './')
 
         # defining base params
         ltebase = dict(
             id              = self.stats.code,
             type            = "network",
-            stations        = sta_list,
+            stations        = tuple(sta_list),
             starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
             endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
+            interval        = interval,
             window          = window,
             window_olap     = win_olap,
             subwindow       = subwindow,
@@ -300,14 +296,31 @@ class Network(object):
             rm_sens         = rm_sens
         )
 
-        ss = SSteps(starttime, endtime, window*60, win_olap=win_olap, subwindow=subwindow*60, subw_olap=subw_olap, validate=validate)
+        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=window_olap, subwindow=subwindow, subw_olap=subwindow_olap)
 
-        lwin = int(ss.subwindow*sample_rate)
-        ltebase["lswin"] = lwin
+        # check for integer values
+        assert ss.nro_intervals.is_integer() and ss.nro_intervals >= 1
+        assert ss.total_nwin.is_integer() and ss.total_nwin >= 1
+        assert ss.int_nwin.is_integer() and ss.int_nwin >= 1
+        assert ss.subwindow >= 1
+
+        ltebase["lwin"] = int(ss.window*sample_rate)
+        ltebase["nwin"] = int(ss.int_nwin)
+        ltebase["wadv"] = float(ss.win_adv)
+        ltebase["nro_intervals"] = int(ss.nro_intervals)
+        ltebase["nro_time_bins"] = int(ss.total_nwin)
+        ltebase["lswin"] = int(ss.subwindow*sample_rate)
         ltebase["nswin"] = int(ss.nsubwin)
-        ltebase["nadv"]  = float(ss.subw_adv)
-        ltebase["nro_freq_bins"] = len(get_freq(lwin, sample_rate, fq_band=fq_band, pad=pad)[0])
-        ltebase["nro_time_bins"] = int(ss.int_nwin*ss.nro_intervals)
+        ltebase["swadv"] = float(ss.subw_adv)
+        nfs, _ = get_freq(ltebase["lswin"], sample_rate, fq_band=fq_band, pad=pad)
+        ltebase["nro_freq_bins"] = len(nfs)
+
+        if njobs >= nCPU or njobs == -1:
+            njobs = nCPU - 2
+        
+        if njobs > nro_intervals:
+            njobs = nro_intervals
+            print(f"warn  ::  njobs set to {njobs}")
 
         if njobs >= nCPU or njobs == -1:
             njobs = nCPU - 2
@@ -315,9 +328,6 @@ class Network(object):
         # create hdf5 file and process data
         if not file_name:
             file_name = '%s.%s%03d-%s%03d_%s.lte' % (self.stats.code, starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, window)
-        
-        if not out_dir:
-            out_dir = os.path.join(seisvo_paths["lte"])
         
         file_name_full = os.path.join(out_dir, file_name)
         if file_name_full.split('.')[-1] != 'lte':
@@ -327,7 +337,7 @@ class Network(object):
             os.remove(file_name_full)
             print(' file %s removed.' % file_name_full)
         
-        lte = _new_LTE(self, file_name_full, ltebase, njobs, "network")
+        lte = _new_LTE(self, file_name_full, ltebase, njobs)
         return lte
 
 
@@ -344,12 +354,16 @@ class Array(Network):
         # compute UTM position
         self.utm = {}
         for sta in self:
-            x, y, n, l = sta.get_latlon(return_utm=True)
-            self.utm[sta.stats.location] = {
-                "x":x,
-                "y":y,
-                "zone":(n,l)
-            }
+            ans = sta.stats.get_latlon(return_utm=True)
+            if ans:
+                x, y, n, l = ans
+                self.utm[sta.stats.location] = {
+                    "x":x,
+                    "y":y,
+                    "zone":(n,l)
+                }
+            else:
+                print(" warn :: error in reading lat/lon. No locs loaded!")
         
         self.locs = list(self.utm.keys())
 

@@ -24,7 +24,7 @@ def azimuth_mean(x, ambiguity180=False):
     return xrad_mean*180/np.pi, xrad_std*180/np.pi
 
 
-def get_stats(x, bw_method=None):
+def get_Stats(x, bw_method=None):
     """
     Return min, max, mean, and mode of a time series
     """
@@ -38,33 +38,6 @@ def get_stats(x, bw_method=None):
     v_mode = get_dominant(x, pdf)
 
     return [v_min, v_max, v_mean, v_mode]
-
-
-def get_pdf_data(data, db_scale=False, **kde_kwargs):
-
-    if len(data.shape) == 1:
-        data = data.reshape(-1,1)
-        
-    masked_data = np.ma.masked_invalid(data)
-    data = np.ma.compress_rowcols(masked_data, axis=0)
-
-    if db_scale:
-        data = 10*np.log10(data)
-    
-    xmin = kwargs.get("min", None)
-    if not xmin:
-        xmin = data.min()
-    
-    xmax = kwargs.get("max", None)
-    if not xmax:
-        xmax = data.max()
-
-    npts = kwargs.get("npts", 1000)
-    y = np.linspace(xmin, xmax, npts)
-
-    pdf = get_PDF(data, y, **kde_kwargs)
-
-    return y, pdf
 
 
 def get_PDF(array, space, **kde_kwargs):
