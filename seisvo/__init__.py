@@ -17,15 +17,15 @@ seisvo_paths = {
 for name, path in seisvo_paths.items():
     if not os.path.isdir(path):
         os.makedirs(path)
-        print(f" >>> folder {path} created")
+        print(f" info  ::  folder {path} created")
     
     if not os.listdir(path):
-        print(' warning  ::  {name} directory is empty! ')
+        print(f" warning  ::  {name} directory is empty! ")
 
 seisvo_paths["main"] = __seisvo__
 
 from .obspyext import read2 as read
-from .network import Network, Station, Array #,iArray
+from .network import Network, Station, Array
 from .lte import LTE
 from .sap.cc8 import CC8
 from .database import SDE, LDE

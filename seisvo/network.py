@@ -358,8 +358,8 @@ class Array(Network):
             if ans:
                 x, y, n, l = ans
                 self.utm[sta.stats.location] = {
-                    "x":x,
-                    "y":y,
+                    "easting":x,
+                    "northing":y,
                     "zone":(n,l)
                 }
             else:
@@ -384,10 +384,10 @@ class Array(Network):
                     continue
 
                 if i != j:
-                    x1 = self.utm[iloc]["x"]
-                    x2 = self.utm[jloc]["x"]
-                    y1 = self.utm[iloc]["y"]
-                    y2 = self.utm[jloc]["y"]
+                    x1 = self.utm[iloc]["easting"]
+                    x2 = self.utm[jloc]["easting"]
+                    y1 = self.utm[iloc]["northing"]
+                    y2 = self.utm[jloc]["northing"]
                     d = np.sqrt(np.abs(x1-x2)**2 + np.abs(y2-y1)**2)
                     
                     if d > a:
@@ -403,8 +403,8 @@ class Array(Network):
 
         for loc, utm in self.utm.item():
             if loc not in exclude_locs:
-                xutm.append(float(utm["x"]))
-                yutm.append(float(utm["y"]))
+                xutm.append(float(utm["easting"]))
+                yutm.append(float(utm["northing"]))
 
         ans = array_response(xutm, yutm, slow_max, slow_inc, fq_band=fq_band, fq_int=fq_int)
 

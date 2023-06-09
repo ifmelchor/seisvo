@@ -73,8 +73,8 @@ class CC8(object):
             raise ValueError("last_time_bin is > 0. Please check cc8 file.")
 
         excluded_locs = array.get_excluded_locs(self.stats.locs)
-        xutm = np.array([array.utm[loc]["x"] for loc in self.stats.locs])
-        yutm = np.array([array.utm[loc]["y"] for loc in self.stats.locs])
+        xutm = np.array([array.utm[loc]["easting"] for loc in self.stats.locs])
+        yutm = np.array([array.utm[loc]["northing"] for loc in self.stats.locs])
 
         # init process
         cc8p = _CC8Process(self.stats, xutm, yutm,\

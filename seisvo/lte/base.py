@@ -240,15 +240,14 @@ class _LTE(object):
             data = None
             if self.stats.type == "station":
                 stream = base.get_stream(start, end, channel=self.stats.channel,\
-                    remove_sensitivity=self.stats.rm_sens, sample_rate=self.stats.sample_rate)
-                # print(start, end)
-                # print(stream)
+                    rm_sens=self.stats.rm_sens, sample_rate=self.stats.sample_rate)
+                
                 if stream and stream.get_bounds() == (start,end):
                     data = stream.to_array(sort="ZNE")
 
             if self.stats.type == "network":
                 stream = base.get_stream(start, end, sta_code=self.stats.stations,\
-                    avoid_exception=True, remove_sensitivity=self.stats.rm_sens,\
+                    avoid_exception=True, rm_sens=self.stats.rm_sens,\
                     sample_rate=self.stats.sample_rate)
 
                 if stream and stream.get_bounds() == (start,end):

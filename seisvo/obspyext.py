@@ -24,7 +24,7 @@ class Trace2(Trace):
         super().__init__(data=trace.data, header=trace.stats)
     
 
-    def get_data(self, starttime=None, endtime=None, demean=True, detrend=True, fq_band=(), abs=False, sample_rate=None, norm=False):
+    def get_data(self, starttime=None, endtime=None, demean=True, detrend=False, fq_band=(), abs=False, sample_rate=None, norm=False):
         """
         This code returns a numpy array of the data
         """
@@ -406,10 +406,14 @@ class Stream2(Stream):
             else:
                 info.append(trace.stats.station + trace.stats.channel[-1])
 
-            trd = trace.get_data(**trace_kwargs)
-            if len(trd) < npts:
-                print(f" [warn] trace {trace.stats.channel} resample {len(trd)} --> {npts}")
-                trd = scipy.signal.resample(trd, npts)
+            try:
+                trd = trace.get_data(**trace_kwargs)
+                if len(trd) < npts:
+                    print(f" [warn] trace {trace.stats.channel} resample {len(trd)} --> {npts}")
+                    trd = scipy.signal.resample(trd, npts)
+            except Exception as e:
+                print(f"  error reading trace :: {e}")
+                return None
             
             mdata[n,:] = trd[:npts]
         

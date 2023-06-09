@@ -131,7 +131,7 @@ class _LTEProcess(object):
                 proc_status = "OK"
 
             self.ltestats.__write__(lte_ans, nwin)
-            print(f" >> {start} -- {end}  ::  data wrote  {proc_status}  ::  job {int_prct} :: process time {proct:.1f} sec")
+            print(f" [interval {int_prct}]  >> data wrote {proc_status} from {start} to {end}  [in {proct:.1f} sec]")
 
         # clear process
         self.reset()

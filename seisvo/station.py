@@ -6,7 +6,7 @@ import utm
 import scipy
 import numpy as np
 import datetime as dt
-from obspy import UTCDateTime
+from obspy import UTCDateTime, Stream
 from obspy.core.inventory.response import Response
 
 from .utils import nCPU
@@ -128,7 +128,7 @@ class Station(object):
         day_diff = (tf.date() - t0.date()).days + 1
         date_list = [t0.date() + dt.timedelta(days=i) for i in range(day_diff)]
 
-        stream, sample_rate_list = Stream2(), []
+        stream, sample_rate_list = Stream(), []
         for day in date_list:
             for channel in channel_list:
                 st_day = self.stats.__read_file__(channel, date=day, stream=True, starttime=t0, endtime=tf)
@@ -143,36 +143,41 @@ class Station(object):
             print('error: stream with mixed sampling rates. Revise data.')
             return None
 
-        # merge traces
+        # merge traces and resample
+        sample_rate = kwargs.get('sample_rate', None)
+        if sample_rate and sample_rate < sample_rate_list[0]:
+            stream = stream.resample(sample_rate)
+            
+            if stream[0].stats.sampling_rate != sample_rate:
+                print("\n  [warn] stream data could not be resampled. Check your data.")
+                return None
+
         fill_value = kwargs.get('fill_value', None)
         method     = kwargs.get('method', 0)
-        stream.merge(method=method, fill_value=fill_value)
-        st = stream.slice(UTCDateTime(starttime), UTCDateTime(endtime))
+        stream = stream.merge(method=method, fill_value=fill_value)
+        stream = stream.slice(UTCDateTime(starttime), UTCDateTime(endtime))
 
-        if st:
-            if kwargs.get('remove_response', False):
-                rrkwargs = kwargs.get('rrkwargs', {})
-                st = self.remove_response(st, **rrkwargs)
-                kwargs['remove_sensitivity'] = False
-            
-            if kwargs.get('remove_sensitivity', False):
-                disp = kwargs.get('disp', False)
-                st = self.remove_factor(st, disp=disp)
-            
-            sample_rate = kwargs.get('sample_rate', None)
-            if sample_rate and sample_rate < sample_rate_list[0]:
-                st = Stream2(st.resample(sample_rate))
-
-                if st[0].stats.sampling_rate != sample_rate:
-                    print("\n  [warn] stream data could not be resampled. Check your data.")
-                    return None
-        
+        if stream:
+            stream = Stream2(stream)
+            rm_resp = kwargs.get('rm_resp', False)
+            rm_sens = kwargs.get('rm_sens', False)
             prefilt = kwargs.get('prefilt', [])
 
-            if prefilt:
-                st = st.filter2(fq_band=prefilt)
+            if rm_resp and rm_sens:
+                rrkwargs = kwargs.get('rrkwargs', {})
+                stream = self.remove_response(stream, **rrkwargs)
             
-        return st
+            elif rm_sens:
+                disp = kwargs.get('disp', False)
+                stream = self.remove_factor(stream, disp=disp)
+            
+            else:
+                pass
+        
+            if prefilt:
+                stream = stream.filter2(fq_band=prefilt)
+            
+        return stream
 
 
     def get_psd(self, starttime, endtime, channel, window=0, olap=0.75,\
