@@ -88,24 +88,27 @@ def _new_LTE(base, lte_file, headers, njobs):
 
             print('')
             print(' LTE file INFO')
-            print(' -------------')
+            print(' ----------------')
             print(" hdf5_memory info: %s " % lte_file)
-            print(' --- dataset size: ', (timebins, freqbins))
+            print(' dataset size: ', (timebins, freqbins))
             print('')
-            print(' LTE stats:')
+            print('    LTE stats   ')
+            print(' ----------------')
             
             for info_key in ['id', 'type', 'channel', 'starttime', 'endtime',\
                 'window', 'window_olap', 'subwindow', 'subwindow_olap',\
                 'sample_rate', 'rm_sens' ,'fq_band' ,'polar' ,'opt_params']:
 
                 if info_key == "window":
-                    print(f' {info_key} [min]:  {headers[info_key]}')
+                    print(f'   {info_key} [sec]:  {headers[info_key]}')
                 
                 elif info_key == "subwindow":
-                    print(f' {info_key} [sec]:  {headers[info_key]}')
+                    print(f'   {info_key} [sec]:  {headers[info_key]}')
                 
                 else:
-                    print(f' {info_key}:  {headers[info_key]}')
+                    print(f'   {info_key}:  {headers[info_key]}')
+            
+            print(' ----------------\n')
 
             for chan in headers['channel']:
                 chgr = f.create_group(chan)
@@ -238,20 +241,21 @@ class _LTE(object):
             end = start + delta
             
             data = None
+            sort = None
             if self.stats.type == "station":
                 stream = base.get_stream(start, end, channel=self.stats.channel,\
                     rm_sens=self.stats.rm_sens, sample_rate=self.stats.sample_rate)
                 
-                if stream and stream.get_bounds() == (start,end):
-                    data = stream.to_array(sort="ZNE")
+                if self.stats.polar and len(stream) == 3:
+                    sort = "ZNE"
 
             if self.stats.type == "network":
                 stream = base.get_stream(start, end, sta_code=self.stats.stations,\
                     avoid_exception=True, rm_sens=self.stats.rm_sens,\
                     sample_rate=self.stats.sample_rate)
 
-                if stream and stream.get_bounds() == (start,end):
-                    data = stream.to_array()
+            if stream and stream.get_bounds() == (start,end):
+                data = stream.to_array(sort=sort)
 
             # send to a cpu
             if nint == headers["nro_intervals"]:
