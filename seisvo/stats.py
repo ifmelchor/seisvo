@@ -280,6 +280,7 @@ class NetworkStats(_Stats):
         self.stations = station_stats
 
         self.stations_id = [sta.id for sta in self.stations]
+        self.stations_code = list(set([sta.code for sta in self.stations]))
 
 
     def __str__(self):

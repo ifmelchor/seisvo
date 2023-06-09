@@ -344,6 +344,8 @@ class Network(object):
 class Array(Network):
     def __init__(self, net_code, sta_code):
         super().__init__(net_code)
+
+        assert sta_code in self.stats.stations_code
         self.sta_code = sta_code
 
         # change self
