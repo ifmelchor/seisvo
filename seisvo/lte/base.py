@@ -274,7 +274,7 @@ class _LTE(object):
         
         # check if there are any process running
         if len(ltep.processes) > 0:
-            ltep.wait(f"{nint}/{nro_ints}")
+            ltep.wait(nint)
 
 
     def __read__(self, attr, n0, nf, stakwargs={}, netkwargs={}):
