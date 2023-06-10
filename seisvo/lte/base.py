@@ -213,15 +213,15 @@ class _LTE(object):
         self.stats = LTEstats(dstats)
         self.stats.__add_attr__(lattrs)
 
-        # compute the endtime
+        # compute the true time series
         npts  = self.stats.nro_time_bins
-        olap  = dt.timedelta(seconds=float(self.stats.window*self.stats.window_olap))
-        delta = dt.timedelta(seconds=self.stats.window)
-        self.dtime = []
+        delta = dt.timedelta(seconds=self.stats.window*(1-self.stats.window_olap))
+        half_delta = dt.timedelta(seconds=0)
+        self.dtime = [self.stats.starttime+ half_delta]
         start = self.stats.starttime
-        for n in range(0,self.stats.nro_time_bins):
-            self.dtime.append(start)
-            start = start + delta - olap
+        for n in range(self.stats.last_time_bin):
+            start += delta
+            self.dtime.append(start + half_delta)
 
 
     def __compute__(self, base, headers, njobs):
@@ -646,18 +646,15 @@ class LTEout(object):
             if chan in self.chan_list:
                 chan_list = [chan]
             else:
-                print("channel %s not found" % chan)
-                return None
+                chan_list = []
         else:
             chan_list = []
             for ch in chan:
                 if ch in self.chan_list:
                     chan_list.append(ch)
-                else:
-                    print("channel %s not found" % ch)
-            
-            if not chan_list:
-                return None
+
+        if not chan_list:
+            print(" warn :: no channel found")
 
         return chan_list
     

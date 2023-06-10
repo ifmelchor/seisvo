@@ -96,26 +96,19 @@ class SSteps(object):
         Function for testing the iteration procedure in LTE and CC8 files
         """
 
-        toff = dt.timedelta(seconds=self.int_toff)
         delta = dt.timedelta(seconds=self.interval)
+        toff = dt.timedelta(seconds=self.int_toff)
         interval = 0
         total_nwin = 0
-        start = self.start_time
         verbose = True
 
         # print("\n--------------          INIT TEST SSTEPS          --------------\n")
 
+        start = self.start_time + toff
         while start + delta <= self.end_time:
+            start_win = start - toff
+            end_win = start + delta
             interval += 1
-            start_win = start
-            end_win = start + delta + toff
-
-            # if interval in (1, 2):
-            #     verbose = True
-            # else:
-            #     if interval == 3:
-            #         print("\n                             ...\n")
-            #     verbose = False
 
             if verbose:
                 print(f"\n  INTERVAL {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
