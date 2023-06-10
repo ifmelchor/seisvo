@@ -145,7 +145,7 @@ class Station(object):
 
         # merge traces and resample
         sample_rate = kwargs.get('sample_rate', None)
-        if sample_rate and sample_rate < sample_rate_list[0]:
+        if sample_rate and sample_rate_list and sample_rate < sample_rate_list[0]:
             stream = stream.resample(sample_rate)
             
             if stream[0].stats.sampling_rate != sample_rate:
