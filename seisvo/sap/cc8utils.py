@@ -37,19 +37,9 @@ class _CC8Process(object):
         self.processes = []
         self.queue     = mp.Queue()
         self.n         = -1
-        # self.xutm      = xutm
-        # self.yutm      = yutm
-        # self.lwin      = lwin
-        # self.nwin      = nwin
-        # self.nadv      = nadv
-        # self.toff      = toff
-    
-
 
 
     def _wrapper(self, data, start, end, fqidx, last):
-        t0 = time.time()
-        
         if last:
             nwin = self.headers["last_nwin"]
         else:
@@ -59,11 +49,15 @@ class _CC8Process(object):
         fs   = self.cc8stats.sample_rate
         xutm = self.headers["utm"]["x"]
         yutm = self.headers["utm"]["y"]
+        
+        t0 = time.time()
         cc8_ans = get_CC8(data, fs, xutm, yutm, fqband, self.cc8stats.slow_max,\
-            self.cc8stats.slow_inc, lwin=self.headers["lwin"], nwin=self.headers["nwin"],\
-            nadv=self.headers["nadv"], cc_thres=self.cc8stats.cc_thres, toff=self.toff)
+            self.cc8stats.slow_inc, lwin=self.headers["lwin"], nwin=nwin,\
+            nadv=self.headers["nadv"], cc_thres=self.cc8stats.cc_thres,\
+            toff=self.headers["toff_sec"])
         t1 = time.time()
-        self.queue.put((self.n, cc8_ans, fqidx, starttime, endtime, t1-t0))
+        
+        self.queue.put((self.n, cc8_ans, fqidx, starttime, endtime, t1-t0, nwin))
     
 
     def run(self, data, start, end, fqidx, last):
@@ -78,25 +72,45 @@ class _CC8Process(object):
         self.queue = mp.Queue()
 
 
-    def wait(self, int_prct):
+    def wait(self, nint):
         rets = []
         for p in self.processes:
             ret = self.queue.get()
             rets.append(ret)
         
         self.data = {}
-        for n, data, nfq, starttime, endtime, proct in rets:
+        for n, data, nfq, starttime, endtime, proct, nwin in rets:
             self.data[n] = {}
             self.data[n]["nfq"]   = nfq
             self.data[n]["ans"]   = data
             self.data[n]["start"] = starttime
             self.data[n]["end"]   = endtime
             self.data[n]["proct"] = proct
+            self.data[n]["nwin"]  = nwin
         
         for p in self.processes:
             p.join()
         
-        self.save(int_prct)
+        self.save(f"{nint}/{self.headers['nro_intervals']}")
+    
+    
+    def get_empty_dict(self, nwin):
+
+        cc8_ans = {}
+        vector_nan = np.full([nwin,], np.nan)
+        for sn, nite in enumerate(nites):
+            matrix_nan = np.full([nwin, nite, nite], np.nan)
+            matrixbnd_nan = np.full([nwin, 2], np.nan)
+            cc8_ans[ns+1] = {}
+
+            for attr in ("slow", "bazm", "maac", "rms"):
+                cc8_ans[ns+1][attr] = vector_nan
+            
+            cc8_ans[ns+1]["slowmap"] = matrix_nan
+            cc8_ans[ns+1]["slowbnd"] = matrixbnd_nan
+            cc8_ans[ns+1]["bazmbnd"] = matrixbnd_nan
+        
+        return cc8_ans
 
 
     def save(self, int_prct):
@@ -109,31 +123,16 @@ class _CC8Process(object):
             cc8_ans = self.data[n]["ans"]
             nfq     = self.data[n]["nfq"]
             proct   = self.data[n]["proct"]
+            nwin    = self.data[n]["nwin"]
 
             if not cc8_ans:
                 proc_status = "FAIL"
-                vector_nan = np.full([self.nwin,], np.nan)
-
-                cc8_ans = {}
-                for nsi in range(1, len(self.cc8stats.nites)+1):
-                    nite = self.cc8stats.nites[nsi-1]
-                    matrix_nan = np.full([self.nwin, nite, nite], np.nan)
-                    matrixbnd_nan = np.full([self.nwin, 2], np.nan)
-                    cc8_ans[nsi] = {}
-
-                    for attr in ("slow", "bazm", "maac", "rms"):
-                        cc8_ans[nsi][attr] = vector_nan
-                    
-                    cc8_ans[nsi]["slowmap"] = matrix_nan
-                    cc8_ans[nsi]["slowbnd"] = matrixbnd_nan
-                    cc8_ans[nsi]["bazmbnd"] = matrixbnd_nan
-
+                cc8_ans.get_empty_dict(nwin)
             else:
                 proc_status = "OK"
             
-            self.cc8stats.__write__(cc8_ans, nfq, self.nwin)
-
-            print(f" >> {start} -- {end}  ::  data wrote  {proc_status}  ::  job {int_prct} :: fq_band {nfq}/{len(self.cc8stats.fq_bands)}  ::  process time {proct:.1f} sec")
+            self.cc8stats.__write__(cc8_ans, nfq, nwin)
+            print(f" [interval {int_prct} / fq band {nfq}]  >>  data wrote {proc_status} from {start} to {end}  [in {proct:.1f} sec]")
 
         self.reset()
 

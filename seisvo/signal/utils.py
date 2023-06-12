@@ -20,7 +20,7 @@ class SSteps(object):
     
     """
     def __init__(self, start_time, end_time, window, interval=None,\
-        win_olap=0, subwindow=0, subw_olap=0, verbose=True):
+        win_olap=0, subwindow=0, subw_olap=0, logfile=False):
         
         if interval:
             assert window <= interval*60
@@ -62,16 +62,6 @@ class SSteps(object):
         # toff seconds per interval
         self.int_toff = self.window*self.win_adv*(self.int_nwin-1) + self.window - self.interval
         
-        # # expected nro of intervals
-        # self.nro_intervals = int(nro_intervals-np.floor(self.int_toff*nro_intervals/self.interval))
-
-        # # last interval
-        # diff = self.int_toff*nro_intervals/self.interval - np.floor(self.int_toff*nro_intervals/self.interval)
-        # self.last_nwin = round(self.int_nwin*(1-diff))
-
-        # # total nwin
-        # self.total_nwin = (self.nro_intervals-1)*self.int_nwin + self.last_nwin
-
         # compute steps in subwindow
         if self.subwindow > 0:
             self.nsubwin = self.nsteps(self.window, self.subwindow, self.subw_olap)       
@@ -79,6 +69,12 @@ class SSteps(object):
         else:
             self.nsubwin = None
             self.total_subwin = None
+        
+        if logfile:
+            self.logfile = open("ssteps.log", "w") 
+
+        else:
+            self.logfile = None
 
         self.fit()
         self.print()
@@ -110,55 +106,50 @@ class SSteps(object):
             end_win = start + delta
             interval += 1
 
-            if verbose:
-                print(f"\n  INTERVAL {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
+            if self.logfile:
+                self.logfile.write(f"\n\n  INTERVAL {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
             
             for i in range(self.int_nwin):
                 total_nwin += 1
                 ew = start_win + dt.timedelta(seconds=int(self.window*self.win_adv*i))
                 
-                if verbose:
+                if self.logfile:
                     if i in (0,1):
-                        print(f"{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
+                        self.logfile.write(f"\n{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
                     elif i == 2:
-                        print("                             ...")
+                        self.logfile.write("\n                             ...")
                     elif i in (self.int_nwin-2, self.int_nwin-1):
-                        print(f"{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
+                        self.logfile.write(f"\n{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
                     else:
                         pass
                 
             start = end_win
         
         # last interval
+        start -= toff
         last_delta = self.end_time - start
 
         if last_delta.total_seconds() > 1:
             end_win = start + last_delta
             interval += 1
             if verbose:
-                print(f"\n    LAST   {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
+                self.logfile.write(f"\n\n    LAST   {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
             
-            start_win = start
             i = 1
             while start + dt.timedelta(seconds=self.window) <= self.end_time:
                 total_nwin += 1
 
                 # print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
-                if verbose:
+                if self.logfile:
                     if i in (1,2):
-                        print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
+                        self.logfile.write(f"\n{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
                     elif i == 3:
-                        print("                             ...")
+                        self.logfile.write("\n                             ...")
                     else:
                         pass
                 
-                if start + dt.timedelta(seconds=self.window) >= self.end_time or start +\
-                    dt.timedelta(seconds=int(self.window-(self.win_olap*self.window))) +\
-                    dt.timedelta(seconds=self.window) >= self.end_time:
-
-                    if verbose:
-                        print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
-                    break
+                if start + dt.timedelta(seconds=float(3*self.window)) >= self.end_time and self.logfile:
+                    self.logfile.write(f"\n{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
                 
                 start += dt.timedelta(seconds=int(self.window-(self.win_olap*self.window)))
                 i += 1
@@ -170,7 +161,10 @@ class SSteps(object):
         self.total_nwin =  total_nwin
         self.last_nwin = i
         # self.nro_intervals = interval
-        true_end_time = start + dt.timedelta(seconds=self.window)
+        # true_end_time = start + dt.timedelta(seconds=self.window)
+
+        if self.logfile:
+            self.logfile.close()
 
         return True
     

@@ -12,7 +12,7 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
-from .signal import SSteps, get_freq, array_response, get_CSW
+from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8
 from .lte.base import _new_LTE
 from .utils import nCPU
 
@@ -130,6 +130,7 @@ class Network(object):
             if (sta_code and sta.stats.code in sta_code) or not sta_code:
                 if component:
                     st_kwargs["channel"] = sta.get_chan(component)     
+                
                 try:
                     stream += sta.get_stream(starttime, endtime, **st_kwargs)
                     stats.append(sta.stats)
@@ -429,6 +430,44 @@ class Array(Network):
             return stream
 
 
+    def get_cc8(self, starttime, endtime, window, overlap, slow_max=3.,\
+        slow_inc=0.1, fq_band=[1., 3.], cc_thres=0.05, exclude_locs=[], **kwargs):
+        """
+        compute CC8 algorithm
+        window in seconds (float) and overlap between 0 an 1.
+        """
+
+        toff_sec    = kwargs.get('toff_sec', 10)
+        sample_rate = kwargs.get("sample_rate", self.sample_rate)
+        nite        = 1 + 2*int(slow_max/slow_inc)
+
+        # locations and positions
+        if exclude_locs:
+            locs = [loc for loc in self.locs if loc not in exclude_locs]
+        else:
+            locs = self.locs
+
+        utmloc = {"x":[],"y":[]}
+        for loc, utm in self.utm.items():
+            if loc in locs:
+                utmloc["x"].append(utm["easting"])
+                utmloc["y"].append(utm["northing"])
+        
+        ss = SSteps(starttime, endtime, window, win_olap=overlap, logfile=True)
+        ssdict = ss.to_dict()
+
+        stream = self.get_stream(starttime, endtime, toff_sec=toff_sec,\
+            exclude_locs=exclude_locs, sample_rate=sample_rate, avoid_exception=True)
+        
+        data = stream.to_array(detrend=True)
+        lwin = int(ss.window * sample_rate)
+
+        ans = get_CC8(data, sample_rate, utmloc["x"], utmloc["y"], fq_band, [slow_max], [slow_inc],\
+            lwin=lwin, nwin=ssdict["nwin"], nadv=ssdict["wadv"], toff=toff_sec, cc_thres=cc_thres)
+        
+        return ans
+
+
     def cc8(self, starttime, endtime, window, overlap, interval=60, slow_max=[3.,0.5],\
         slow_inc=[0.1,0.01], fq_bands=[(1,5)], cc_thres=0.05, exclude_locs=[], **kwargs):
         
@@ -480,8 +519,7 @@ class Array(Network):
         sample_rate = kwargs.get("sample_rate", self.sample_rate)
         filename    = kwargs.get("filename", None)
         outdir      = kwargs.get("outdir", None)
-        validate    = kwargs.get("validate", True) # if False, ss do not ask for confirmation
-
+        
         # defining base params
         # slowness invervals
         nites = [1 + 2*int(pmax/pinc) for pmax, pinc in zip(slow_max, slow_inc)]
@@ -516,7 +554,7 @@ class Array(Network):
             toff_sec        = toff_sec
         )
 
-        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap)
+        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap, logfile=True)
         ssdict = ss.to_dict()
 
         ltebase["lwin"] = int(ss.window*sample_rate)
@@ -527,38 +565,12 @@ class Array(Network):
         ltebase["nro_time_bins"] = ssdict["total_nwin"]
         ltebase["int_extra_sec"] = ssdict["int_extra_sec"]
 
-        # ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap)
-        # cc8base["interval"] = float(interval)
-        # cc8base["nro_intervals"] = int(ss.nro_intervals)
-        # cc8base["nro_time_bins"] = int(ss.total_nwin)
-        # cc8base["nwin"] = int(ss.int_nwin)
-        # cc8base["lwin"] = int(window*sample_rate)
-        # cc8base["nadv"] = float(ss.win_adv)
-
         if njobs >= nCPU or njobs == -1:
             njobs = nCPU - 2
         
         if njobs > ltebase["nro_intervals"]*len(fq_bands):
             njobs = ltebase["nro_intervals"]*len(fq_bands)
             print(f"warn  ::  njobs set to {njobs}")
-
-        # if validate:
-        #     print('')
-        #     print(' CC8base INFO')
-        #     print(' -------------')
-        #     print(f'{"       ID     ":^5s} : ', cc8base.get("id"))
-        #     print(f'{"      LOCS    ":^5s} : ', cc8base.get("locs"))
-        #     print(f'{"    Start time":^5s} : ', cc8base.get("starttime"))
-        #     print(f'{"      End time":^5s} : ', cc8base.get("endtime"))
-        #     print(f'{"interval [min]":^5s} : ', cc8base.get("interval"))
-        #     print(f'{"  window [sec]":^5s} : ', cc8base.get("window"))
-        #     print(f'{"   window olap":^5s} : ', cc8base.get("overlap"))
-        #     print(f'{"   nro windows":^5s} : ', cc8base.get("nwin")*cc8base.get("nro_intervals"))
-        #     print(f'{"    |_ per int":^5s} : ', cc8base.get("nwin"))
-        #     print('')
-        #     name = input("\n Please, confirm that you are agree (Y/n): ")
-        #     if name not in ('', 'Y', 'y'):
-        #         return
         
         # define name
         if not filename:

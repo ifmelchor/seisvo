@@ -352,7 +352,8 @@ class Station(object):
             time_bandwidth  = kwargs.get('time_bandwidth', 3.5)
         )
 
-        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=window_olap, subwindow=subwindow, subw_olap=subwindow_olap)
+        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=window_olap,\
+            subwindow=subwindow, subw_olap=subwindow_olap, logfile=True)
         ssdict = ss.to_dict()
 
         ltebase["lwin"] = int(ss.window*sample_rate)

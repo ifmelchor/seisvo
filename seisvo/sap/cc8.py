@@ -47,7 +47,6 @@ def _new_CC8(array, cc8file, headers, njobs):
         hdr.attrs['cc_thres']      = headers['cc_thres']
 
         # print info
-        
         print('')
         print(' CC8 file INFO')
         print(' ----------------')
@@ -60,22 +59,18 @@ def _new_CC8(array, cc8file, headers, njobs):
         for info_key in ['id', 'locs', 'starttime', 'endtime', 'window',\
             'overlap', 'nro_time_bins', 'sample_rate', 'fq_bands',\
             'slow_max', 'slow_inc', 'cc_thres']:
-
             if info_key == "window":
                 print(f'   {info_key} [sec]:  {headers[info_key]}')
-            
             else:
                 print(f'   {info_key}:  {headers[info_key]}')        
-        
         print(' ----------------\n')
 
         # add datasets
-        nites = headers['slow_bins']
         timebins = headers['nro_time_bins']
         for fq_n in range(1, len(headers['fq_bands'])+1):
             fq_n = cc8h5.create_group(str(fq_n))
             
-            for sn, nite in enumerate(nites):
+            for sn, nite in enumerate(headers['slow_bins']):
                 np_n = fq_n.create_group(str(sn+1))
                 
                 for attr in ("slow", "bazm", "maac", "rms"):
@@ -103,8 +98,8 @@ class CC8(object):
             hdr = f['header']
             stats_dict["id"]              = str(hdr.attrs['id'])
             stats_dict["locs"]            = list(hdr.attrs['locs'])
-            stats_dict["starttime"]       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S')
-            stats_dict["endtime"]         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S')
+            stats_dict["starttime"]       = dt.datetime.strptime(hdr.attrs['starttime'], '%Y-%m-%d %H:%M:%S.%f')
+            stats_dict["endtime"]         = dt.datetime.strptime(hdr.attrs['endtime'], '%Y-%m-%d %H:%M:%S.%f')
             stats_dict["window"]          = int(hdr.attrs['window'])
             stats_dict["overlap"]         = float(hdr.attrs['overlap'])
             stats_dict["nro_time_bins"]   = int(hdr.attrs['nro_time_bins'])
@@ -137,11 +132,6 @@ class CC8(object):
         """
         Process CC8 file
         """
-
-        # init process and starttime
-        
-        # xutm = np.array(headers["utm"]["x"])
-        # yutm = np.array(headers["utm"]["y"])
 
         # init process
         cc8p = _CC8Process(self.stats, headers)
@@ -180,34 +170,6 @@ class CC8(object):
         # check if there are any process running
         if len(cc8p.processes) > 0:
             cc8p.wait(nint)
-
-        # # interval = dt.timedelta(minutes=headers['interval'])
-        # nro_ints, nint = headers['nro_intervals'], 1
-
-        # # loop over the intervals
-        # while start + interval <= self.stats.endtime:
-        #     end = start + interval
-        #     stream = array.get_stream(start, end, toff_sec=int(headers["toff_sec"]), exclude_locs=excluded_locs)
-            
-        #     # check that stream times ares equal to start and end
-        #     if stream and stream.get_bounds() == (start-toff_delta, end+toff_delta):
-        #         data   = stream.to_array(detrend=True)
-        #     else:
-        #         data = None
-
-        #     for fqn, fqband in enumerate(self.stats.fq_bands):
-        #         cc8p.run(data, np.array(fqband), int(fqn+1), start, end)
-
-        #         if len(cc8p.processes) == njobs:
-        #             cc8p.wait(f"{nint}/{nro_ints}")
-                
-        #     # advance 
-        #     start += interval
-        #     nint  += 1
-        
-        # # wait until finishes
-        # if len(cc8p.processes) > 0:
-        #     cc8p.wait(f"{nint}/{nro_ints}")
 
 
     def get_time(self, starttime=None, endtime=None):
@@ -252,59 +214,3 @@ class CC8(object):
                         dout[attr_key] = ts
 
         return CC8out(self.stats, dout)
-
-    
-    @staticmethod
-    def new(array, filename, headers, njobs):
-        # print info
-        print('')
-        print(' CC8 file INFO')
-        print(' -------------')
-        print('  file   ::  %s ' % filename)
-        for key in ['id', 'locs', 'starttime', 'endtime', 'window', 'overlap', 'nro_time_bins', 'sample_rate', 'fq_bands', 'slow_max', 'slow_inc', 'cc_thres']:
-            print(f'  {key}  ::  {headers[key]}')
-        print('')
-
-        timebins = int(headers['nro_time_bins'])
-        nites = [1 + 2*int(pmax/pinc) for pmax, pinc in zip(headers["slow_max"], headers["slow_inc"])]
-
-        # create file
-        with h5py.File(filename, "w-") as cc8h5:
-            # add header
-            hdr = cc8h5.create_dataset('header',(1,))
-            hdr.attrs['id']            = headers['id']
-            hdr.attrs['locs']          = headers['locs']
-            hdr.attrs['starttime']     = headers['starttime']
-            hdr.attrs['endtime']       = headers['endtime']
-            hdr.attrs['window']        = headers['window']
-            hdr.attrs['overlap']       = headers['overlap']
-            hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
-            hdr.attrs['last_time_bin'] = [-1]*len(headers['fq_bands'])
-            hdr.attrs['sample_rate']   = headers['sample_rate']
-            hdr.attrs['fq_bands']      = headers['fq_bands']
-            hdr.attrs['slow_max']      = headers['slow_max']
-            hdr.attrs['slow_inc']      = headers['slow_inc']
-            hdr.attrs['cc_thres']      = headers['cc_thres']
-
-            # add datasets
-            for fq_n in range(1, len(headers['fq_bands'])+1):
-                fq_n = cc8h5.create_group(str(fq_n))
-                
-                for s_n in range(1, len(nites)+1):
-                    nite = nites[s_n-1]
-                    np_n = fq_n.create_group(str(s_n))
-                    
-                    for attr in ("slow", "bazm", "maac", "rms"):
-                        np_n.create_dataset(attr, (timebins,), chunks=True, dtype=np.float32)
-                    
-                    np_n.create_dataset('slowmap', (timebins, nite, nite), chunks=True, dtype=np.float32)
-                    np_n.create_dataset('slowbnd', (timebins, 2), chunks=True, dtype=np.float32)
-                    np_n.create_dataset('bazmbnd', (timebins, 2), chunks=True, dtype=np.float32)
-
-            cc8h5.flush()
-        
-        cc8 = CC8(filename)
-        cc8.__compute__(array, headers, njobs)
-
-        return cc8
-

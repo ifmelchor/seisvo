@@ -5,7 +5,9 @@ import numpy as np
 
 
 def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
-
+    """
+    julia wrapper for the processing of the CC8 algorithm
+    """
     ans = {}
     if isinstance(data, np.ndarray):
         #assert len(xutm) == len(yutm) == data.shape[0]
@@ -14,6 +16,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         nites = len(slow_max)
 
         # convert to array
+        from juliacall import Main as jl
         data = jl.Array(np.array(data))
         xutm = jl.Array(np.array(xutm))
         yutm = jl.Array(np.array(yutm))
@@ -28,17 +31,22 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         cc_thres = float(kwargs["cc_thres"])
         toff = int(kwargs["toff"])
 
-        # run in julia
-        from juliacall import Main as jl
+        # load julia
         jl.seval("using SAP")
-        jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff)
+        
+        try:
+            # run and save
+            jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff)
+            pyans = dict(jlans)
+            for nsi in range(1, nites+1):
+                ans[nsi] = {}
+                for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
+                        ans[nsi][attr] = np.array(pyans[nsi][attr])
 
-        # convert to python dict
-        pyans = dict(jlans)
-        for nsi in range(1, nites+1):
-            ans[nsi] = {}
-            for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
-                    ans[nsi][attr] = np.array(pyans[nsi][attr])
+        except Exception as exc:
+            print("\n ------ ERROR INFO ------")
+            print(exc)
+            print(" ------------------------\n")
 
     return ans
 
