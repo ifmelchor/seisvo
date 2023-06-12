@@ -74,9 +74,11 @@ class StationStats(_Stats):
         return true_chan
 
 
-    def get_latlon(self, return_utm=False):
+    def get_latlon(self, **kwargs):
         """
         Get longitude coord. in 'degree' or 'utm'.
+        in 'degree' return (lat,lon)
+        in 'utm' return (eastern, northern, nro, zone)
         """
 
         if 'lat' not in self.keys_ or 'lon' not in self.keys_:
@@ -90,8 +92,14 @@ class StationStats(_Stats):
             print(f" lat/lon not defined in network JSON file for station {self.id}")
             return None
 
+        return_utm = kwargs.get("utm", False)
+        in_km = kwargs.get("in_km", False)
         if return_utm:
-            return utm.from_latlon(lat, lon)
+            (x, y, code, nro) = utm.from_latlon(lat, lon)
+            if in_km:
+                x /= 1000
+                y /= 1000
+            return (x,y,code,nro)
         
         else:
             return (lat, lon)
@@ -288,6 +296,34 @@ class NetworkStats(_Stats):
         text += f"\n   Stations  >>  {len(self.stations)} {self.stations_id}"
 
         return text
+    
+
+    def get_latlon(self, **kwargs):
+        dout = {}
+
+        hide_sta = kwargs.get("hide_sta", False)
+        for sta in self.stations:
+
+            if hide_sta:
+                sta_id = sta.location
+            else:
+                sta_id = '.'.join([sta.code,sta.location])
+            
+            ans = sta.get_latlon(**kwargs)
+
+            if ans:
+                dout[sta_id] = {}
+
+                if kwargs.get("utm", False):
+                    x,y = ans[0], ans[1]
+                    dout[sta_id]["easting"] = x
+                    dout[sta_id]["northing"] = y
+                
+                else:
+                    dout[sta_id]["lat"] = ans[0]
+                    dout[sta_id]["lon"] = ans[1]
+        
+        return dout
 
 
 class CC8stats(_Stats):

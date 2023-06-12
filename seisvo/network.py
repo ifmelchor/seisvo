@@ -11,7 +11,7 @@ from seisvo import seisvo_paths
 from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
-from .sap import CC8
+from .sap import _new_CC8
 from .signal import SSteps, get_freq, array_response, get_CSW
 from .lte.base import _new_LTE
 from .utils import nCPU
@@ -354,20 +354,15 @@ class Array(Network):
             self.stats.stations.remove(sta_stats)
 
         # compute UTM position
-        self.utm = {}
-        for sta in self:
-            ans = sta.stats.get_latlon(return_utm=True)
-            if ans:
-                x, y, n, l = ans
-                self.utm[sta.stats.location] = {
-                    "easting":x,
-                    "northing":y,
-                    "zone":(n,l)
-                }
-            else:
-                print(" warn :: error in reading lat/lon. No locs loaded!")
-        
+        self.utm = self.stats.get_latlon(utm=True, in_km=True, hide_sta=True)
         self.locs = list(self.utm.keys())
+
+        # check sample rate
+        fslist = list(set([sta.stats.sample_rate for sta in self]))
+        if len(fslist) > 1:
+            fslist = [None]
+            print(" warn :: multiple sampling rates defined in config file")
+        self.sample_rate = fslist[0]
 
 
     def get_aperture(self, exclude_locs=[]):
@@ -434,7 +429,9 @@ class Array(Network):
             return stream
 
 
-    def cc8(self, starttime, endtime, window, overlap, interval=60, slow_max=[3.,0.5], slow_inc=[0.1,0.01], fq_bands=[(1,5)], cc_thres=0.05, filename=None, outdir=None, exclude_locs=[], **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, interval=60, slow_max=[3.,0.5],\
+        slow_inc=[0.1,0.01], fq_bands=[(1,5)], cc_thres=0.05, exclude_locs=[], **kwargs):
+        
         """ Compute CC8 file
 
         Parameters
@@ -478,22 +475,35 @@ class Array(Network):
         assert len(slow_max) == len(slow_inc)
 
         # load parameters
-        njobs       = kwargs.get('njobs', -1)
+        njobs       = kwargs.get('njobs', 4)
         toff_sec    = kwargs.get('toff_sec', 10)
-        sample_rate = kwargs.get("sample_rate", self[0].stats.sample_rate)
+        sample_rate = kwargs.get("sample_rate", self.sample_rate)
+        filename    = kwargs.get("filename", None)
+        outdir      = kwargs.get("outdir", None)
         validate    = kwargs.get("validate", True) # if False, ss do not ask for confirmation
 
         # defining base params
+        # slowness invervals
+        nites = [1 + 2*int(pmax/pinc) for pmax, pinc in zip(slow_max, slow_inc)]
+        
+        # locations and positions
         if exclude_locs:
             locs = [loc for loc in self.locs if loc not in exclude_locs]
         else:
             locs = self.locs
 
+        utmloc = {"x":[],"y":[]}
+        for loc, utm in self.utm.item():
+            if loc in locs:
+                utmloc["x"].append(utm["easting"])
+                utmloc["y"].append(utm["northing"])
+        
         cc8base = dict(
             id              = '.'.join([self.stats.code, self.sta_code, self.comp]),
             locs            = locs,
-            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S'),
-            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S'),
+            utm             = utmloc,
+            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S.%f'),
+            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S.%f'),
             interval        = interval,
             window          = window,
             overlap         = overlap,
@@ -501,60 +511,74 @@ class Array(Network):
             fq_bands        = fq_bands,
             slow_max        = slow_max,
             slow_inc        = slow_inc,
-            cc_thres        = cc_thres
+            slow_bins       = nites,
+            cc_thres        = cc_thres,
+            toff_sec        = toff_sec
         )
 
         ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap)
-        cc8base["interval"] = float(interval)
-        cc8base["nro_intervals"] = int(ss.nro_intervals)
-        cc8base["nro_time_bins"] = int(ss.total_nwin)
-        cc8base["nwin"] = int(ss.int_nwin)
-        cc8base["lwin"] = int(window*sample_rate)
-        cc8base["nadv"] = float(ss.win_adv)
-        cc8base["toff_sec"] = toff_sec
+        ssdict = ss.to_dict()
+
+        ltebase["lwin"] = int(ss.window*sample_rate)
+        ltebase["nwin"] = ssdict["nwin"]
+        ltebase["nadv"] = ssdict["wadv"]
+        ltebase["last_nwin"] = ssdict["last_nwin"]
+        ltebase["nro_intervals"] = ssdict["nro_intervals"]
+        ltebase["nro_time_bins"] = ssdict["total_nwin"]
+        ltebase["int_extra_sec"] = ssdict["int_extra_sec"]
+
+        # ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap)
+        # cc8base["interval"] = float(interval)
+        # cc8base["nro_intervals"] = int(ss.nro_intervals)
+        # cc8base["nro_time_bins"] = int(ss.total_nwin)
+        # cc8base["nwin"] = int(ss.int_nwin)
+        # cc8base["lwin"] = int(window*sample_rate)
+        # cc8base["nadv"] = float(ss.win_adv)
 
         if njobs >= nCPU or njobs == -1:
             njobs = nCPU - 2
         
-        if njobs > int(ss.nro_intervals)*len(fq_bands):
-            njobs = int(ss.nro_intervals)*len(fq_bands)
+        if njobs > ltebase["nro_intervals"]*len(fq_bands):
+            njobs = ltebase["nro_intervals"]*len(fq_bands)
             print(f"warn  ::  njobs set to {njobs}")
 
-        if validate:
-            print('')
-            print(' CC8base INFO')
-            print(' -------------')
-            print(f'{"       ID     ":^5s} : ', cc8base.get("id"))
-            print(f'{"      LOCS    ":^5s} : ', cc8base.get("locs"))
-            print(f'{"    Start time":^5s} : ', cc8base.get("starttime"))
-            print(f'{"      End time":^5s} : ', cc8base.get("endtime"))
-            print(f'{"interval [min]":^5s} : ', cc8base.get("interval"))
-            print(f'{"  window [sec]":^5s} : ', cc8base.get("window"))
-            print(f'{"   window olap":^5s} : ', cc8base.get("overlap"))
-            print(f'{"   nro windows":^5s} : ', cc8base.get("nwin")*cc8base.get("nro_intervals"))
-            print(f'{"    |_ per int":^5s} : ', cc8base.get("nwin"))
-            print('')
-            name = input("\n Please, confirm that you are agree (Y/n): ")
-            if name not in ('', 'Y', 'y'):
-                return
+        # if validate:
+        #     print('')
+        #     print(' CC8base INFO')
+        #     print(' -------------')
+        #     print(f'{"       ID     ":^5s} : ', cc8base.get("id"))
+        #     print(f'{"      LOCS    ":^5s} : ', cc8base.get("locs"))
+        #     print(f'{"    Start time":^5s} : ', cc8base.get("starttime"))
+        #     print(f'{"      End time":^5s} : ', cc8base.get("endtime"))
+        #     print(f'{"interval [min]":^5s} : ', cc8base.get("interval"))
+        #     print(f'{"  window [sec]":^5s} : ', cc8base.get("window"))
+        #     print(f'{"   window olap":^5s} : ', cc8base.get("overlap"))
+        #     print(f'{"   nro windows":^5s} : ', cc8base.get("nwin")*cc8base.get("nro_intervals"))
+        #     print(f'{"    |_ per int":^5s} : ', cc8base.get("nwin"))
+        #     print('')
+        #     name = input("\n Please, confirm that you are agree (Y/n): ")
+        #     if name not in ('', 'Y', 'y'):
+        #         return
         
         # define name
         if not filename:
-            filename = "%s.%s%03d-%s%03d.cc8" % (cc8base["id"], starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday)
+            filename = "%s.%s%03d-%s%03d.cc8" % (cc8base["id"], starttime.year,\
+                starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday)
         else:
             if filename.split('.')[-1] != "cc8":
                 filename += ".cc8"
 
         if not outdir:
-            outdir = os.path.join(seisvo_paths["cc8"])
+            outdir = os.path.join("./")
         
-        filenamef = os.path.join(outdir, filename)
-        if os.path.isfile(filenamef):
-            os.remove(filenamef)
+        cc8file = os.path.join(outdir, filename)
+        if os.path.isfile(cc8file):
+            os.remove(cc8file)
             print(' file %s removed.' % filenamef)
         
-        cc8 = CC8.new(self, filenamef, cc8base, njobs)
-        return cc8
+        _new_CC8(self, cc8file, cc8base, njobs)
+        
+        return None
 
 
     def plot(self, save=False, filename="./array_map.png"):

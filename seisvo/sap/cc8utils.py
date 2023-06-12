@@ -31,31 +31,44 @@ def attr_filt(attr_list, which):
  
 
 class _CC8Process(object):
-    def __init__(self, cc8stats, xutm, yutm, lwin, nwin, nadv, toff):
+    def __init__(self, cc8stats, headers):
         self.cc8stats  = cc8stats
-        self.xutm      = xutm
-        self.yutm      = yutm
-        self.lwin      = lwin
-        self.nwin      = nwin
-        self.nadv      = nadv
-        self.toff      = toff
-        self.n         = -1
+        self.headers   = headers
         self.processes = []
         self.queue     = mp.Queue()
+        self.n         = -1
+        # self.xutm      = xutm
+        # self.yutm      = yutm
+        # self.lwin      = lwin
+        # self.nwin      = nwin
+        # self.nadv      = nadv
+        # self.toff      = toff
+    
 
 
-    def _wrapper(self, data, fqband, fqidx, starttime, endtime):
+
+    def _wrapper(self, data, start, end, fqidx, last):
         t0 = time.time()
-        cc8_ans = get_CC8(data, self.cc8stats.sample_rate, self.xutm, self.yutm,\
-            fqband, self.cc8stats.slow_max, self.cc8stats.slow_inc,\
-            lwin=self.lwin, nwin=self.nwin, nadv=self.nadv, cc_thres=self.cc8stats.cc_thres, toff=self.toff)
+        
+        if last:
+            nwin = self.headers["last_nwin"]
+        else:
+            nwin = self.headers["nwin"]
+
+        fqband = self.cc8stats.fq_bands[fqidx-1]
+        fs   = self.cc8stats.sample_rate
+        xutm = self.headers["utm"]["x"]
+        yutm = self.headers["utm"]["y"]
+        cc8_ans = get_CC8(data, fs, xutm, yutm, fqband, self.cc8stats.slow_max,\
+            self.cc8stats.slow_inc, lwin=self.headers["lwin"], nwin=self.headers["nwin"],\
+            nadv=self.headers["nadv"], cc_thres=self.cc8stats.cc_thres, toff=self.toff)
         t1 = time.time()
         self.queue.put((self.n, cc8_ans, fqidx, starttime, endtime, t1-t0))
     
 
-    def run(self, *args, **kwargs):
+    def run(self, data, start, end, fqidx, last):
         self.n += 1
-        p = mp.Process(target=self._wrapper, args=args)
+        p = mp.Process(target=self._wrapper, args=(data, start, end, fqidx, last))
         self.processes.append(p)
         p.start()
     

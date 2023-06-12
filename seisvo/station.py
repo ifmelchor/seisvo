@@ -383,7 +383,8 @@ class Station(object):
             
         # create hdf5 file and process data
         if not file_name:
-            file_name = '%s.%s%03d-%s%03d_%s.lte' % (self.stats.id, starttime.year, starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, window)
+            file_name = '%s.%s%03d-%s%03d_%s.lte' % (self.stats.id, starttime.year,\
+                starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday, window)
         
         file_name_full = os.path.join(out_dir, file_name)
         if file_name_full.split('.')[-1] != 'lte':
