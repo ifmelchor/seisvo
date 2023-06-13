@@ -233,19 +233,25 @@ class _LTE(object):
         # init process and starttime
 
         ltep = _LTEProcess(self.stats, headers)
-        start = self.stats.starttime
-        delta = dt.timedelta(seconds=(headers["interval"]*60)+\
-            headers["int_extra_sec"])
+        delta = dt.timedelta(seconds=float(headers["interval"]*60))
+        toff  = dt.timedelta(seconds=headers["int_extra_sec"])
         
+        start = self.stats.starttime + toff
         for nint in range(1, headers["nro_intervals"]+1):
-            end = start + delta
+            start -= toff
+            end    = start + delta + toff
             
+            if nint == headers["nro_intervals"]:
+                last = True
+                end = self.stats.endtime
+            else:
+                last = False
+
             data = None
             sort = None
             if self.stats.type == "station":
                 stream = base.get_stream(start, end, channel=self.stats.channel,\
                     rm_sens=self.stats.rm_sens, sample_rate=self.stats.sample_rate)
-                
                 if self.stats.polar and len(stream) == 3:
                     sort = "ZNE"
 
@@ -257,12 +263,6 @@ class _LTE(object):
             if stream and stream.get_bounds() == (start,end):
                 data = stream.to_array(sort=sort)
 
-            # send to a cpu
-            if nint == headers["nro_intervals"]:
-                last = True
-            else:
-                last = False
-            
             ltep.run(data, start, end, last)
 
             # stack jobs until njobs

@@ -65,7 +65,7 @@ class SSteps(object):
         # compute steps in subwindow
         if self.subwindow > 0:
             self.nsubwin = self.nsteps(self.window, self.subwindow, self.subw_olap)       
-            self.total_subwin = self.nsubwin * self.int_nwin
+            self.total_subwin = int(np.floor((self.nsubwin * self.int_nwin)*nro_intervals))
         else:
             self.nsubwin = None
             self.total_subwin = None

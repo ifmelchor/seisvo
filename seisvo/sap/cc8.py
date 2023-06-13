@@ -138,20 +138,20 @@ class CC8(object):
         excluded_locs = array.get_excluded_locs(self.stats.locs)
 
         # define timedelta parameters
-        toff_sec = dt.timedelta(seconds=headers["toff_sec"])
-        start = self.stats.starttime
-        delta = dt.timedelta(seconds=(headers["interval"]*60)+headers["int_extra_sec"])
-
-        # loop over intervals
+        delta = dt.timedelta(seconds=float(headers["interval"]*60))
+        toff  = dt.timedelta(seconds=headers["int_extra_sec"])
+        start = self.stats.starttime + toff
         for nint in range(1, headers["nro_intervals"]+1):
-            end = start + delta    
-            stream = array.get_stream(start, end, toff_sec=headers["toff_sec"], exclude_locs=excluded_locs)
-
-            # send to a cpu
+            start -= toff
+            end    = start + delta + toff
+            
             if nint == headers["nro_intervals"]:
                 last = True
+                end = self.stats.endtime
             else:
                 last = False
+
+            stream = array.get_stream(start, end, toff_sec=headers["toff_sec"], exclude_locs=excluded_locs)
 
             if stream and stream.get_bounds() == (start-toff_delta, end+toff_delta):
                 data = stream.to_array(detrend=True)
