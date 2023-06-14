@@ -135,15 +135,15 @@ class SSteps(object):
             if verbose:
                 self.logfile.write(f"\n\n    LAST   {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
             
-            i = 1
+            i = 0
             while start + dt.timedelta(seconds=self.window) <= self.end_time:
                 total_nwin += 1
 
                 # print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
                 if self.logfile:
-                    if i in (1,2):
+                    if i in (0,1):
                         self.logfile.write(f"\n{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
-                    elif i == 3:
+                    elif i == 2:
                         self.logfile.write("\n                             ...")
                     else:
                         pass

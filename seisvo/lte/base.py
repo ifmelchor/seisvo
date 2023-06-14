@@ -231,12 +231,11 @@ class _LTE(object):
         """
 
         # init process and starttime
-
         ltep = _LTEProcess(self.stats, headers)
         delta = dt.timedelta(seconds=float(headers["interval"]*60))
         toff  = dt.timedelta(seconds=headers["int_extra_sec"])
-        
-        start = self.stats.starttime + toff
+        start = self.stats.starttime + toff 
+            
         for nint in range(1, headers["nro_intervals"]+1):
             start -= toff
             end    = start + delta + toff
