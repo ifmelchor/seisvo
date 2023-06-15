@@ -216,12 +216,15 @@ class _LTE(object):
         # compute the true time series
         npts  = self.stats.nro_time_bins
         delta = dt.timedelta(seconds=self.stats.window*(1-self.stats.window_olap))
-        half_delta = dt.timedelta(seconds=0)
-        self.dtime = [self.stats.starttime+ half_delta]
+        half_delta = dt.timedelta(seconds=float(self.stats.window/2))
+        self._dtime = [self.stats.starttime+half_delta]
         start = self.stats.starttime
         for n in range(self.stats.last_time_bin):
             start += delta
-            self.dtime.append(start + half_delta)
+            self._dtime.append(start + half_delta)
+        
+        self.starttime = self._dtime[0] 
+        self.endtime   = self._dtime[-1] 
 
 
     def __compute__(self, base, headers, njobs):
@@ -325,15 +328,15 @@ class _LTE(object):
     def get_time(self, starttime=None, endtime=None):
 
         if not starttime:
-            starttime = self.dtime[0]
+            starttime = self.starttime
         
         if not endtime:
-            endtime = self.dtime[-1]
+            endtime = self.endtime
         
-        full_interval = (self.dtime[0], self.dtime[-1])
-        interval = (starttime, endtime)
+        n0 = np.argmin(np.abs(np.array(self._dtime) - starttime))
+        nf = np.argmin(np.abs(np.array(self._dtime) - endtime)) + 1
         
-        return get_time(full_interval, interval, self.stats.window, self.stats.window_olap)
+        return self._dtime[n0:nf], (n0, nf) 
         
 
 class StationLTE(_LTE):
@@ -458,7 +461,7 @@ class StationLTE(_LTE):
             dout[chan] = {}
         
         # define time series
-        dout["time"], dout["dtime"], (n0,nf) = self.get_time(starttime=starttime, endtime=endtime)
+        dout["dtime"], (n0,nf) = self.get_time(starttime=starttime, endtime=endtime)
 
         if any([attr in STA_VECTOR_PARAMS for attr in attr_list]):
             if self.stats.subwindow:
@@ -612,7 +615,7 @@ class LTEout(object):
         self._dout = dout
 
         # define stats
-        self.npts = len(dout["time"])
+        self.npts = len(dout["dtime"])
         self.npfs = len(dout["freq"])
         self.chan_list, self.attr_list = [],[]
 
@@ -623,7 +626,7 @@ class LTEout(object):
                     if ck not in self.attr_list:
                         self.attr_list.append(ck)
             else:
-                if key not in ("freq", "time", "dtime"):
+                if key not in ("freq", "dtime"):
                     self.attr_list.append(ck)
                     
 

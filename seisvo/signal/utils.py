@@ -226,14 +226,12 @@ def get_time(full_interval, interval, window, olap):
     end_diff = (endtime - full_starttime).total_seconds()
     n0 = int(SSteps.nsteps(start_diff, window, olap))+1
     nf = int(SSteps.nsteps(end_diff, window, olap))+1
-    # n0 =  int(np.floor(start_diff/window))
-    # nf =  int(np.ceil(end_diff/window))
 
     datetime_list = [starttime + dt.timedelta(minutes=int(k*window)) for k in range(n0,nf)]
     duration  = (endtime-starttime).total_seconds()
     time_list = np.linspace(0, duration, nf-n0)
 
-    return time_list, datetime_list, (n0,nf)
+    return time_list, datetime_list, (n0, nf)
 
 
 def get_freq(npts, fs, fq_band=[], pad=1.0):
