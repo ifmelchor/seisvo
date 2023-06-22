@@ -7,8 +7,10 @@ import datetime as dt
 import numpy as np
 
 # from seisvo
-from ..signal import get_Peaks, get_Stats, get_PDF, get_freq, get_time
+from ..signal import get_Peaks, get_Stats, get_PDF, get_freq
 from ..stats import LTEstats
+from ..plotting import plotPDF, LTESTAplot
+from ..plotting.gui import load_ltewidget
 from .utils import _LTEProcess
 from .peaks import Peaks
 
@@ -325,7 +327,7 @@ class _LTE(object):
         return self.stats.__str__()
 
 
-    def get_time(self, starttime=None, endtime=None):
+    def get_time(self, starttime, endtime):
 
         if not starttime:
             starttime = self.starttime
@@ -439,10 +441,10 @@ class StationLTE(_LTE):
         return chan_list
 
 
-    def get(self, attr=None, chan=None, starttime=None, endtime=None, db_scale=True, azimuth_ambiguity=True):
+    def get(self, starttime, endtime, attr=None, chan=None, db_scale=True, azimuth_ambiguity=True):
         
         stakwargs = {"chan":None, "db_scale":db_scale, "azimuth_ambiguity":azimuth_ambiguity}
-        
+    
         # if attr is None, return all attributes
         if not attr:
             attr_list = self.stats.attributes
@@ -461,7 +463,7 @@ class StationLTE(_LTE):
             dout[chan] = {}
         
         # define time series
-        dout["dtime"], (n0,nf) = self.get_time(starttime=starttime, endtime=endtime)
+        dout["dtime"], (n0,nf) = self.get_time(starttime, endtime)
 
         if any([attr in STA_VECTOR_PARAMS for attr in attr_list]):
             if self.stats.subwindow:
@@ -563,11 +565,24 @@ class StationLTE(_LTE):
         return Peaks(dpeaks, self.file_, gout.starttime_, gout.endtime_, self.stats.window, fq_range, peak_thresholds)
         
 
-    def plot(self, attr, chan, day_interval, starttime=None, lde=None):
+    def plot(self, interval, attr, chan, starttime=None, olap=0.1, lde=None, **fig_kwargs):
+        """
+        Inizialice the LTE GUI. Be default starttime is lte.starttime.
+        the fig_kwars controls the cmap of vector parameters and the limits of the attributes
+        """
+
+        # check attr and channels
         attr_list = self.check_attr(attr)
         chan_list = self.check_chan(chan)
 
-        print("warn :: glte.py not upgraded yet")
+        if not lde:
+            
+            from ..database import LDE
+            lde = LDE(self.stats.file.replace('lte', 'db'))
+
+        # init widget
+        widget = load_ltewidget(self, lde, starttime, interval, attr_list,\
+            chan_list, olap=olap, **fig_kwargs)
 
         return None
 
@@ -614,35 +629,33 @@ class LTEout(object):
         self.endtime = dout["dtime"][-1]
         self._dout = dout
 
-        # define stats
+        # define some stats
         self.npts = len(dout["dtime"])
         self.npfs = len(dout["freq"])
-        self.chan_list, self.attr_list = [],[]
+        self.chan_list, self.chan_attr_list, self.polar_attr_list = [],[], []
 
         for key, item in dout.items():
-            if isinstance(item, dict):
+            if key in ltestats.channel:
                 self.chan_list.append(key)
-                for ck in item:
-                    if ck not in self.attr_list:
-                        self.attr_list.append(ck)
+                for chankey in list(item.keys()):
+                    if chankey not in self.chan_attr_list:
+                        self.chan_attr_list.append(chankey)
             else:
                 if key not in ("freq", "dtime"):
-                    self.attr_list.append(ck)
+                    self.polar_attr_list.append(key)
                     
 
     def __str__(self):
         txt_to_return =  f'\n   LTE file  : {self.ltestats.file}'
-        txt_to_return += f'\n   starttime :  {self.starttime_.strftime("%d %B %Y %H:%M")}'
-        txt_to_return += f'\n   endtime   :  {self.endtime_.strftime("%d %B %Y %H:%M")}'
+        txt_to_return += f'\n   starttime :  {self.starttime.strftime("%d %B %Y %H:%M")}'
+        txt_to_return += f'\n   endtime   :  {self.endtime.strftime("%d %B %Y %H:%M")}'
         txt_to_return += f'\n   channels  :  {self.chan_list}'
-        txt_to_return += f'\n   attribute :  {self.attr_list}'
+        txt_to_return += f'\n   attribute :  {self.chan_attr_list+self.polar_attr_list}'
         txt_to_return +=  f'\n'
         return txt_to_return
     
     
     def check_chan(self, chan):
-        # check chan list
-        assert isinstance(chan, (list, tuple, str))
 
         if isinstance(chan, str):
             if chan in self.chan_list:
@@ -650,10 +663,7 @@ class LTEout(object):
             else:
                 chan_list = []
         else:
-            chan_list = []
-            for ch in chan:
-                if ch in self.chan_list:
-                    chan_list.append(ch)
+            chan_list = [ch for ch in chan if ch in self.chan_list]
 
         if not chan_list:
             print(" warn :: no channel found")
@@ -663,95 +673,85 @@ class LTEout(object):
 
     def check_attr(self, attr, which=None):
         # check attr list
-        assert isinstance(attr, (list, tuple, str))
+        all_attr = self.polar_attr_list + self.chan_attr_list
         
         if isinstance(attr, str):
-            if attr in self.attr_list:
+            if attr in all_attr:
                 attr_list = [attr]
             else:
-                print("attribute %s not found" % attr)
-                return None
-        
+                attr_list = []
         else:
-            attr_list = []
-            for at in attr:
-                if at in self.attr_list:
-                    attr_list.append(at)
-                else:
-                    print("attribute %s not found" % at)
-            
-            if not attr_list:
-                return None
-        
+            attr_list = [at for at in attr if at in all_attr]
+                    
         if which:
             attr_list = attr_filt(attr_list, which)
+        
+        if not attr_list:
+            print(" warn :: no attributes found")
             
         return attr_list
+    
+
+    def any_vector(self, attr_list=None):
+
+        if not attr_list:
+            attr_list = self.polar_attr_list + self.chan_attr_list
+
+        return any_vector(attr_list)
 
 
-    def get_stats(self, attr=None, chan=None, bw_method=None):
+    def get_stats(self, attr, chan, bw_method=None):
         """
         Return (min, max, mean, mode) of an specific scalar-only attribute
         """
 
-        # check attr
-        if not attr:
-            attr = self.attr_list
-        attr_list = self.check_attr(attr, "scalar")
-        
-        # check chan
-        if not chan:
-            chan = self.chan_list
-        chan_list = self.check_chan(chan)
+        # check attr and channel
+        attr = self.check_attr(attr, "scalar")[0]
+        chan = self.check_chan(chan)[0]
+        data = self._dout[chan][attr]
+        stats = get_Stats(data[np.isfinite(data)], bw_method=bw_method)
 
-        dout = {}
-        for attr in attr_list:
-            if attr in self.ltestats.channels:
-                for chan in chan_list:
-                    key = "/".join([chan, attr])
-                    data = self._dout[chan][attr]
-                    dout[key] = get_Stats(data[np.isfinite(data)], bw_method=bw_method)
-            
-            else:
-                data = self._dout[attr]
-                dout[attr] = get_Stats(data[np.isfinite(data)], bw_method=bw_method)
-
-        return dout
+        return stats
     
 
-    def get_pdf(self, vector_attr, chan=None, db_scale=True, ymin=None, ymax=None, **kde_kwargs):
+    def get_pdf(self, vector_attr, chan=None, db_scale=True, ymin=None, ymax=None, plot=True, **kde_kwargs):
         """
         Return the PDF of a vector attribute,
         if "specgram", channel must be specified
         """
 
-        assert isinstance(vector_attr, str)
+        attr = self.check_attr(vector_attr, "vector")[0]
         
-        if vector_attr == STA_VECTOR_PARAMS[0]:
-            assert chan in self.chan_list
-            data = self._dout[chan][vector_attr]
+        if chan:
+            chan_list = self.check_chan(chan)[0]
+            data = self._dout[chan][attr]
             if db_scale:
                 data = 10*np.log(data)
+        
         else:
-            assert any_vector([vector_attr])
-            data = self._dout[vector_attr]
+            data = self._dout[attr]
         
         if not ymin:
             ymin = np.floor(data.min())
+        
         if not ymax:
             ymax  = np.ceil(data.max())
+        
         space = np.linspace(ymin, ymax, num=1000).reshape(-1,1)
 
         pdf = get_PDF(data, space, **kde_kwargs)
 
-        return pdf, space
+        if plot:
+            plotPDF(pdf, space.reshape(-1,), self._dout["freq"])
+
+        return pdf, space.reshape(-1,), self._dout["freq"]
 
 
-    # def plot(self, chan, attr, **kwargs):
-    #     chan_list = self.__check_chan__(chan)
-    #     attr_list = self.__check_attr__(attr)
+    def plot(self, chan, attr, **plot_kw):
+        chan_list = self.check_chan(chan)
+        attr_list = self.check_attr(attr)
+        
+        fig, _ = LTESTAplot(self, chan_list, attr_list, plot=True, **plot_kw)
 
-    #     fig, _ = ltaoutsta_plot(self, chan_list, attr_list, plot=True, **kwargs)
-
-    #     return fig
+        return fig
 

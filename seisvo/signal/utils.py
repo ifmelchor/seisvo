@@ -205,34 +205,6 @@ class SSteps(object):
         return dout
 
 
-def get_time(full_interval, interval, window, olap):
-    """
-    This function get the datetime series between interval and lte file interval
-      >> window [float] of seconds
-      >> olap [float] between 0--1
-    """
-
-    full_starttime, full_endtime = full_interval
-    starttime, endtime = interval
-    
-    # check times
-    assert full_endtime > full_starttime
-    assert endtime > starttime
-    assert starttime >= full_starttime
-    assert endtime <= full_endtime
-    assert endtime > starttime
-
-    start_diff = (starttime - full_starttime).total_seconds()
-    end_diff = (endtime - full_starttime).total_seconds()
-    n0 = int(SSteps.nsteps(start_diff, window, olap))+1
-    nf = int(SSteps.nsteps(end_diff, window, olap))+1
-
-    datetime_list = [starttime + dt.timedelta(minutes=int(k*window)) for k in range(n0,nf)]
-    duration  = (endtime-starttime).total_seconds()
-    time_list = np.linspace(0, duration, nf-n0)
-
-    return time_list, datetime_list, (n0, nf)
-
 
 def get_freq(npts, fs, fq_band=[], pad=1.0):
     assert pad >= 1, "pad must be >= 1.0"

@@ -6,10 +6,7 @@ from obspy import UTCDateTime
 from obspy.clients.fdsn.client import Client
 from obspy.taup import TauPyModel
 from geopy.distance import geodesic
-import matplotlib.ticker as mtick
-import matplotlib.dates as mdates
 import multiprocessing as mp
-
 
 nCPU = mp.cpu_count()
 
@@ -109,37 +106,3 @@ def in_interval(st, et, time_interval):
     cond4 = st < time_interval[0] and time_interval[1] < et # start and end out
     return cond1 or cond2 or cond3 or cond4
 
-
-def get_time_format(datetime, day_interval):
-    if datetime:
-        if day_interval <= 1:
-            major_locator = mdates.HourLocator(interval=1)
-            major_formatt = mdates.DateFormatter('%d %b\n%H:%M')
-            minor_locator = mdates.MinuteLocator(byminute=[15, 30, 45])
-            minor_formatt = mtick.NullFormatter()
-
-        elif day_interval <= 10:
-            major_locator = mdates.DayLocator(interval=1)
-            major_formatt = mdates.DateFormatter('%d %b %H:%M')
-            minor_locator = mdates.HourLocator(byhour=[6, 12, 18, 24])
-            minor_formatt = mtick.NullFormatter()
-
-        elif 45 >= day_interval > 10 :
-            major_locator = mdates.DayLocator(interval=7)
-            major_formatt = mdates.DateFormatter('%d')
-            minor_locator = mdates.DayLocator(interval=1)
-            minor_formatt = mtick.NullFormatter()
-
-        else:
-            major_locator = mdates.WeekdayLocator(interval=2)
-            major_formatt = mdates.DateFormatter('%d-%m')
-            minor_locator = mdates.DayLocator(interval=7)
-            minor_formatt = mtick.NullFormatter()
-    
-    else:
-        major_locator = mtick.LinearLocator(10)
-        major_formatt = mtick.FormatStrFormatter('%i')
-        minor_locator = mtick.AutoMinorLocator(2)
-        minor_formatt = None
-    
-    return (major_locator, major_formatt), (minor_locator, minor_formatt)

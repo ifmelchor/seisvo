@@ -11,6 +11,41 @@ import numpy as np
 from obspy.signal.spectral_estimation import get_nlnm, get_nhnm
 
 
+def get_time_format(datetime, day_interval):
+    if datetime:
+        if day_interval <= 1:
+            major_locator = mdates.HourLocator(interval=1)
+            major_formatt = mdates.DateFormatter('%d %b\n%H:%M')
+            minor_locator = mdates.MinuteLocator(byminute=[15, 30, 45])
+            minor_formatt = mtick.NullFormatter()
+
+        elif day_interval <= 10:
+            major_locator = mdates.DayLocator(interval=1)
+            major_formatt = mdates.DateFormatter('%d %b %H:%M')
+            minor_locator = mdates.HourLocator(byhour=[6, 12, 18, 24])
+            minor_formatt = mtick.NullFormatter()
+
+        elif 45 >= day_interval > 10 :
+            major_locator = mdates.DayLocator(interval=7)
+            major_formatt = mdates.DateFormatter('%d')
+            minor_locator = mdates.DayLocator(interval=1)
+            minor_formatt = mtick.NullFormatter()
+
+        else:
+            major_locator = mdates.WeekdayLocator(interval=2)
+            major_formatt = mdates.DateFormatter('%d-%m')
+            minor_locator = mdates.DayLocator(interval=7)
+            minor_formatt = mtick.NullFormatter()
+    
+    else:
+        major_locator = mtick.LinearLocator(10)
+        major_formatt = mtick.FormatStrFormatter('%i')
+        minor_locator = mtick.AutoMinorLocator(2)
+        minor_formatt = None
+    
+    return (major_locator, major_formatt), (minor_locator, minor_formatt)
+
+
 def truncate_cmap(cmap, minval=0.0, maxval=1.0, n=100):
     '''
     from https://stackoverflow.com/a/18926541
@@ -39,7 +74,7 @@ def plotPDF(pdf, y_bins, x_bins, axis=None, plot=True, **kwargs):
     kwargs['bar_label'] = 'PDF'
 
     # masked = np.ma.masked_where(pdf<1e-06, pdf)
-    plot_gram(y_bins, masked, x_bins, axis, **kwargs)
+    plot_gram(y_bins, pdf, x_bins, axis, **kwargs)
 
     if kwargs.get('show_models', False):
         _, nlnm = get_nlnm() # NLNM model

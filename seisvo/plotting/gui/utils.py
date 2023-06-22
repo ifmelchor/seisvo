@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 # coding=utf-8
 
+from pynotifier import Notification, NotificationClient
+from pynotifier.backends import platform
+
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.widgets import AxesWidget
 import matplotlib.dates as mdates
 
 P_PICKER_KEYS = ['P', 'p', '1', '2', '3', '4']
 S_PICKER_KEYS = ['S', 's', '6', '7', '8', '9']
+
+
+def notify(title, message, duration=2):
+    c = NotificationClient()
+    c.register_backend(platform.Backend())
+    n = Notification(title=title, message=message, duration=duration)
+    c.notify_all(n)
 
 
 class getYesNo(QtWidgets.QDialog):

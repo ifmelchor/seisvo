@@ -28,7 +28,7 @@ from .obspyext import read2 as read
 from .network import Network, Station, Array
 from .lte import LTE
 from .sap.cc8 import CC8
-from .database import SDE
+from .database import SDE, LDE
 
 
 def get(sarg):

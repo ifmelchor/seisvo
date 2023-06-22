@@ -35,7 +35,8 @@ def get_Stats(x, bw_method=None):
     x_range = np.linspace(v_min, v_max, 500)
     gkde = gaussian_kde(x, bw_method=bw_method)
     pdf = gkde(x_range)
-    v_mode = get_dominant(x, pdf)
+
+    v_mode = get_dominant(x_range, pdf)
 
     return [v_min, v_max, v_mean, v_mode]
 

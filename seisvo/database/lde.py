@@ -9,31 +9,6 @@ from .events import Episode
 from .base import sql, DataBase, SQLbase
 
 
-class LDErow(SQLbase):
-    __tablename__ = 'LDE'
-    id = sql.Column(sql.Integer, primary_key=True)
-
-    network = sql.Column(sql.String, nullable=False)
-    station = sql.Column(sql.String, nullable=False)
-    location = sql.Column(sql.String, nullable=True)
-    
-    label = sql.Column(sql.String, nullable=False)
-    starttime = sql.Column(sql.DateTime(timezone=False), nullable=False)
-    duration = sql.Column(sql.Float, nullable=False)
-    lte_file = sql.Column(sql.String, nullable=False) # lte file containing the event info
-    
-    # lte file supplementary
-    lte_file_sup = sql.Column(sql.String, nullable=True)
-    
-    def get_network(self):
-        return Network(self.network)
-
-    def get_station(self):
-        net = self.get_network()
-        return net.get_sta(self.station, self.location)
-
-
-
 class LDE(DataBase):
     def __init__(self, sql_path):
         super().__init__(sql_path, 'LDE')
