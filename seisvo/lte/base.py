@@ -10,7 +10,7 @@ import numpy as np
 from ..signal import get_Peaks, get_Stats, get_PDF, get_freq
 from ..stats import LTEstats
 from ..plotting import plotPDF, LTESTAplot
-from ..plotting.gui import load_ltewidget
+from ..gui import load_ltewidget
 from .utils import _LTEProcess
 from .peaks import Peaks
 
@@ -632,8 +632,9 @@ class LTEout(object):
         # define some stats
         self.npts = len(dout["dtime"])
         self.npfs = len(dout["freq"])
-        self.chan_list, self.chan_attr_list, self.polar_attr_list = [],[], []
-
+        self.chan_list, self.chan_attr_list = [], []
+        self.polar_attr_list, self.opt_attr_list = [],[]
+        
         for key, item in dout.items():
             if key in ltestats.channel:
                 self.chan_list.append(key)
@@ -642,7 +643,10 @@ class LTEout(object):
                         self.chan_attr_list.append(chankey)
             else:
                 if key not in ("freq", "dtime"):
-                    self.polar_attr_list.append(key)
+                    if key in STA_VECTOR_PARAMS:
+                        self.polar_attr_list.append(key)
+                    else:
+                        self.opt_attr_list.append(key)
                     
 
     def __str__(self):
@@ -673,7 +677,7 @@ class LTEout(object):
 
     def check_attr(self, attr, which=None):
         # check attr list
-        all_attr = self.polar_attr_list + self.chan_attr_list
+        all_attr = self.polar_attr_list + self.chan_attr_list + self.opt_attr_list
         
         if isinstance(attr, str):
             if attr in all_attr:
@@ -707,8 +711,13 @@ class LTEout(object):
 
         # check attr and channel
         attr = self.check_attr(attr, "scalar")[0]
-        chan = self.check_chan(chan)[0]
-        data = self._dout[chan][attr]
+
+        if chan:
+            chan = self.check_chan(chan)[0]
+            data = self._dout[chan][attr]
+        else:
+            data = self._dout[attr]
+
         stats = get_Stats(data[np.isfinite(data)], bw_method=bw_method)
 
         return stats

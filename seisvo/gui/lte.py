@@ -4,14 +4,18 @@
 
 import pyqtgraph
 import datetime as dt
-from seisvo.utils import in_interval
-from .utils import Navigate, notify
-from ..lte import LTESTAplot
+
+# matplotlib
+import matplotlib.dates as mdates
 from matplotlib.figure import Figure, SubplotParams
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.text import Annotation
-import matplotlib.dates as mdates
+
+# seisvo
+from ..utils import in_interval
+from ..plotting.lte import LTESTAplot
+from .utils import Navigate, notify
 
 
 class DrawEpisodes:

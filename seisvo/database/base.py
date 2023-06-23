@@ -11,7 +11,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from .rows import get_sderow, get_lderow
 from .events import Event
 from ..utils import in_interval
-from ..plotting.gui import load_eventwidget
+from ..gui import load_eventwidget
 
 SQLbase = declarative_base()
 
