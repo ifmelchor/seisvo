@@ -7,11 +7,13 @@
 import scipy
 import numpy as np
 import datetime as dt
+import matplotlib.pyplot as plt
 import obspy.signal.invsim as osi
 from obspy import Stream, Trace, read, UTCDateTime
 from obspy.signal.util import _npts2nfft
 from obspy.signal import filter as osf
 from .signal import get_PSD
+from .plotting.signal import spectrogram
 
 
 def read2(*args, **kwargs):
@@ -74,130 +76,22 @@ class Trace2(Trace):
         return [starttime + dt.timedelta(seconds=delta*x) for x in range(npts)]
 
 
-    def plot_specgram(self, window_length=None, starttime=None, endtime=None, axes=None, fq_band=(), per_lap=0.75, returnfig=False, **kwargs):
+    def plot_specgram(self, axis, cax=None, show_xticks=False, window_length=None, fq_band=(), per_lap=0.75, show=False, **kwargs):
         """
-        This code plots the spectrogram
-
-        :param data: array_like, data series
-        :param window_length: int, the length of the window to compute the fft. By default samp_rate / 2
-        :param rel_norm: True for relative normalization. By default, 'abs' normalization
-        :param axes: axes object to plot the spectrogram
-        :param cmap: 'jet' by default
+        This code plots the spectrogram of the trace at specific AxisPlot
+        cax is the axis to show the colobar
         """
 
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
-        from seisvo.signal.spectrum import spectrogram
+        data = self.get_data(detrend=True)
+        
+        kwargs["axis_bar"] = cax
+        spectrogram(data, self.stats.sampling_rate, axis, per_lap=per_lap,
+            window_length=window_length, fq_band=fq_band, date_list=show_xticks, **kwargs)
+        
+        if show:
+            plt.show()
 
-        v_min = kwargs.get("v_min", None)
-        v_max = kwargs.get("v_max", None)
-        a_min = kwargs.get("a_min", None)
-        a_max = kwargs.get("a_max", None)
-        # cmap = kwargs.get("cmap", 'Spectral_r')
-        # rel_norm = kwargs.get("rel_norm", False)
-        # interpolation = kwargs.get("interpolation", 'gaussian')
-        title = kwargs.get('title', None)
-        major_ticks = kwargs.get('major_ticks', None)
-        major_fmt = kwargs.get('major_fmt', None)
-        minor_ticks = kwargs.get('minor_ticks', None)
-        # minor_fmt = kwargs.get('minor_fmt', None)
-        major_xtickslabels = kwargs.get('major_xtickslabels', None)
-        xlabel = kwargs.get('xlabel', None)
-        dateticks = kwargs.get("dateticks", 'byminute')
-
-        if not starttime:
-            starttime = self.stats.starttime.datetime
-
-        if not axes:
-            fig, axs = plt.subplots(2,2, gridspec_kw={"width_ratios":[1, 0.02],"wspace":0.02},
-                constrained_layout=True, figsize=(8, 4))
-            ax_trace = axs[0,0]
-            ax_spect = axs[1,0]
-            ax_spect_color = axs[1,1]
-            axs[0,1].axes.get_xaxis().set_visible(False)
-            axs[0,1].axes.get_yaxis().set_visible(False)
-            axs[0,1].axis('off')
-
-            data = self.get_data(starttime=starttime, endtime=endtime, detrend=True, fq_band=fq_band)
-            time = self.get_time(starttime=starttime, endtime=endtime)
-
-            if not starttime and not endtime:
-                starttime = self.stats.starttime.datetime
-                endtime = self.stats.endtime.datetime
-
-            if not major_ticks:
-                if dateticks == 'byminute':
-                    major_ticks = mdates.MinuteLocator(byminute=range(0,60,20))
-                    major_fmt = mdates.DateFormatter('%H:%M:%S')
-                    minor_ticks = mdates.MinuteLocator(byminute=range(0,60,10))
-
-                if dateticks == 'byhour':
-                    major_ticks = mdates.HourLocator(byhour=range(0,24,2))
-                    major_fmt = mdates.DateFormatter('%H:%M')
-                    minor_ticks = mdates.HourLocator(byhour=range(0,24,1))
-
-            ax_trace.plot(time, data, 'k')
-            ax_trace.set_ylabel('cnts')
-            ax_trace.set_xlim(time[0], time[-1])
-
-            if a_min and a_max:
-                ax_trace.set_ylim(a_min, a_max)
-
-            if not title:
-                title = '%s.%s.%s \n %s - %s' % (self.stats.station,
-                                                 self.stats.location,
-                                                 self.stats.channel,
-                                                 starttime,
-                                                 endtime)
-            ax_trace.set_title(title)
-
-            if minor_ticks:
-                ax_trace.xaxis.set_minor_locator(minor_ticks)
-
-            if major_ticks:
-                ax_trace.xaxis.set_major_locator(major_ticks)
-                ax_trace.xaxis.set_major_formatter(major_fmt)
-
-            if major_xtickslabels:
-                ax_trace.set_xticklabels(major_xtickslabels)
-
-        else:
-            ax_spect = axes
-
-        data = self.get_data(starttime=starttime, endtime=endtime, detrend=True, taper=True)
-
-        im, (v_min, v_max) = spectrogram(data, self.stats.sampling_rate, ax_spect, per_lap=per_lap,
-            window_length=window_length, fq_band=fq_band, date_list=self.get_time(), **kwargs)
-
-        if not xlabel:
-            xlabel = 'UTC Time ['+starttime.strftime('%Y-%m-%d')+']'
-
-        ax_spect.set_xlabel(xlabel)
-
-        if minor_ticks:
-            ax_spect.xaxis.set_minor_locator(minor_ticks)
-
-        if major_ticks:
-            ax_spect.xaxis.set_major_locator(major_ticks)
-            ax_spect.xaxis.set_major_formatter(major_fmt)
-
-        if major_xtickslabels:
-            ax_spect.set_xticklabels(major_xtickslabels)
-
-        #ax_trace.set_xticklabels([' ']*len(ax_trace.get_xticks()))
-
-        if not axes:
-            fig.colorbar(im, cax=ax_spect_color, label='PSD\n'+r'dB[cnts$^2$/Hz]',
-                orientation='vertical')
-            fig.align_labels()
-
-            if returnfig:
-                return fig
-            
-            else:
-                plt.show()
-
-        return im, (v_min, v_max)
+        return
 
 
     def filter2(self, fq_band, **kwargs):

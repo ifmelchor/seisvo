@@ -8,8 +8,6 @@ import matplotlib.dates as mdates
 import datetime as dt
 import numpy as np
 
-from obspy.signal.spectral_estimation import get_nlnm, get_nhnm
-
 
 def get_time_format(datetime, day_interval):
     if datetime:
@@ -57,36 +55,6 @@ def truncate_cmap(cmap, minval=0.0, maxval=1.0, n=100):
         cmap(np.linspace(minval, maxval, n)))
     
     return new_cmap
-
-
-def plotPDF(pdf, y_bins, x_bins, axis=None, plot=True, **kwargs):
-    fig = None
-
-    if not axis:    
-        figsize = kwargs.get('figsize', (8, 4))
-        grid = {'hspace':0.3, 'left':0.12, 'right':0.90, 'wspace':0.1, 'top':0.95, 'bottom':0.15, 'width_ratios':[1, 0.02]}
-        fig, axes = plt.subplots(1, 2, gridspec_kw=grid, figsize=figsize, dpi=100)
-        axis = axes[0]
-        kwargs['axis_bar'] = axes[1]
-
-    kwargs['y_label'] = 'PSD\n'+r'dB[cnts$^2$/Hz]'
-    kwargs['x_label'] = 'Freq. [Hz]'
-    kwargs['bar_label'] = 'PDF'
-
-    # masked = np.ma.masked_where(pdf<1e-06, pdf)
-    plot_gram(y_bins, pdf, x_bins, axis, **kwargs)
-
-    if kwargs.get('show_models', False):
-        _, nlnm = get_nlnm() # NLNM model
-        p, nhnm = get_nhnm() # NHNM model
-
-        axis.plot(1/p, nlnm, color='k', lw=1.2, label='NLNM', zorder=10)
-        axis.plot(1/p, nhnm, color='k', lw=1.2, label='NHNM', zorder=10)
-
-    if plot:
-        plt.show()
-
-    return fig
 
 
 def get_colors(*args):
