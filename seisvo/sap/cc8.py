@@ -70,7 +70,7 @@ def _new_CC8(array, cc8file, headers, njobs):
         for fq_n in range(1, len(headers['fq_bands'])+1):
             fq_n = cc8h5.create_group(str(fq_n))
             
-            for sn, nite in enumerate(headers['slow_bins']):
+            for sn, nite in enumerate(headers['nro_slow_bins']):
                 np_n = fq_n.create_group(str(sn+1))
                 
                 for attr in ("slow", "bazm", "maac", "rms"):
@@ -82,7 +82,7 @@ def _new_CC8(array, cc8file, headers, njobs):
 
         cc8h5.flush()
     
-    cc8 = CC8(filename)
+    cc8 = CC8(cc8file)
     cc8.__compute__(array, headers, njobs)
 
     return cc8
@@ -90,11 +90,12 @@ def _new_CC8(array, cc8file, headers, njobs):
 
 
 class CC8(object):
-    def __init__(self, cc8_file):
-        assert os.path.isfile(cc8_file)
+    def __init__(self, cc8file):
+
+        assert os.path.isfile(cc8file)
     
-        stats_dict = {"file":cc8_file}
-        with h5py.File(cc8_file, "r") as f:
+        stats_dict = {"file":cc8file}
+        with h5py.File(cc8file, "r") as f:
             hdr = f['header']
             stats_dict["id"]              = str(hdr.attrs['id'])
             stats_dict["locs"]            = list(hdr.attrs['locs'])
@@ -103,6 +104,7 @@ class CC8(object):
             stats_dict["window"]          = int(hdr.attrs['window'])
             stats_dict["overlap"]         = float(hdr.attrs['overlap'])
             stats_dict["nro_time_bins"]   = int(hdr.attrs['nro_time_bins'])
+            stats_dict['nro_slow_bins']   = int(hdr.attrs['nro_slow_bins'])
             stats_dict["last_time_bin"]   = list(hdr.attrs['last_time_bin'])
             stats_dict["sample_rate"]     = int(hdr.attrs['sample_rate'])
             stats_dict["fq_bands"]        = [(float(fqb[0]), float(fqb[1])) for fqb in hdr.attrs['fq_bands']]
@@ -153,7 +155,7 @@ class CC8(object):
 
             stream = array.get_stream(start, end, toff_sec=headers["toff_sec"], exclude_locs=excluded_locs)
 
-            if stream and stream.get_bounds() == (start-toff_delta, end+toff_delta):
+            if stream and stream.get_bounds() == (start-toff, end+toff):
                 data = stream.to_array(detrend=True)
             else:
                 data = None
@@ -186,24 +188,37 @@ class CC8(object):
         return get_time(full_interval, interval, self.stats.window, self.stats.window_olap)
 
 
-    def get(self, attr=None, fq_idx=None, slow_idx=None, starttime=None, endtime=None):
+    def get(self, starttime=None, endtime=None, attr=None, fq_idx=None, slow_idx=None):
+        if not starttime:
+            starttime = self.stats.starttime
+        else:
+            assert starttime >= self.stats.starttime
+
+        if not endtime:
+            endtime = self.stats.endtime
+        else:
+            assert endtime <= self.stats.endtime
+
         if not fq_idx:
             fq_idx = self.stats.fqidx
+        
         else:
             fq_idx = self.stats.check_idx(fq_idx, "fq")
         
         if not slow_idx:
             slow_idx = self.stats.sidx
+        
         else:
             slow_idx = self.stats.check_idx(slow_idx, "slow")
         
         if not attr:
             attr = ATTR_LIST
+        
         else:
             attr = check_cc8_attr(attr)
         
         dout = {}
-        dout["time"], dout["dtime"], (n0,nf) = self.get_time(starttime=starttime, endtime=endtime)
+        #dout["time"], dout["dtime"], (n0,nf) = self.get_time(starttime=starttime, endtime=endtime)
 
         for nfq in fq_idx:
             for ns in slow_idx:

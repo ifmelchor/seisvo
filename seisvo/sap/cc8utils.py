@@ -57,7 +57,7 @@ class _CC8Process(object):
             toff=self.headers["toff_sec"])
         t1 = time.time()
         
-        self.queue.put((self.n, cc8_ans, fqidx, starttime, endtime, t1-t0, nwin))
+        self.queue.put((self.n, cc8_ans, fqidx, start, end, t1-t0, nwin))
     
 
     def run(self, data, start, end, fqidx, last):
@@ -118,8 +118,8 @@ class _CC8Process(object):
         available_n.sort() # nro interval per job
         
         for n in available_n:
-            start   = self.data[n]["start"].strftime("%d %b%y %H:%M:%S")
-            end     = self.data[n]["end"].strftime("%d %b%y %H:%M:%S")
+            start   = self.data[n]["start"].strftime("%d %b%y %H:%M:%S.%f")
+            end     = self.data[n]["end"].strftime("%d %b%y %H:%M:%S.%f")
             cc8_ans = self.data[n]["ans"]
             nfq     = self.data[n]["nfq"]
             proct   = self.data[n]["proct"]
@@ -127,7 +127,7 @@ class _CC8Process(object):
 
             if not cc8_ans:
                 proc_status = "FAIL"
-                cc8_ans.get_empty_dict(nwin)
+                self.get_empty_dict(nwin)
             else:
                 proc_status = "OK"
             

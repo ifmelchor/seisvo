@@ -12,10 +12,10 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
-from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8
+from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD
 from .lte.base import _new_LTE
 from .utils import nCPU
-from .plotting.array import location_map
+from .plotting.array import location_map, traces_psd
 
 
 def get_network(net_code):
@@ -409,7 +409,6 @@ class Array(Network):
 
         return ans
 
-
     def get_stream(self,starttime, endtime, component="Z", toff_sec=0, return_stats=False, exclude_locs=[], **st_kwargs):
         ans = super().get_stream(starttime, endtime, component=component, toff_sec=toff_sec, return_stats=return_stats, **st_kwargs)
 
@@ -469,8 +468,8 @@ class Array(Network):
         return ans
 
 
-    def cc8(self, starttime, endtime, window, overlap, interval=60, slow_max=[3.,0.5],\
-        slow_inc=[0.1,0.01], fq_bands=[(1,5)], cc_thres=0.05, exclude_locs=[], **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=[3.,0.5],\
+        slow_inc=[0.1,0.01], fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], **kwargs):
         
         """ Compute CC8 file
 
@@ -510,35 +509,35 @@ class Array(Network):
             CC8 object
         """
 
+        # do simple checks
         assert starttime < endtime
-        assert window/60 < interval
         assert len(slow_max) == len(slow_inc)
+        assert window/60 < interval
 
         # load parameters
-        njobs       = kwargs.get('njobs', 4)
+        njobs       = kwargs.get('njobs', 1)
         toff_sec    = kwargs.get('toff_sec', 10)
         sample_rate = kwargs.get("sample_rate", self.sample_rate)
-        filename    = kwargs.get("filename", None)
-        outdir      = kwargs.get("outdir", None)
+        fileout      = kwargs.get("fileout", None)
         
-        # defining base params
-        # slowness invervals
+        # compute slowness invervals
         nites = [1 + 2*int(pmax/pinc) for pmax, pinc in zip(slow_max, slow_inc)]
         
-        # locations and positions
+        # define locations and positions
         if exclude_locs:
             locs = [loc for loc in self.locs if loc not in exclude_locs]
         else:
             locs = self.locs
 
         utmloc = {"x":[],"y":[]}
-        for loc, utm in self.utm.item():
+        for loc, utm in self.utm.items():
             if loc in locs:
                 utmloc["x"].append(utm["easting"])
                 utmloc["y"].append(utm["northing"])
         
+        # define the header of the cc8 file
         cc8base = dict(
-            id              = '.'.join([self.stats.code, self.sta_code, self.comp]),
+            id              = '.'.join([self.stats.code, self.sta_code]),
             locs            = locs,
             utm             = utmloc,
             starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S.%f'),
@@ -550,46 +549,47 @@ class Array(Network):
             fq_bands        = fq_bands,
             slow_max        = slow_max,
             slow_inc        = slow_inc,
-            slow_bins       = nites,
+            nro_slow_bins   = nites,
             cc_thres        = cc_thres,
             toff_sec        = toff_sec
         )
 
-        ss = SSteps(starttime, endtime, window, interval=interval, win_olap=overlap, logfile=True)
-        ssdict = ss.to_dict()
+        # compute the steps and save info
+        ssdict = SSteps(starttime, endtime, window, interval=interval,\
+            win_olap=overlap, logfile=True).to_dict()
+        cc8base["lwin"] = int(window*sample_rate)
+        cc8base["nwin"] = ssdict["nwin"]
+        cc8base["nadv"] = ssdict["wadv"]
+        cc8base["last_nwin"] = ssdict["last_nwin"]
+        cc8base["nro_intervals"] = ssdict["nro_intervals"]
+        cc8base["nro_time_bins"] = ssdict["total_nwin"]
+        cc8base["int_extra_sec"] = ssdict["int_extra_sec"]
 
-        ltebase["lwin"] = int(ss.window*sample_rate)
-        ltebase["nwin"] = ssdict["nwin"]
-        ltebase["nadv"] = ssdict["wadv"]
-        ltebase["last_nwin"] = ssdict["last_nwin"]
-        ltebase["nro_intervals"] = ssdict["nro_intervals"]
-        ltebase["nro_time_bins"] = ssdict["total_nwin"]
-        ltebase["int_extra_sec"] = ssdict["int_extra_sec"]
-
+        # set a valid njob
         if njobs >= nCPU or njobs == -1:
             njobs = nCPU - 2
         
-        if njobs > ltebase["nro_intervals"]*len(fq_bands):
-            njobs = ltebase["nro_intervals"]*len(fq_bands)
+        if njobs > cc8base["nro_intervals"]*len(fq_bands):
+            njobs = cc8base["nro_intervals"]*len(fq_bands)
             print(f"warn  ::  njobs set to {njobs}")
         
         # define name
-        if not filename:
-            filename = "%s.%s%03d-%s%03d.cc8" % (cc8base["id"], starttime.year,\
-                starttime.timetuple().tm_yday, endtime.year, endtime.timetuple().tm_yday)
-        else:
-            if filename.split('.')[-1] != "cc8":
-                filename += ".cc8"
+        if not fileout:
+            fileout = "./%s.%s%03d-%s%03d.cc8" % (cc8base["id"],\
+                starttime.year, starttime.timetuple().tm_yday,\
+                endtime.year, endtime.timetuple().tm_yday)
+        
+        # check if filename ends with .cc8
+        if fileout.split('.')[-1] != "cc8":
+            fileout += ".cc8"
 
-        if not outdir:
-            outdir = os.path.join("./")
+        # check if file exist and remove
+        if os.path.isfile(fileout):
+            os.remove(fileout)
+            print(' file %s removed.' % fileout)
         
-        cc8file = os.path.join(outdir, filename)
-        if os.path.isfile(cc8file):
-            os.remove(cc8file)
-            print(' file %s removed.' % filenamef)
-        
-        _new_CC8(self, cc8file, cc8base, njobs)
+        # create a cc8 file
+        _new_CC8(self, fileout, cc8base, njobs)
         
         return None
 
@@ -605,6 +605,25 @@ class Array(Network):
                 exclude_loc.append(loc)
         
         return exclude_loc
+
+
+    def get_psd(self, starttime, endtime, window, olap=0.25, fq_band=(0.5,15.),\
+        exclude_locs=[], plot=True, **st_kwargs):
+
+        stream = self.get_stream(starttime, endtime, exclude_locs=exclude_locs, **st_kwargs)
+
+        psd_dict = {}
+        if stream:
+            for tr in stream:
+                fs = int(tr.stats.sampling_rate)
+                psd, freq = get_PSD(tr.data, fs, lwin=int(fs*window), olap=olap,\
+                    fq_band=fq_band)
+                psd_dict[tr.stats.location] = psd
+
+        if plot:
+            traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}")
+
+        return psd_dict, freq
 
 
 class SoundArray(Network):

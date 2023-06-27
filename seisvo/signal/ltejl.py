@@ -30,12 +30,14 @@ def get_PSD(data, fs, lwin=None, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0, ful
         lwin = None
         full_return = False
 
+    data = data.astype(dtype=np.float64)
     freq, fqr = get_freq(npts, fs, fq_band=fq_band, pad=pad)
     fqr = np.array(fqr)
 
     # import LTE in julia
     from juliacall import Main as jl
     jl.seval("using LTE")
+
 
     if full_return:
         psd, _ = jl.LTE._full_psd(jl.Array(data), int(fs),\
@@ -70,6 +72,7 @@ def get_CSW(data, fs, lwin, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0, win_freq
     from juliacall import Main as jl
     jl.seval("using LTE")
 
+    data = data.astype(dtype=np.float64)
     data = jl.Array(data)
     fq_band = jl.Array(np.array(fq_band))
 
@@ -117,6 +120,7 @@ def get_Polar(data, fs, lwin=None, olap=0, fq_band=(1., 5.), NW=3.5, pad=1.0, re
     from juliacall import Main as jl
     jl.seval("using LTE")
 
+    data = data.astype(dtype=np.float64)
     _, polar = jl.polar_run(jl.Array(data), jl.Array(fq_band),\
          int(fs), NW, pad, nwin, lwin, nadv, return_all, full_return)
 
@@ -196,6 +200,7 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
         
         # convert to julia variables
         chan = jl.Tuple(chan_list)
+        data = data.astype(dtype=np.float64)
         data = jl.Array(data)
         band = jl.Array(np.array(fq_band))
         fs = int(fs)

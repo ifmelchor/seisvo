@@ -13,6 +13,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         #assert len(xutm) == len(yutm) == data.shape[0]
         #assert len(fq_band) == 2
         #assert len(slow_max) == len(slow_inc)
+        data = data.astype(dtype=np.float64)
         nites = len(slow_max)
 
         # convert to array

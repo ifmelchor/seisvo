@@ -52,6 +52,11 @@ class SSteps(object):
 
         # compute how many intervals you need
         nro_intervals = self.total_time/self.interval
+
+        if nro_intervals.is_integer():
+            self.nro_int  = int(np.ceil(nro_intervals)) - 1
+        else:
+            self.nro_int  = int(np.ceil(nro_intervals))
         
         # compute number of windows for total time
         total_nwin = self.nsteps(self.total_time, self.window, self.win_olap)
@@ -60,7 +65,7 @@ class SSteps(object):
         self.int_nwin   = int(np.ceil(total_nwin/nro_intervals))
         
         # toff seconds per interval
-        self.int_toff = self.window*self.win_adv*(self.int_nwin-1) + self.window - self.interval
+        self.int_toff = self.window*(1 + self.win_adv*(self.int_nwin-1)) - self.interval
         
         # compute steps in subwindow
         if self.subwindow > 0:
@@ -92,76 +97,77 @@ class SSteps(object):
         Function for testing the iteration procedure in LTE and CC8 files
         """
 
-        delta = dt.timedelta(seconds=self.interval)
-        toff = dt.timedelta(seconds=self.int_toff)
-        interval = 0
+        toff  = dt.timedelta(seconds=self.int_toff)
+        olap  = dt.timedelta(seconds=float(self.win_olap*self.window))
         total_nwin = 0
-        verbose = True
 
-        # print("\n--------------          INIT TEST SSTEPS          --------------\n")
-
-        start = self.start_time + toff
-        while start + delta <= self.end_time:
-            start_win = start - toff
-            end_win = start + delta
-            interval += 1
-
-            if self.logfile:
-                self.logfile.write(f"\n\n  INTERVAL {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
-            
-            for i in range(self.int_nwin):
-                total_nwin += 1
-                ew = start_win + dt.timedelta(seconds=int(self.window*self.win_adv*i))
+        if self.nro_int > 0:
+            for nint in range(self.nro_int):
+                if nint >= 1:
+                    start_win = end_win - olap
+                else:
+                    start_win = self.start_time
                 
+                end_win   = start_win + dt.timedelta(seconds=self.interval) + toff
+
                 if self.logfile:
-                    if i in (0,1):
-                        self.logfile.write(f"\n{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
-                    elif i == 2:
-                        self.logfile.write("\n                             ...")
-                    elif i in (self.int_nwin-2, self.int_nwin-1):
-                        self.logfile.write(f"\n{total_nwin:>7} :: {ew} -- {ew + dt.timedelta(seconds=self.window)}")
-                    else:
-                        pass
+                    self.logfile.write(f"\n\n  INTERVAL {nint:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
                 
-            start = end_win
-        
-        # last interval
-        start -= toff
-        last_delta = self.end_time - start
+                for i in range(self.int_nwin):
+                    total_nwin += 1
+                    ew  = start_win + dt.timedelta(seconds=float(self.window*self.win_adv*i))
+                    ewd = ew + dt.timedelta(seconds=self.window)
+                    
+                    if self.logfile:
+                        if i in (0,1):
+                            self.logfile.write(f"\n{total_nwin:>7} :: {ew.strftime('%Y-%m-%d %H:%M:%S.%f')} -- {ewd.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+                        elif i == 2:
+                            self.logfile.write("\n                             ...")
+                        elif i in (self.int_nwin-2, self.int_nwin-1):
+                            self.logfile.write(f"\n{total_nwin:>7} :: {ew.strftime('%Y-%m-%d %H:%M:%S.%f')} -- {ewd.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+                        else:
+                            pass
+            # last interval
+            start_win  = end_win - olap
+            last_delta = self.end_time - start_win
+        else:
+            nint = -1
+            start_win  = self.start_time
+            end_win    = self.end_time
+            last_delta = end_win - start_win
 
         if last_delta.total_seconds() > 1:
-            end_win = start + last_delta
-            interval += 1
-            if verbose:
-                self.logfile.write(f"\n\n    LAST   {interval:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
+            end_win = start_win + last_delta
+            nint += 1
+            if self.logfile:
+                self.logfile.write(f"\n\n    LAST   {nint:>3} [nwin = {total_nwin:>5}] ENDTIME = {end_win}\n")
             
             i = 0
-            while start + dt.timedelta(seconds=self.window) <= self.end_time:
+            while start_win + dt.timedelta(seconds=self.window) <= self.end_time:
                 total_nwin += 1
-
+                ewi = start_win + dt.timedelta(seconds=self.window)
                 # print(f"{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
                 if self.logfile:
                     if i in (0,1):
-                        self.logfile.write(f"\n{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
+                        self.logfile.write(f"\n{total_nwin:>7} :: {start_win.strftime('%Y-%m-%d %H:%M:%S.%f')} -- {ewi.strftime('%Y-%m-%d %H:%M:%S.%f')}")
                     elif i == 2:
                         self.logfile.write("\n                             ...")
                     else:
                         pass
                 
-                if start + dt.timedelta(seconds=float(3*self.window)) >= self.end_time and self.logfile:
-                    self.logfile.write(f"\n{total_nwin:>7} :: {start} -- {start + dt.timedelta(seconds=self.window)}")
+                if start_win + dt.timedelta(seconds=float(3*self.window)) >= self.end_time and self.logfile:
+                    self.logfile.write(f"\n{total_nwin:>7} :: {start_win.strftime('%Y-%m-%d %H:%M:%S.%f')} -- {ewi.strftime('%Y-%m-%d %H:%M:%S.%f')}")
                 
-                start += dt.timedelta(seconds=int(self.window-(self.win_olap*self.window)))
+                start_win += dt.timedelta(seconds=float(self.window-(self.win_olap*self.window)))
                 i += 1
         
         else:
             i = 0
         
-        self.nro_intervals = interval
+        self.nro_intervals = nint+1
         self.total_nwin =  total_nwin
         self.last_nwin = i
-        # self.nro_intervals = interval
-        # true_end_time = start + dt.timedelta(seconds=self.window)
+        #true_end_time = start + dt.timedelta(seconds=self.window)
 
         if self.logfile:
             self.logfile.close()
