@@ -178,6 +178,9 @@ class CC8(object):
             if stream and stream.get_bounds() == (start_int-toff_sec, end_int+toff_sec):
                 data = stream.to_array(detrend=True)
             else:
+                print("No data to run")
+                print(stream)
+                exit()
                 data = None
             
             for fqn, fqband in enumerate(self.stats.fq_bands):
