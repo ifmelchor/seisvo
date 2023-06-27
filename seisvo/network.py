@@ -473,8 +473,7 @@ class Array(Network):
         return ans
 
 
-    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=[3.,0.5],\
-        slow_inc=[0.1,0.01], fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=[3.,0.5],slow_inc=[0.1,0.01], fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], **kwargs):
         
         """ Compute CC8 file
 

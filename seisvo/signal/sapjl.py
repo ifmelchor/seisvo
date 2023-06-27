@@ -42,7 +42,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
             for nsi in range(1, nites+1):
                 ans[nsi] = {}
                 for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
-                        ans[nsi][attr] = np.array(pyans[nsi][attr])
+                    ans[nsi][attr] = np.array(pyans[nsi][attr])
 
         except Exception as exc:
             print("\n ------ ERROR INFO ------")
