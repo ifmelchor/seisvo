@@ -126,12 +126,10 @@ class _CC8Process(object):
 
             if not cc8_ans:
                 proc_status = "FAIL"
-                self.get_empty_dict(nwin)
+                cc8_ans = self.get_empty_dict(nwin)
             else:
                 proc_status = "OK"
             
-            print(proc_status, cc8_ans.keys(), nfq, nwin)
-            print(cc8_ans)
             self.cc8stats.__write__(cc8_ans, nfq, nwin)
             print(f" [interval {int_prct} / fq band {nfq}]  >>  data wrote {proc_status} from {start} to {end}  [in {proct:.1f} sec]")
 
