@@ -15,6 +15,7 @@ from .sap import _new_CC8
 from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8
 from .lte.base import _new_LTE
 from .utils import nCPU
+from .plotting.array import location_map
 
 
 def get_network(net_code):
@@ -593,11 +594,8 @@ class Array(Network):
         return None
 
 
-    def plot(self, save=False, filename="./array_map.png"):
-        fig = plot_array(self)
-
-        if save:
-            fig.savefig(filename)
+    def plot_map(self, exclude_locs=[], show=True):
+        return location_map(self, exclude_locs=exclude_locs, show=show)
 
 
     def get_excluded_locs(self, loc_list):

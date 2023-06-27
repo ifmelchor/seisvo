@@ -205,7 +205,6 @@ class SSteps(object):
         return dout
 
 
-
 def get_freq(npts, fs, fq_band=[], pad=1.0):
     assert pad >= 1, "pad must be >= 1.0"
 
