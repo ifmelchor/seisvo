@@ -520,7 +520,7 @@ class Array(Network):
 
         # load parameters
         njobs       = kwargs.get('njobs', 1)
-        toff_sec    = kwargs.get('toff_sec', 10)
+        toff_sec    = kwargs.get('toff_sec', 3)
         sample_rate = kwargs.get("sample_rate", self.sample_rate)
         fileout      = kwargs.get("fileout", None)
         
