@@ -97,7 +97,7 @@ class _CC8Process(object):
     def get_empty_dict(self, nwin):
         cc8_ans = {}
         vector_nan = np.full([nwin,], np.nan)
-        for sn, nite in enumerate(self.cc8stats.nro_slow_bins):
+        for ns, nite in enumerate(self.cc8stats.nro_slow_bins):
             matrix_nan = np.full([nwin, nite, nite], np.nan)
             matrixbnd_nan = np.full([nwin, 2], np.nan)
             cc8_ans[ns+1] = {}
