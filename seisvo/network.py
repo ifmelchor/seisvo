@@ -15,7 +15,7 @@ from .sap import _new_CC8
 from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD
 from .lte.base import _new_LTE
 from .utils import nCPU
-from .plotting.array import location_map, traces_psd
+from .plotting.array import location_map, traces_psd, simple_slowmap
 
 
 def get_network(net_code):
@@ -394,20 +394,25 @@ class Array(Network):
         return a
 
     
-    def get_response(self, slow_max, slow_inc, fq_band=(1.,10.), fq_int=0.1, exclude_locs=[]):
+    def get_response(self, slomax, sloint, fq_band=(1.,10.), fq_int=0.1, exclude_locs=[], plot=True):
         """
         Return array response dictionary
         """
         xutm, yutm = [],[]
 
-        for loc, utm in self.utm.item():
+        for loc, utm in self.utm.items():
             if loc not in exclude_locs:
                 xutm.append(float(utm["easting"]))
                 yutm.append(float(utm["northing"]))
 
-        ans = array_response(xutm, yutm, slow_max, slow_inc, fq_band=fq_band, fq_int=fq_int)
-
+        ans = array_response(xutm, yutm, slomax, sloint, fq_band=fq_band, fq_int=fq_int)
+        power = ans["power"]
+        
+        if plot:
+            simple_slowmap(power/power.max(), slomax, sloint, title=fq_band)
+        
         return ans
+
 
     def get_stream(self,starttime, endtime, component="Z", toff_sec=0, return_stats=False, exclude_locs=[], **st_kwargs):
         ans = super().get_stream(starttime, endtime, component=component, toff_sec=toff_sec, return_stats=return_stats, **st_kwargs)
@@ -624,6 +629,10 @@ class Array(Network):
             traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}")
 
         return psd_dict, freq
+
+
+    # beam form??
+    # 
 
 
 class SoundArray(Network):

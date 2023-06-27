@@ -62,8 +62,8 @@ def array_response(xUTM, yUTM, slow_max, slow_inc, fq_band=(1.,10.), fq_int=0.1)
     slow_max_ = float(slow_max)
     slow_inc_ = float(slow_inc)
 
-    x = jl.Array(xUTM)
-    y = jl.Array(yUTM)
+    x = jl.Array(np.array(xUTM))
+    y = jl.Array(np.array(yUTM))
     jlarf  = jl.array_response(x, y, slow_max_, slow_inc_, float(fq_band[0]), float(fq_band[1]), float(fq_int))
     
     ans = {
