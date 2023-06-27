@@ -329,7 +329,6 @@ class NetworkStats(_Stats):
 class CC8stats(_Stats):
     def __init__(self, header):
         super().__init__(header)
-        self.nites = [1 + 2*int(pmax/pinc) for pmax, pinc in zip(self.slow_max, self.slow_inc)]
         self.fqidx = [str(fqix) for fqix in range(1, len(self.fq_bands)+1)]
         self.sidx  = [str(sidx) for sidx in range(1, len(self.slow_max)+1)]
 
@@ -368,7 +367,7 @@ class CC8stats(_Stats):
             ltblist = h5f['header'].attrs["last_time_bin"]
 
             nbin = ltblist[fqn-1]
-            for nsi in range(1, len(self.nites)+1):
+            for nsi in range(1, len(self.nro_slow_bins)+1):
                 h5f[str(fqn)][str(nsi)]["slowmap"][nbin+1:nbin+1+nwin,:,:] = wdict[nsi]["slowmap"]
                 h5f[str(fqn)][str(nsi)]["slowbnd"][nbin+1:nbin+1+nwin,:] = wdict[nsi]["slowbnd"]
                 h5f[str(fqn)][str(nsi)]["bazmbnd"][nbin+1:nbin+1+nwin,:] = wdict[nsi]["bazmbnd"]
