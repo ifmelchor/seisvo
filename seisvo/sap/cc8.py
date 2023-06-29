@@ -201,7 +201,8 @@ class CC8(object):
         return self.time_[n0:nf], (n0, nf)
 
 
-    def get(self, starttime=None, endtime=None, attr=None, fq_idx=None, slow_idx=None):
+    def get(self, starttime=None, endtime=None, attr=None, slowmap=True, fq_idx=None, slow_idx=None):
+        
         if not starttime:
             starttime = self.stats.starttime
         else:
@@ -225,23 +226,38 @@ class CC8(object):
             slow_idx = self.stats.check_idx(slow_idx, "slow")
         
         if not attr:
-            attr = ATTR_LIST
-        
+            attr = []
+            for a in ATTR_LIST:
+                if a == "slowmap" and slowmap:
+                    attr.append(a)
+                else:
+                    attr.append(a)
         else:
             attr = check_cc8_attr(attr)
         
         dout = {}
         dout["dtime"], (n0,nf) = self.get_time(starttime, endtime)
-
+        dout["fqidx"]    = []
+        dout["sloidx"]   = []
+        dout["fqslokey"] = []
+        dout["attlist"]  = attr
+        
         for nfq in fq_idx:
+            dout["fqidx"].append(nfq)
+            
             for ns in slow_idx:
+                dout["sloidx"].append(ns)
+                dout["fqslokey"].append('/'.join([nfq, ns]))
+            
                 for at in attr:
                     attr_key = '/'.join([nfq, ns, at])
                     ts  = self.__read__(at, nfq, ns, (n0,nf))
                     if ts[ts>0].any():
                         dout[attr_key] = ts
+        
 
         return CC8out(self.stats, dout)
+
 
 
 class CC8out(object):
@@ -250,32 +266,14 @@ class CC8out(object):
         self.starttime = dout["dtime"][0]
         self.endtime   = dout["dtime"][-1]
         self._dout = dout
-        self.__set_stats__()
 
-
-    def __set_stats__(self):
-        self.attr_list = []
-        fqslo_    = []
-        _fqidx    = []
-        _slidx    = []
-
-        for k in self._dout.keys():
-            klist = k.split("/")
-            if len(klist) > 1:
-                fqslo_.append('/'.join(klist[:-1]))
-                _fqidx.append(klist[0])
-                _slidx.append(klist[1])
-
-                if klist[2] not in self.attr_list:
-                    self.attr_list.append(klist[2])
-
-        self.fqslo_ = list(set(fqslo_))
+        # set stats for checks
+        self.attr_list = dout["attlist"]
+        self.fqslo_ = dout["fqslokey"]
+        self._fqidx = dout["fqidx"]
+        self._slidx = dout["sloidx"]
         self.fqslo_.sort()
-
-        self._fqidx = list(set(_fqidx))
         self._fqidx.sort()
-
-        self._slidx = list(set(_slidx))
         self._slidx.sort()
 
 
@@ -319,10 +317,11 @@ class CC8out(object):
 
     def get_data(self, attr, **kwargs):
 
-        fq_idx   = kwargs.get("fq_idx", '1')
-        slow_idx = kwargs.get("slow_idx", '1')
+        fq_idx   = kwargs.get("fq_idx", self._fqidx[0])
+        slow_idx = kwargs.get("slow_idx", self._slidx[0])
         db_scale = kwargs.get("db_scale", True)
-        maac_th  = kwargs.get("maac_th", 0)
+        maac_th  = kwargs.get("maac_th", 0.0)
+        baz_int  = kwargs.get("baz_int", [])
         
         attr = self.check_attr(attr)[0]
 
@@ -333,10 +332,10 @@ class CC8out(object):
         assert fqslo in self.fqslo_
 
         key = "/".join([fqslo, attr])
-        data = self._dout[key]
+        data = np.copy(self._dout[key])
 
         if attr == "bazm":
-            data[data>400] = np.nan
+            data[data>360] = np.nan
 
         if attr == "slow":
             slow_max = self.cc8stats.slow_max[int(slow_idx)-1]
@@ -347,12 +346,55 @@ class CC8out(object):
             data = 10*np.log10(data)
 
         # apply maac threshold
-        if attr != "slowmap" and maac_th > 0:
+        if attr != "slowmap" and maac_th > 0.0:
             maac_key = "/".join([fqslo, "maac"])
             maac = self._dout[maac_key]
             data[np.where(maac<maac_th)] = np.nan
+        
+        #apply azimuth interval
+        if attr != "slowmap" and baz_int:
+            bazmin, bazmax = baz_int
+            baz_key = "/".join([fqslo, "bazm"])
+            baz = self._dout[baz_key]
+            data = np.where(((baz<bazmax) & (baz>bazmin)), data, np.nan)
+            # data[(np.where(baz>bazmax) & np.where(baz<bazmin))] = np.nan
 
         return data
+
+
+    def get_nidx(self,  **kwargs):
+        """
+        Return time bins
+        """
+
+        fq_idx   = kwargs.get("fq_idx", self._fqidx[0])
+        slow_idx = kwargs.get("slow_idx", self._slidx[0])
+        maac_th  = kwargs.get("maac_th", 0.0)
+        baz_int  = kwargs.get("baz_int")
+
+        fq_idx   = self.cc8stats.check_idx(fq_idx, "fq")[0]
+        slow_idx = self.cc8stats.check_idx(slow_idx, "slow")[0]
+        fqslo    = "/".join([fq_idx, slow_idx])
+
+        assert fqslo in self.fqslo_
+
+
+        mckey = "/".join([fqslo, "maac"])
+        maac = np.copy(self._dout[mckey])
+        nidx = np.arange(len(maac))
+
+        bazkey = "/".join([fqslo, "bazm"])
+        baz  = np.copy(self._dout[bazkey])
+
+        # apply maac threshold
+        nidx = np.where(maac>maac_th, nidx, np.nan)
+        
+        #apply azimuth interval
+        if baz_int:
+            bazmin, bazmax = baz_int
+            nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
+        
+        return nidx[np.isfinite(nidx)].astype(dtype=np.int32)
 
 
     def get_stats(self, attr, **data_kwargs):
@@ -363,7 +405,6 @@ class CC8out(object):
         data = self.get_data(attr, **data_kwargs)
         stats = get_Stats(data[np.isfinite(data)])
 
-    
         return stats
 
 
@@ -387,11 +428,12 @@ class CC8out(object):
 
     def plot(self, **data_kwargs):
 
+        slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
+
         datattr = {}
         for attr in ["rms", "maac", "slow", "bazm"]:
             datattr[attr] = self.get_data(attr, **data_kwargs)
 
-        slow_idx = data_kwargs.get("slow_idx", "1")
         slomax = self.cc8stats.slow_max[int(slow_idx)-1]
         slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, **data_kwargs)
         bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, **data_kwargs)
@@ -400,10 +442,53 @@ class CC8out(object):
 
         return fig
         
-    
+
+    def plot_wvfm(self, ntime=None, off_sec=0, **data_kwargs):
+        """
+        Plot shifted traces
+        """
+        arr, exclude_locs = self.cc8stats.get_array()
+
+        slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
+        sloint = self.cc8stats.slow_inc[int(slow_idx)-1]
+        slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+
+        fq_idx = data_kwargs.get("fq_idx", self._fqidx[0])
+        fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
+
+        if not ntime:
+            maac = self.get_data("maac", **data_kwargs)
+            slow = self.get_data("slow", **data_kwargs)
+            baz  = self.get_data("bazm", **data_kwargs)
+            ntime = np.argmax(maac)
+            print(f" Best MAAC is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f}")
+
+        bazt  = baz[ntime]
+        slowt = slow[ntime]
+        half_delta  = dt.timedelta(seconds=float(self.cc8stats.window/2))
+        start   = self._dout["dtime"][ntime] - half_delta
+        end     = start + half_delta + half_delta
+
+        deltas, _ = arr.get_deltatimes(slowt, bazt, slomax, sloint, exclude_locs=exclude_locs)
+        stream = arr.get_stream(start, end, prefilt=fq_band, toff_sec=600, exlcude_locs=exclude_locs)
+
+        wvfm_dict = {}
+        off_sec = dt.timedelta(seconds=float(off_sec))
+        
+        for delta, tr in zip(deltas, stream):
+            starttime = start + dt.timedelta(seconds=delta) - off_sec
+            endtime = starttime + half_delta + half_delta + off_sec
+            wvfm_dict[tr.stats.location] = tr.get_data(starttime=starttime, endtime=endtime)
+        
+        #plotwvfm(wvfm_dict, time, locs, startw, endw)
+        return wvfm_dict
+
+
+
+
     def plot_smap(self, ntime=None, **data_kwargs):
 
-        slow_idx = data_kwargs.get("slow_idx", "1")
+        slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
 
         data = self.get_data("slowmap", **data_kwargs)
 

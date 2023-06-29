@@ -80,7 +80,7 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
     grid = {'hspace':0.15, 'left':0.08, 'right':0.92,\
         'wspace':0.05, 'top':0.95, 'width_ratios':[1,0.1],'bottom':0.05}
     
-    fig, axes = plt.subplots(4, 2, figsize=(12,8), gridspec_kw=grid)
+    fig, axes = plt.subplots(4, 2, figsize=(12,8), sharex='col', gridspec_kw=grid)
 
     duration = (dtime[-1]-dtime[0]).total_seconds()/60
     npts     = len(dtime)
@@ -105,7 +105,9 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
                 x, y = slowpdf
             else:
                 x, y = bazmpdf
-            axes[n,1].plot(x, y, color='k')
+            
+            normx = x/x.max()
+            axes[n,1].plot(normx, y, color='k')
             axes[n,1].grid(which="minor", axis="y", color="k", ls="-", alpha=0.35)
             axes[n,1].grid(which="major", axis="y", color="k", ls="--", alpha=0.20)
 
@@ -113,7 +115,7 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
             axes[n,1].axis("off")
 
         axes[n,0].grid(which="major", axis="x", color="k", ls="-", alpha=0.35)
-        axes[n,1].grid(which="minor", axis="x", color="k", ls="--", alpha=0.20)
+        axes[n,0].grid(which="minor", axis="x", color="k", ls="--", alpha=0.20)
 
         axes[n,0].yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
         axes[n,0].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))

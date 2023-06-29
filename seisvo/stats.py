@@ -380,6 +380,38 @@ class CC8stats(_Stats):
             h5f.flush()
 
 
+    def get_array(self, return_exclude_locs=True):
+
+        net, sta = self.id.split(".")
+        
+        try:
+            from .network import Array
+            arr = Array(net, sta)
+
+            if return_exclude_locs:
+                excluded_locs = arr.get_excluded_locs(self.locs)
+
+                return arr, excluded_locs
+            
+            else:
+                return arr
+        
+        except:
+            print(" error reading network file on seisvo.")
+
+
+    def get_utm(self):
+        array, excluded_locs = self.get_array()
+        east, north = [], []
+        
+        for loc, utm in array.utm.items():
+            if loc not in excluded_locs:
+                east.append(utm["easting"])
+                north.append(utm["northing"])
+        
+        return east, north
+
+
 class LTEstats(_Stats):
     def __init__(self, header):
         super().__init__(header)

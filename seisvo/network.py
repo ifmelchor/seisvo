@@ -12,7 +12,7 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
-from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD
+from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times
 from .lte.base import _new_LTE
 from .utils import nCPU
 from .plotting.array import location_map, traces_psd, simple_slowmap
@@ -630,8 +630,19 @@ class Array(Network):
         return psd_dict, freq
 
 
-    # beam form??
-    # 
+    def get_deltatimes(self, slow, baz, slomax, sloinc, tol=1e-4, pxy0=[0.,0.], exclude_locs=[]):
+
+        eastern  = []
+        northing = []
+
+        for loc, utm in self.utm.items():
+            if loc not in exclude_locs:
+                eastern.append(utm["easting"])
+                northing.append(utm["northing"])
+
+        ans = array_delta_times(slow, baz, slomax, sloinc, eastern, northing, etol=tol)
+
+        return ans
 
 
 class SoundArray(Network):
