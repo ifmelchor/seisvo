@@ -148,9 +148,9 @@ class Navigate(object):
         # self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
         # self.canvas.setFocus()
         self.canvas.mpl_connect('scroll_event', self.onZoom)
+        self.canvas.mpl_connect('motion_notify_event', self.onMotion)
         self.canvas.mpl_connect('button_press_event', self.onClkPress)
         self.canvas.mpl_connect('button_release_event', self.onClkRelease)
-        self.canvas.mpl_connect('motion_notify_event', self.onMotion)
 
 
     def reset(self):

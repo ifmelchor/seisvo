@@ -9,7 +9,8 @@ import datetime as dt
 from .cc8utils import _CC8Process
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF
-from ..plotting.array import simple_cc8_plot, simple_slowmap
+from ..plotting.array import simple_cc8_plot, simple_slowmap, window_wvfm
+from ..gui import load_cc8widget
 
 # from tqdm import tqdm
 ATTR_LIST = ["rms", "maac", "slow", "bazm", "slowmap", "bazmbnd", "slowbnd"]
@@ -259,6 +260,22 @@ class CC8(object):
         return CC8out(self.stats, dout)
 
 
+    def gui(self, interval, starttime=None, olap=0.1, **kwargs):
+        """
+        GUI for navigate the cc8 file.
+        interval in minutes
+        """
+
+        if not starttime:
+            starttime = self.stats.starttime
+
+        fq_idx   = kwargs.get("fq_idx", self.stats.fqidx[0])
+        slow_idx = kwargs.get("slow_idx", self.stats.sidx[0])
+        maac_th  = kwargs.get("maac_th", 0.6)
+        baz_int  = kwargs.get("baz_int", [])
+
+        widget = load_cc8widget(self, starttime, interval, fq_idx, slow_idx, olap=olap, maac_th=maac_th, baz_int=baz_int)
+
 
 class CC8out(object):
     def __init__(self, cc8stats, dout):
@@ -409,7 +426,10 @@ class CC8out(object):
 
 
     def get_pdf(self, attr, vmin=None, vmax=None, **data_kwargs):
-        
+        """
+        Return the PDF of a scalar attribute
+        """
+
         data = self.get_data(attr, **data_kwargs)
         data = data[np.isfinite(data)]
         data  = data.reshape(-1,1)
@@ -426,7 +446,7 @@ class CC8out(object):
         return pdf, space
 
 
-    def plot(self, **data_kwargs):
+    def plot(self, fig=None, return_fig_dict=False, **data_kwargs):
 
         slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
 
@@ -438,159 +458,202 @@ class CC8out(object):
         slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, **data_kwargs)
         bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, **data_kwargs)
 
-        fig = simple_cc8_plot(self._dout["dtime"], datattr, slowpdf, bazmpdf)
+        ans = simple_cc8_plot(self._dout["dtime"], datattr, slowpdf, bazmpdf, fig=fig, return_fig_dict=return_fig_dict)
 
-        return fig
+        return ans
         
 
-    def plot_wvfm(self, ntime=None, off_sec=0, **data_kwargs):
+    def plot_wvfm(self, ntime=None, off_sec=0, slow_idx=None, fq_idx=None, show_title=True, **fig_kwargs):
         """
         Plot shifted traces
         """
+        
         arr, exclude_locs = self.cc8stats.get_array()
 
-        slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
+        if not slow_idx:
+            slow_idx = self._slidx[0]
+        else:
+            assert slow_idx in self._slidx
+
         sloint = self.cc8stats.slow_inc[int(slow_idx)-1]
         slomax = self.cc8stats.slow_max[int(slow_idx)-1]
 
-        fq_idx = data_kwargs.get("fq_idx", self._fqidx[0])
+        if not fq_idx:
+            fq_idx = self._fqidx[0]
+        else:
+            assert fq_idx in self._fqidx
+
         fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
+        maac  = self.get_data("maac", slow_idx=slow_idx, fq_idx=fq_idx)
+        slow  = self.get_data("slow", slow_idx=slow_idx, fq_idx=fq_idx)
+        baz   = self.get_data("bazm", slow_idx=slow_idx, fq_idx=fq_idx)
+        
         if not ntime:
-            maac = self.get_data("maac", **data_kwargs)
-            slow = self.get_data("slow", **data_kwargs)
-            baz  = self.get_data("bazm", **data_kwargs)
             ntime = np.argmax(maac)
-            print(f" Best MAAC is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f}")
+            print(f" Best MAAC [{maac[ntime]:.1f}] is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f}")
 
-        bazt  = baz[ntime]
-        slowt = slow[ntime]
-        half_delta  = dt.timedelta(seconds=float(self.cc8stats.window/2))
-        start   = self._dout["dtime"][ntime] - half_delta
-        end     = start + half_delta + half_delta
+        bazt    = baz[ntime]
+        slowt   = slow[ntime]
+        maact   = maac[ntime]
+        half_w  = dt.timedelta(seconds=float(self.cc8stats.window/2))
+        start   = self._dout["dtime"][ntime] - half_w
+        end     = start + half_w + half_w
 
-        deltas, _ = arr.get_deltatimes(slowt, bazt, slomax, sloint, exclude_locs=exclude_locs)
+        # get stream and delta array
         stream = arr.get_stream(start, end, prefilt=fq_band, toff_sec=600, exlcude_locs=exclude_locs)
+        deltas, _ = arr.get_deltatimes(slowt, bazt, slomax, sloint, exclude_locs=exclude_locs)
 
+        # shift stream
         wvfm_dict = {}
-        off_sec = dt.timedelta(seconds=float(off_sec))
-        
+        dtoff = dt.timedelta(seconds=off_sec)
         for delta, tr in zip(deltas, stream):
-            starttime = start + dt.timedelta(seconds=delta) - off_sec
-            endtime = starttime + half_delta + half_delta + off_sec
+            starttime = start + dt.timedelta(seconds=delta) - dtoff
+            endtime = starttime + half_w + half_w + dtoff + dtoff
             wvfm_dict[tr.stats.location] = tr.get_data(starttime=starttime, endtime=endtime)
+    
+        # create time array
+        duration = self.cc8stats.window + 2*off_sec
+        time = np.linspace(0, duration, int(duration*self.cc8stats.sample_rate)+1)
         
-        #plotwvfm(wvfm_dict, time, locs, startw, endw)
-        return wvfm_dict
+        # make fig
+        if show_title:
+            title = f"Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}"
+            fig_kwargs["title"] = title
 
+        startw = duration/2 - self.cc8stats.window/2
+        endw   = startw + self.cc8stats.window
 
-
-
-    def plot_smap(self, ntime=None, **data_kwargs):
-
-        slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
-
-        data = self.get_data("slowmap", **data_kwargs)
-
-        if not ntime:
-            maac = self.get_data("maac", **data_kwargs)
-            ntime = np.argmax(maac)
-            print(f" Best MAAC is at position {ntime}")
-
-        sloint = self.cc8stats.slow_inc[int(slow_idx)-1]
-        slomax = self.cc8stats.slow_max[int(slow_idx)-1]
-
-        fig = simple_slowmap(data[ntime,:,:], sloint, slomax,\
-            title=f"{self._dout['dtime'][ntime]}")
+        fig = window_wvfm(wvfm_dict, time, startw, endw, **fig_kwargs)
 
         return fig
 
 
-    def plot_slowmap(self, fq_idx, slow_idx, fps=30, plot=True, save=False, starttime=None, endtime=None, filename=None):
+    def plot_smap(self, ntime=None, slow_idx=None, fq_idx=None, show_title=True, **fig_kwargs):
 
-        assert "slowmap" in self.attr_list
+        if not slow_idx:
+            slow_idx = self._slidx[0]
+        else:
+            assert slow_idx in self._slidx
 
-        if isinstance(fq_idx, int):
-            fq_idx = str(fq_idx)
-        
-        if isinstance(slow_idx, int):
-            slow_idx = str(slow_idx)
-
-        fq_slo_idx = "/".join([fq_idx, slow_idx])
-        motion = slowness_map_motion(self, fq_slo_idx, fps, starttime=starttime, endtime=endtime, plot=plot)
-
-        if save:
-            if not filename:
-                filename = "_".join(self.cc8.stats.id, fq_slo_idx) + '.mp4'
-            else:
-                if filename.split('.')[-1] != "mp4":
-                    filename += '.mp4'
-            
-            motion.save(filename, fps=fps, extra_args=['-vcodec', 'libx264'])
-    
-
-    def get_maac_probmap(self, fq_idx, slow_idx, starttime=None, endtime=None, **kwargs):
-
-        assert "slowmap" in self.attr_list
-
-        if isinstance(fq_idx, int):
-            fq_idx = str(fq_idx)
-        
-        assert fq_idx in self._fqidx
-        
-        if isinstance(slow_idx, int):
-            slow_idx = str(slow_idx)
-        
-        assert slow_idx in self._slidx
-
-        key = "/".join([fq_idx, slow_idx, "slowmap"])
-        data = self._dout[key]
-
-        # load SAP.jl
-        from juliacall import Main as jl
-        jl.seval("using SAP")
-        slowprob = jl.mpm(jl.Array(data))
-
-        plot = kwargs.get("plot", False)
-        fileout = kwargs.get("fileout", None)
-
-        if plot or fileout:
-            slomax = self.cc8stats.slow_max[int(slow_idx)-1]
-            sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
-            title  = f"\n {self.starttime_} -- {self.endtime_}"
-            simple_slowness_plot(slowprob, slomax, sloinc, title=title, bar_label="most probable MAAC", **kwargs)
-
-        return slowprob
-    
-
-    def get_slobaz_tmap(self, fq_idx, slow_idx, cc_th, starttime=None, endtime=None, savefig=True, **kwargs):
-
-        assert "slowmap" in self.attr_list
-
-        if isinstance(fq_idx, int):
-            fq_idx = str(fq_idx)
-        
-        assert fq_idx in self._fqidx
-        
-        if isinstance(slow_idx, int):
-            slow_idx = str(slow_idx)
-        
-        assert slow_idx in self._slidx
-
-        key = "/".join([fq_idx, slow_idx, "slowmap"])
-        data = self._dout[key]
+        sloint = self.cc8stats.slow_inc[int(slow_idx)-1]
         slomax = self.cc8stats.slow_max[int(slow_idx)-1]
-        sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
 
-        from juliacall import Main as jl
-        jl.seval("using SAP")
+        if not fq_idx:
+            fq_idx = self._fqidx[0]
+        else:
+            assert fq_idx in self._fqidx
 
-        slowbaz_tmap = jl.slobaztmap(jl.Array(data), sloinc, slomax, cc_th)
+        fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
-        if savefig:
-            title = f"MAAC > {cc_th}" + f"\n {self.starttime_} -- {self.endtime_}"
-            plot_slowbaz_tmap(slowbaz_tmap, title, **kwargs)
+        data  = self.get_data("slowmap", slow_idx=slow_idx, fq_idx=fq_idx)
+        maac  = self.get_data("maac", slow_idx=slow_idx, fq_idx=fq_idx)
+        slow  = self.get_data("slow", slow_idx=slow_idx, fq_idx=fq_idx)
+        baz   = self.get_data("bazm", slow_idx=slow_idx, fq_idx=fq_idx)
 
-        return slowbaz_tmap
+        if not ntime:
+            ntime = np.argmax(maac)
+            print(f" Best MAAC [{maac[ntime]:.1f}] is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f}")
+
+        bazt    = baz[ntime]
+        slowt   = slow[ntime]
+        maact   = maac[ntime]
+
+        # make fig
+        if show_title:
+            title = f"Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}"
+            fig_kwargs["title"] = title
+
+        fig = simple_slowmap(data[ntime,:,:], sloint, slomax, **fig_kwargs)
+
+        return fig
+
+
+    # def plot_slowmap(self, fq_idx, slow_idx, fps=30, plot=True, save=False, starttime=None, endtime=None, filename=None):
+
+    #     assert "slowmap" in self.attr_list
+
+    #     if isinstance(fq_idx, int):
+    #         fq_idx = str(fq_idx)
+        
+    #     if isinstance(slow_idx, int):
+    #         slow_idx = str(slow_idx)
+
+    #     fq_slo_idx = "/".join([fq_idx, slow_idx])
+    #     motion = slowness_map_motion(self, fq_slo_idx, fps, starttime=starttime, endtime=endtime, plot=plot)
+
+    #     if save:
+    #         if not filename:
+    #             filename = "_".join(self.cc8.stats.id, fq_slo_idx) + '.mp4'
+    #         else:
+    #             if filename.split('.')[-1] != "mp4":
+    #                 filename += '.mp4'
+            
+    #         motion.save(filename, fps=fps, extra_args=['-vcodec', 'libx264'])
+    
+
+    # def get_maac_probmap(self, fq_idx, slow_idx, starttime=None, endtime=None, **kwargs):
+
+    #     assert "slowmap" in self.attr_list
+
+    #     if isinstance(fq_idx, int):
+    #         fq_idx = str(fq_idx)
+        
+    #     assert fq_idx in self._fqidx
+        
+    #     if isinstance(slow_idx, int):
+    #         slow_idx = str(slow_idx)
+        
+    #     assert slow_idx in self._slidx
+
+    #     key = "/".join([fq_idx, slow_idx, "slowmap"])
+    #     data = self._dout[key]
+
+    #     # load SAP.jl
+    #     from juliacall import Main as jl
+    #     jl.seval("using SAP")
+    #     slowprob = jl.mpm(jl.Array(data))
+
+    #     plot = kwargs.get("plot", False)
+    #     fileout = kwargs.get("fileout", None)
+
+    #     if plot or fileout:
+    #         slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+    #         sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
+    #         title  = f"\n {self.starttime_} -- {self.endtime_}"
+    #         simple_slowness_plot(slowprob, slomax, sloinc, title=title, bar_label="most probable MAAC", **kwargs)
+
+    #     return slowprob
+    
+
+    # def get_slobaz_tmap(self, fq_idx, slow_idx, cc_th, starttime=None, endtime=None, savefig=True, **kwargs):
+
+    #     assert "slowmap" in self.attr_list
+
+    #     if isinstance(fq_idx, int):
+    #         fq_idx = str(fq_idx)
+        
+    #     assert fq_idx in self._fqidx
+        
+    #     if isinstance(slow_idx, int):
+    #         slow_idx = str(slow_idx)
+        
+    #     assert slow_idx in self._slidx
+
+    #     key = "/".join([fq_idx, slow_idx, "slowmap"])
+    #     data = self._dout[key]
+    #     slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+    #     sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
+
+    #     from juliacall import Main as jl
+    #     jl.seval("using SAP")
+
+    #     slowbaz_tmap = jl.slobaztmap(jl.Array(data), sloinc, slomax, cc_th)
+
+    #     if savefig:
+    #         title = f"MAAC > {cc_th}" + f"\n {self.starttime_} -- {self.endtime_}"
+    #         plot_slowbaz_tmap(slowbaz_tmap, title, **kwargs)
+
+    #     return slowbaz_tmap
 
 

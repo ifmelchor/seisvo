@@ -28,8 +28,7 @@ def location_map(arr, exclude_locs=[], show=True):
     return fig
 
 
-def traces_psd(psd_dict, freq, db_scale=True,\
-    vmin=None, vmax=None, show=True, title=None, colorname="tolm"):
+def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=True, title=None, colorname="tolm"):
 
     fig, ax = plt.subplots(1,1, figsize=(10,8))
     colorlist = get_colors(colorname)
@@ -75,12 +74,16 @@ def traces_psd(psd_dict, freq, db_scale=True,\
     return fig
     
 
-def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
+def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, return_fig_dict=False):
 
     grid = {'hspace':0.15, 'left':0.08, 'right':0.92,\
         'wspace':0.05, 'top':0.95, 'width_ratios':[1,0.1],'bottom':0.05}
-    
-    fig, axes = plt.subplots(4, 2, figsize=(12,8), sharex='col', gridspec_kw=grid)
+
+    if fig:
+        axes = fig.subplots(4, 2, gridspec_kw=grid)
+        show = False
+    else:
+        fig, axes = plt.subplots(4, 2, figsize=(12,8), sharex='col', gridspec_kw=grid)
 
     duration = (dtime[-1]-dtime[0]).total_seconds()/60
     npts     = len(dtime)
@@ -94,9 +97,13 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
     'maac':'MAAC',
     }
 
-    for n, attr in enumerate(["rms", "maac", "slow", "bazm"]):
+    fig_dict = {}
 
-        axes[n,0].scatter(time, datattr[attr], color="blue", edgecolor="k", alpha=0.6)
+    for n, attr in enumerate(["rms", "maac", "slow", "bazm"]):
+        fig_dict[attr] = {}
+        fig_dict[attr]["axis"] = axes[n,0]
+        colors   = ["blue"]*len(datattr[attr])
+        fig_dict[attr]["sc"]   = axes[n,0].scatter(time, datattr[attr], facecolor=colors, edgecolor="k", alpha=0.6)
         axes[n,0].set_ylabel(default_labels[attr])
         axes[n,0].set_xlim(0, duration)
 
@@ -107,6 +114,7 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
                 x, y = bazmpdf
             
             normx = x/x.max()
+            fig_dict[attr]["pdf"] = normx
             axes[n,1].plot(normx, y, color='k')
             axes[n,1].grid(which="minor", axis="y", color="k", ls="-", alpha=0.35)
             axes[n,1].grid(which="major", axis="y", color="k", ls="--", alpha=0.20)
@@ -133,16 +141,28 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True):
     if show:
         plt.show()
 
-    return fig
+    if return_fig_dict:
+        return fig_dict
+    
+    else:
+        return fig
 
 
 def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
 
-    cmap = kwargs.get("cmap", "Spectral_r")
-    interpolation = kwargs.get("interpolation", "gaussian")
+    cmap  = kwargs.get("cmap", "Spectral_r")
     title = kwargs.get("title", None)
+    fig   = kwargs.get("fig", None)
+    axis  = kwargs.get("axis", None)
+    bar_axis = kwargs.get("bar_axis", None)
+    interpolation = kwargs.get("interpolation", "gaussian")
 
-    fig, axes = plt.subplots(1,2, figsize=(12,8), gridspec_kw={"width_ratios":[1,0.02]})
+    if not axis or not fig:
+        fig, axes = plt.subplots(1,2, figsize=(12,8), gridspec_kw={"width_ratios":[1,0.02]})
+        axis = axes[0]
+        bar_axis = axes[1]
+    else:
+        show = False
     
     halfbin = sloint / 2.0
     extent = (
@@ -152,15 +172,15 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
          slomax - halfbin
     )
 
-    im = axes[0].imshow(np.flipud(slomap), cmap=cmap, interpolation=interpolation,\
+    im = axis.imshow(np.flipud(slomap), cmap=cmap, interpolation=interpolation,\
         extent=extent, aspect='auto', vmin=0, vmax=1)
 
-    axes[0].set_title(title)
-    axes[0].set_xlabel("x [s/km]")
-    axes[0].set_ylabel("y [s/km]")
-    axes[0].grid(ls="--", color="k", alpha=0.3)
+    axis.set_title(title)
+    axis.set_xlabel("x [s/km]")
+    axis.set_ylabel("y [s/km]")
+    axis.grid(ls="--", color="k", alpha=0.3)
 
-    fig.colorbar(im, cax=axes[1], orientation='vertical', ticks=[0,0.25,0.5,0.75,1], label="CC")
+    fig.colorbar(im, cax=bar_axis, orientation='vertical', ticks=[0,0.25,0.5,0.75,1], label="CC")
 
     if show:
         plt.show()
@@ -168,4 +188,34 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
     return fig
 
 
+def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
 
+    title = kwargs.get("title", None)
+    fig   = kwargs.get("fig", None)
+    ax    = kwargs.get("axis", None)
+    colorname = kwargs.get("colorname", "tolm")
+
+    if not ax or not fig:
+        fig, ax = plt.subplots(1,1, figsize=(9,4))
+    else:
+        show = False
+
+    colorlist = get_colors(colorname)
+    ax.set_title(title)
+
+    for n, (loc, data) in enumerate(wvfm_dict.items()):
+        ax.plot(time, data, lw=.9, color=colorlist[n], label=loc)
+    
+    ax.grid(which="major", axis="x", color="k", ls="-",  alpha=0.25)
+    ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
+    ax.axvspan(startw, endw, color="k", alpha=0.05)
+    ax.set_xlim(time[0], time[-1])
+    ax.set_xlabel("Time [sec]")
+    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+    ax.yaxis.set_major_formatter(mtick.NullFormatter())
+    fig.legend(title="LOC")
+
+    if show:
+        plt.show()
+
+    return fig
