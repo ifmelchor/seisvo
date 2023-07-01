@@ -43,7 +43,15 @@ class CC8nidxWidget(QtWidgets.QWidget):
 
         self.canvas.plot(nidx)
         self.canvas.setFocus()
-            
+    
+
+    def update(self, cc8out, nidx_list):
+        self.cc8out    = cc8out
+        self.nidx_list = nidx_list
+        self.max_nidx  = len(self.nidx_list)
+        self.nidx_idx  = None
+        self.close()
+
 
     def on_key(self, key):
         if key == QtCore.Qt.Key_Right:
@@ -175,6 +183,7 @@ class CC8Widget(QtWidgets.QWidget):
 class CC8Canvas(FigureCanvas):
     def __init__(self, parent):
         self.parent = parent
+        self.WidgetNidex = None
         self.fig = Figure(figsize=(12,9))
         FigureCanvas.__init__(self, self.fig)
         self.callbacks.connect('button_press_event', self.on_click)
@@ -200,7 +209,12 @@ class CC8Canvas(FigureCanvas):
             
             # set nidx widget
             self.nidx_list = self.ccout.get_nidx(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
-            self.WidgetNidex = CC8nidxWidget(self.ccout, self.nidx_list, parent=self)
+            
+            if not self.WidgetNidex:
+                # open a widget
+                self.WidgetNidex = CC8nidxWidget(self.ccout, self.nidx_list, parent=self)
+            else:
+                self.WidgetNidex.update(self.ccout, self.nidx_list)
 
             self.time = np.array(self.ccout._dout["dtime"])
             self.fig_dict = self.ccout.plot(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int, fig=self.fig, x_time=True, return_fdict=True)
