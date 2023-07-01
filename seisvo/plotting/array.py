@@ -116,6 +116,9 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, **kwargs):
             axes[n,0].set_xlim(0, duration)
         else:
             axes[n,0].set_xlim(dtime[0],dtime[-1])
+        
+        if attr == "maac":
+            axes[n,0].set_ylim(0, 1)
 
         if attr in ("slow", "bazm"):
             if attr == "slow":
