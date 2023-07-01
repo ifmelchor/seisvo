@@ -1,11 +1,10 @@
 
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolor
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
-import numpy as np
 from .utils import get_colors
-
 
 def location_map(arr, exclude_locs=[], show=True):
 
@@ -28,7 +27,7 @@ def location_map(arr, exclude_locs=[], show=True):
     return fig
 
 
-def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=True, title=None, colorname="tolm"):
+def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, title=None, colorname="tolm"):
 
     fig, ax = plt.subplots(1,1, figsize=(10,8))
     colorlist = get_colors(colorname)
@@ -74,10 +73,13 @@ def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=True, t
     return fig
     
 
-def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, return_fig_dict=False):
+def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, **kwargs):
+    fig          = kwargs.get("fig", None)
+    title        = kwargs.get("title", None)
+    x_time       = kwargs.get("x_time", False)
+    return_fdict = kwargs.get("return_fdict", False)
 
-    grid = {'hspace':0.15, 'left':0.08, 'right':0.92,\
-        'wspace':0.05, 'top':0.95, 'width_ratios':[1,0.1],'bottom':0.05}
+    grid = {'hspace':0.15, 'left':0.08, 'right':0.92, 'wspace':0.05, 'width_ratios':[1,0.1]}
 
     if fig:
         axes = fig.subplots(4, 2, gridspec_kw=grid)
@@ -85,10 +87,14 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, retur
     else:
         fig, axes = plt.subplots(4, 2, figsize=(12,8), sharex='col', gridspec_kw=grid)
 
-    duration = (dtime[-1]-dtime[0]).total_seconds()/60
-    npts     = len(dtime)
-    time     = np.linspace(0, duration, npts)
-    axes[0,0].set_title(f"{dtime[0]} -- {dtime[-1]}")
+    axes[0,0].set_title(title)
+
+    if not x_time:
+        duration = (dtime[-1]-dtime[0]).total_seconds()/60
+        npts     = len(dtime)
+        time     = np.linspace(0, duration, npts)
+    else:
+        time     = dtime
 
     default_labels = {
     'rms':'RMS [dB]',
@@ -105,7 +111,11 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, retur
         colors   = ["blue"]*len(datattr[attr])
         fig_dict[attr]["sc"]   = axes[n,0].scatter(time, datattr[attr], facecolor=colors, edgecolor="k", alpha=0.6)
         axes[n,0].set_ylabel(default_labels[attr])
-        axes[n,0].set_xlim(0, duration)
+
+        if not x_time:
+            axes[n,0].set_xlim(0, duration)
+        else:
+            axes[n,0].set_xlim(dtime[0],dtime[-1])
 
         if attr in ("slow", "bazm"):
             if attr == "slow":
@@ -116,14 +126,22 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, retur
             normx = x/x.max()
             fig_dict[attr]["pdf"] = normx
             axes[n,1].plot(normx, y, color='k')
-            axes[n,1].grid(which="minor", axis="y", color="k", ls="-", alpha=0.35)
+            axes[n,1].set_ylim(y[0], y[-1])
+            axes[n,0].set_ylim(y[0], y[-1])
+            # axes[n,1].grid(which="minor", axis="y", color="k", ls="-", alpha=0.35)
             axes[n,1].grid(which="major", axis="y", color="k", ls="--", alpha=0.20)
+            axes[n,1].yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
+            axes[n,1].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
+            axes[n,1].yaxis.set_major_formatter(mtick.NullFormatter())
+            axes[n,1].xaxis.set_major_formatter(mtick.NullFormatter())
+            axes[n,1].xaxis.set_major_locator(mtick.NullLocator())
 
         else:
             axes[n,1].axis("off")
 
         axes[n,0].grid(which="major", axis="x", color="k", ls="-", alpha=0.35)
         axes[n,0].grid(which="minor", axis="x", color="k", ls="--", alpha=0.20)
+        axes[n,0].grid(which="major", axis="y", color="k", ls="--", alpha=0.20)
 
         axes[n,0].yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
         axes[n,0].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
@@ -141,7 +159,7 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, retur
     if show:
         plt.show()
 
-    if return_fig_dict:
+    if return_fdict:
         return fig_dict
     
     else:
@@ -149,7 +167,6 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, fig=None, retur
 
 
 def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
-
     cmap  = kwargs.get("cmap", "Spectral_r")
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
@@ -192,28 +209,37 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
 
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
-    ax    = kwargs.get("axis", None)
+    axes  = kwargs.get("axes", None)
     colorname = kwargs.get("colorname", "tolm")
 
-    if not ax or not fig:
-        fig, ax = plt.subplots(1,1, figsize=(9,4))
+    if not axes or not fig:
+        fig, axes = plt.subplots(2,1, figsize=(9,4))
     else:
         show = False
 
     colorlist = get_colors(colorname)
-    ax.set_title(title)
+    axes[0].set_title(title)
 
+    avg_data = np.zeros(len(time))
     for n, (loc, data) in enumerate(wvfm_dict.items()):
-        ax.plot(time, data, lw=.9, color=colorlist[n], label=loc)
+        axes[0].plot(time, data, lw=1.2, color=colorlist[n], label=loc, alpha=0.7)
+        avg_data += data/np.abs(data).max()
+
+    axes[0].xaxis.set_major_formatter(mtick.NullFormatter())
     
-    ax.grid(which="major", axis="x", color="k", ls="-",  alpha=0.25)
-    ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
-    ax.axvspan(startw, endw, color="k", alpha=0.05)
-    ax.set_xlim(time[0], time[-1])
-    ax.set_xlabel("Time [sec]")
-    ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
-    ax.yaxis.set_major_formatter(mtick.NullFormatter())
-    fig.legend(title="LOC")
+    # plot average wvfm
+    axes[1].plot(time, avg_data, color="k")
+    axes[1].set_xlabel("Time [sec]")
+    
+    for ax in axes:
+        ax.axvspan(startw, endw, color="k", alpha=0.05)
+        ax.grid(which="major", axis="x", color="k", ls="-",  alpha=0.25)
+        ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
+        ax.set_xlim(time[0], time[-1])
+        ax.xaxis.set_minor_locator(mtick.AutoMinorLocator(2))
+        ax.yaxis.set_major_formatter(mtick.NullFormatter())
+            
+    fig.legend(title="LOC", ncol=1, loc='lower right')
 
     if show:
         plt.show()

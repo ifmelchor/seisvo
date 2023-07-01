@@ -6,6 +6,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import datetime as dt
+
 from .cc8utils import _CC8Process
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF
@@ -446,19 +447,35 @@ class CC8out(object):
         return pdf, space
 
 
-    def plot(self, fig=None, return_fig_dict=False, **data_kwargs):
+    def plot(self, slow_idx=None, fq_idx=None, show_title=True, maac_th=0.5, baz_int=[], **fig_kwargs):
 
-        slow_idx = data_kwargs.get("slow_idx", self._slidx[0])
+        if not slow_idx:
+            slow_idx = self._slidx[0]
+        else:
+            assert slow_idx in self._slidx
+
+        sloint = self.cc8stats.slow_inc[int(slow_idx)-1]
+        slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+
+        if not fq_idx:
+            fq_idx = self._fqidx[0]
+        else:
+            assert fq_idx in self._fqidx
+
+        fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
         datattr = {}
         for attr in ["rms", "maac", "slow", "bazm"]:
-            datattr[attr] = self.get_data(attr, **data_kwargs)
+            datattr[attr] = self.get_data(attr, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+        
+        if show_title:
+            title = f"{self.cc8stats.id} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n {self._dout['dtime'][0]}"
+            fig_kwargs["title"] = title
 
-        slomax = self.cc8stats.slow_max[int(slow_idx)-1]
-        slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, **data_kwargs)
-        bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, **data_kwargs)
+        slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, slow_idx=slow_idx, fq_idx=fq_idx)
+        bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, slow_idx=slow_idx, fq_idx=fq_idx)
 
-        ans = simple_cc8_plot(self._dout["dtime"], datattr, slowpdf, bazmpdf, fig=fig, return_fig_dict=return_fig_dict)
+        ans = simple_cc8_plot(self._dout["dtime"], datattr, slowpdf, bazmpdf, **fig_kwargs)
 
         return ans
         
@@ -558,10 +575,11 @@ class CC8out(object):
         bazt    = baz[ntime]
         slowt   = slow[ntime]
         maact   = maac[ntime]
+        timet   = self._dout["dtime"][ntime]
 
         # make fig
         if show_title:
-            title = f"Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}"
+            title = f" nidx :: {ntime}  >> {timet} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}"
             fig_kwargs["title"] = title
 
         fig = simple_slowmap(data[ntime,:,:], sloint, slomax, **fig_kwargs)

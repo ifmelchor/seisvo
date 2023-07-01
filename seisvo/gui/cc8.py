@@ -8,7 +8,7 @@ import datetime as dt
 # matplotlib
 import numpy as np
 import matplotlib.dates as mdates
-from matplotlib.figure import Figure, SubplotParams
+from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.text import Annotation
@@ -20,17 +20,45 @@ class CC8nidxWidget(QtWidgets.QWidget):
     Genera el espacio físico donde se va a alojar el CANVAS y controla los botones
     """
 
-    def __init__(self, cc8out, nidx):
+    def __init__(self, cc8out, nidx_list, parent=None):
         QtWidgets.QWidget.__init__(self)
-        self.cc8out = cc8out
-        self.nidx   = nidx
-        self.layout = QtWidgets.QVBoxLayout()
-        # add canvas
-        self.canvas = CC8nidxCanvas(self)
+        self.cc8out    = cc8out
+        self.parent    = parent  # main canvas
+        self.nidx_list = nidx_list
+        self.max_nidx  = len(self.nidx_list)
+        self.nidx_idx  = None
+        self.layout    = QtWidgets.QVBoxLayout()
+        self.canvas    = CC8nidxCanvas(self)
         self.layout.addWidget(self.canvas)
+
         self.setLayout(self.layout)
         self.setCursor(QtCore.Qt.CrossCursor)
+    
+
+    def plot(self, nidx=None):
+        if not nidx:
+            nidx = self.nidx_list[self.nidx_idx][0]
+        else:
+            self.nidx_idx, = np.where(self.nidx_list == nidx)
+
+        self.canvas.plot(nidx)
         self.canvas.setFocus()
+            
+
+    def on_key(self, key):
+        if key == QtCore.Qt.Key_Right:
+            if self.nidx_idx + 1 ==  self.max_nidx:
+                notify("CC8", "The bound of the file was reached!")
+            else:
+                self.nidx_idx += 1
+                self.plot()
+            
+        if key == QtCore.Qt.Key_Left:
+            if self.nidx_idx - 1 < 0:
+                notify("CC8", "The bound of the file was reached!")
+            else:
+                self.nidx_idx -= 1
+                self.plot()
 
 
 class CC8nidxCanvas(FigureCanvas):
@@ -38,18 +66,61 @@ class CC8nidxCanvas(FigureCanvas):
         self.parent = parent
         self.fig = Figure(figsize=(9,9))
         FigureCanvas.__init__(self, self.fig)
-        self.plot()
+        self.callbacks.connect('button_press_event', self.on_click)
+        self.callbacks.connect('key_press_event', self.on_key)
+    
+    def on_key(self, event):
+        if event.key == 'right':
+            self.parent.on_key(QtCore.Qt.Key_Right)
+
+        if event.key == 'left':
+            self.parent.on_key(QtCore.Qt.Key_Left)
 
 
-    def plot(self):
+    def print_ticks(self):
+        print("\n :: Ticks info :: ")
+        for position, time in self.ticks.items():
+            if time:
+                print(f"  {position} >> {time} ")
+        
+        if self.ticks['right'] and self.ticks['left']:
+            dist = abs((self.ticks['left'] - self.ticks['right']))
+            print(f" distance |R-L|  >>  {dist}  [sec]")
+    
+
+    def on_click(self, event):
+        if event.inaxes:
+            if event.inaxes in self.nav.ax:
+                
+                # t = mdates.num2date(float(event.xdata))
+                # t = t.replace(tzinfo=None)
+
+                if event.button == 1:
+                    self.ticks['left'] = event.xdata
+                
+                if event.button == 3:
+                    self.ticks['right'] = event.xdata
+                
+                self.print_ticks()
+
+
+    def plot(self, nidx):
         with pyqtgraph.BusyCursor():
             self.fig.clf()
-            axes = self.fig.subplots(2,2, gridspec_kw={"height_ratios":[1,0.75], "width_ratios":[1,0.02]})
+            self.ticks = dict(right=None, left=None)
+            axes = self.fig.subplots(4,2, gridspec_kw={"height_ratios":[1,0.1,0.75,0.75], "width_ratios":[1,0.02]})
+            axes[1,0].axis("off")
             axes[1,1].axis("off")
-            self.parent.cc8out.plot_smap(self.parent.nidx, axis=axes[0,0], bar_axis=axes[0,1], fig=self.fig)
-            self.parent.cc8out.plot_wvfm(self.parent.nidx, off_sec=5, axis=axes[1,0], fig=self.fig, show_title=False)
-            self.nav = Navigate([axes[1,0]], self, color='red', linewidth=0.5, alpha=0.5)
+            axes[2,1].axis("off")
+            axes[3,1].axis("off")
+            self.parent.cc8out.plot_smap(nidx, axis=axes[0,0], bar_axis=axes[0,1], fig=self.fig)
+            self.parent.cc8out.plot_wvfm(nidx, off_sec=5, axes=[axes[2,0], axes[3,0]], fig=self.fig, show_title=False)
+            self.nav = Navigate([axes[2,0], axes[3,0]], self, color='red', linewidth=0.5, alpha=0.5)
             self.draw()
+            self.parent.show()
+        
+        if self.parent.parent:
+            self.parent.parent.show_green(nidx)
 
 
 class CC8Widget(QtWidgets.QWidget):
@@ -79,25 +150,23 @@ class CC8Widget(QtWidgets.QWidget):
         self.setCursor(QtCore.Qt.CrossCursor)
         self.canvas.setFocus()
 
-        # init nidex widget
-
     
-
     def on_key(self, key):
         if key == QtCore.Qt.Key_Right:
-            if self.starttime + self.interval > self.cc8.stats.endtime:
+            if self.starttime + self.interval > self.cc8.time_[-1]:
                 notify("CC8", "The bound of the file was reached!")
-                endtime = self.cc8.stats.endtime
+                endtime = self.cc8.time_[-1]
                 self.starttime = endtime - self.interval
             else:
                 endtime = None
                 self.starttime = self.starttime + self.interval
+            
             self.canvas.plot(endtime=endtime)
 
         if key == QtCore.Qt.Key_Left:
-            if self.starttime - self.interval + self.olap < self.cc8.starttime:
+            if self.starttime - self.interval + self.olap < self.cc8.time_[0]:
                 notify("CC8", "The bound of the file was reached!")
-                self.starttime = self.cc8.starttime
+                self.starttime = self.cc8.time_[0]
             else:
                 self.starttime = self.starttime - self.interval + self.olap
             self.canvas.plot()
@@ -106,16 +175,12 @@ class CC8Widget(QtWidgets.QWidget):
 class CC8Canvas(FigureCanvas):
     def __init__(self, parent):
         self.parent = parent
-        self.fig = Figure(figsize=(12,9), subplotpars=SubplotParams(left=0.08,\
-            right=0.92, wspace=0.1, top=0.95, bottom=0.05))
+        self.fig = Figure(figsize=(12,9))
         FigureCanvas.__init__(self, self.fig)
         self.callbacks.connect('button_press_event', self.on_click)
         self.callbacks.connect('key_press_event', self.on_key)
         self.callbacks.connect("motion_notify_event", self.on_hover)
         self.plot()
-
-        # init nidex widget
-        self.WidgetNidex = None
 
 
     def plot(self, endtime=None):
@@ -133,12 +198,16 @@ class CC8Canvas(FigureCanvas):
                 endtime=self.endtime, slowmap=True, fq_idx=self.parent.fq_idx,\
                 slow_idx=self.parent.slow_idx)
             
-            self.fig_dict = self.ccout.plot(maac_th=self.parent.maac_th, fig=self.fig, return_fig_dict=True)
+            # set nidx widget
+            self.nidx_list = self.ccout.get_nidx(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
+            self.WidgetNidex = CC8nidxWidget(self.ccout, self.nidx_list, parent=self)
+
+            self.time = np.array(self.ccout._dout["dtime"])
+            self.fig_dict = self.ccout.plot(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int, fig=self.fig, x_time=True, return_fdict=True)
             
             # add navigation
             self.axes_ = [ax["axis"] for _, ax in self.fig_dict.items()]
-            self.nav = Navigate(self.axes_, self, color='red',\
-            linewidth=0.5, alpha=0.5)
+            self.nav = Navigate(self.axes_, self, color='red', active_cursor=False, linewidth=0.5, alpha=0.5)
 
             self.draw()
 
@@ -159,7 +228,7 @@ class CC8Canvas(FigureCanvas):
                 print(f"  {position} >> {time} ")
         
         if self.ticks['right'] and self.ticks['left']:
-            dist = abs(self.ticks['left'] - self.ticks['right'])*60
+            dist = abs((self.ticks['left'] - self.ticks['right']).total_seconds())
             print(f" distance |R-L|  >>  {dist}  [sec]")
 
 
@@ -167,24 +236,24 @@ class CC8Canvas(FigureCanvas):
         if event.inaxes:
             if event.inaxes in self.axes_:
                 
-                # t = mdates.num2date(float(event.xdata))
-                # t = t.replace(tzinfo=None)
+                t = mdates.num2date(float(event.xdata))
+                t = t.replace(tzinfo=None)
 
                 if event.button == 1:
-                    self.ticks['left'] = event.xdata
+                    self.ticks['left'] = t
                 
                 if event.button == 3:
-                    self.ticks['right'] = event.xdata
+                    self.ticks['right'] = t
                 
                 self.print_ticks()
     
 
-    def nidx_from_time(self, time_in_minutes):
-        dtime    = self.ccout._dout["dtime"]
-        duration = (dtime[-1]-dtime[0]).total_seconds()/60
-        npts     = len(dtime)
-        time     = np.linspace(0, duration, npts)
-        return np.argmin(np.abs(time_in_minutes-time))
+    def show_green(self, nidx):
+        colorlist = ["blue"]*len(self.ccout._dout["dtime"])
+        colorlist[nidx] = "green"
+        for _, fdict in self.fig_dict.items():
+            fdict["sc"].set_facecolor(colorlist)
+        self.draw()
 
 
     def on_hover(self, event):
@@ -194,30 +263,23 @@ class CC8Canvas(FigureCanvas):
             sc = self.fig_dict[attr]["sc"]
             cont, ind = sc.contains(event)
             if cont:
-                colorlist = ["blue"]*len(self.ccout._dout["dtime"])
                 x, _ = sc.get_offsets()[ind["ind"][0]]
-                nidx = self.nidx_from_time(x)
-                colorlist[nidx] = "green"
-                
-                for _, fdict in self.fig_dict.items():
-                    fdict["sc"].set_facecolor(colorlist)
-
+                x = mdates.num2date(float(x))
+                x = x.replace(tzinfo=None)
+                nidx  = np.argmin(np.abs(x - self.time))
                 self.hover_nidx = nidx
-        
-                self.draw()
+                self.show_green(nidx)
 
 
     def on_key(self, event):
         if event.key == 'right':
             self.parent.on_key(QtCore.Qt.Key_Right)
-        
 
         if event.key == 'left':
             self.parent.on_key(QtCore.Qt.Key_Left)
 
         if event.key == "s" and self.hover_nidx:
-            self.WidgetNidex = CC8nidxWidget(self.ccout, self.hover_nidx)
-            self.WidgetNidex.show()
-
+            self.WidgetNidex.plot(nidx=self.hover_nidx)
+            
 
 

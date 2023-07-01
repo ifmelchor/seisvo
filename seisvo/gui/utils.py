@@ -121,7 +121,7 @@ class Cursor(AxesWidget):
 
 
 class Navigate(object):
-    def __init__(self, axes, canvas, im_axis=None, base_scale=2, **lineprops):
+    def __init__(self, axes, canvas, im_axis=None, base_scale=2, active_cursor=True, **lineprops):
         # lineprops --> color='red', linewidth=0.5, alpha=0.5
         """
         axes is a list of Axes
@@ -131,10 +131,12 @@ class Navigate(object):
         self.canvas = canvas
         self.base_scale = base_scale
         self.imshow_axes = im_axis
-        self.cursors = []
-        for ax in axes:
-            cursor = Cursor(ax, useblit=True, **lineprops)
-            self.cursors.append(cursor)
+
+        if active_cursor:
+            self.cursors = []
+            for ax in axes:
+                cursor = Cursor(ax, useblit=True, **lineprops)
+                self.cursors.append(cursor)
         
         self.x0 = None
         self.x1 = None

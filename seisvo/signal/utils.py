@@ -2,6 +2,7 @@
 # coding=utf-8
 
 import datetime as dt
+import scipy.signal as ss
 import numpy as np
 import math
 
@@ -323,6 +324,7 @@ def smooth_psd(psd, freq, fq_band=(0.1,10), delta=2**0.125):
         fc += [np.sqrt(i*fl)]
 
     return psd_avg, fc
+
 
 
 def corr_coeff_index(nro):

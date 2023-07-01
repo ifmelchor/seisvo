@@ -1,9 +1,9 @@
 
 
+import scipy.signal as ss
 import numpy as np
 import matplotlib.pyplot as plt
 from obspy.signal.spectral_estimation import get_nlnm, get_nhnm
-from scipy.signal import spectrogram as sss
 from seisvo.signal.utils import nearest_pow_2
 from .utils import plot_gram
 
@@ -34,7 +34,7 @@ def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_ba
     nlap = int(nfft * float(per_lap))
 
     # compute the spectrogram
-    freq, time, sxx = sss(data, fs=sample_rate,
+    freq, time, sxx = ss.spectrogram(data, fs=sample_rate,
         nperseg=nfft, nfft=mult, noverlap=nlap, scaling='spectrum')
 
     if fq_band != ():

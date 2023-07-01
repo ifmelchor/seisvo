@@ -612,7 +612,7 @@ class Array(Network):
 
 
     def get_psd(self, starttime, endtime, window, olap=0.25, fq_band=(0.5,15.),\
-        exclude_locs=[], plot=True, **st_kwargs):
+        exclude_locs=[], plot=True, show=True, **st_kwargs):
 
         stream = self.get_stream(starttime, endtime, exclude_locs=exclude_locs, **st_kwargs)
 
@@ -625,9 +625,11 @@ class Array(Network):
                 psd_dict[tr.stats.location] = psd
 
         if plot:
-            traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}")
+            fig = traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}", show=show)
+            return fig
 
-        return psd_dict, freq
+        else:
+            return psd_dict, freq
 
 
     def get_deltatimes(self, slow, baz, slomax, sloinc, tol=1e-4, pxy0=[0.,0.], exclude_locs=[]):
