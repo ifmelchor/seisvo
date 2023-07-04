@@ -235,7 +235,7 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
         axes[0].plot(time, data, lw=1.2, color=colorlist[n], label=loc, alpha=0.7)
         avg_data += data/np.abs(data).max()
 
-    axes[0].xaxis.set_major_formatter(mtick.NullFormatter())
+    # axes[0].xaxis.set_major_formatter(mtick.NullFormatter())
     
     # plot average wvfm
     axes[1].plot(time, avg_data, color="k")
