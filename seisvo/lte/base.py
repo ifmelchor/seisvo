@@ -723,7 +723,7 @@ class LTEout(object):
         return stats
     
 
-    def get_pdf(self, vector_attr, chan=None, db_scale=True, ymin=None, ymax=None, plot=True, **kde_kwargs):
+    def get_pdf(self, vector_attr, chan=None, db_scale=True, ymin=None, ymax=None, plot=True, show=True, title=None, **kde_kwargs):
         """
         Return the PDF of a vector attribute,
         if "specgram", channel must be specified
@@ -736,22 +736,21 @@ class LTEout(object):
             data = self._dout[chan][attr]
             if db_scale:
                 data = 10*np.log(data)
-        
         else:
             data = self._dout[attr]
         
         if not ymin:
-            ymin = np.floor(data.min())
+            ymin = np.floor(np.nanmin(data))
         
         if not ymax:
-            ymax  = np.ceil(data.max())
+            ymax  = np.ceil(np.nanmax(data))
         
         space = np.linspace(ymin, ymax, num=1000).reshape(-1,1)
 
         pdf = get_PDF(data, space, **kde_kwargs)
 
         if plot:
-            plotPDF(pdf, space.reshape(-1,), self._dout["freq"])
+            return plotPDF(pdf, space.reshape(-1,), self._dout["freq"], show=show, title=title)
 
         return pdf, space.reshape(-1,), self._dout["freq"]
 

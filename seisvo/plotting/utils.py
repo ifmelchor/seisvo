@@ -163,7 +163,7 @@ def plot_gram(y, array, x, axis, return_bar=False, **kwargs):
 
     fq_logscale = kwargs.get('fq_logscale', False)
     if fq_logscale:
-        axis.set_yscale('log')
+        axis.set_xscale('log')
 
     label_size = kwargs.get('label_size', 10)
     axis_y_label = kwargs.get('y_label', None)

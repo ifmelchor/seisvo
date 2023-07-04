@@ -68,6 +68,8 @@ def get_PDF(array, space, **kde_kwargs):
 
     for i in range(array.shape[1]):
         x = array[:,i].reshape(-1,1)
+        # clean nan
+        x = x[np.isfinite(x)]
         kde = get_KDE(x, **kde_kwargs)
 
         if isinstance(kde, KernelDensity):

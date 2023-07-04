@@ -59,7 +59,7 @@ def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_ba
     return im, (v_min, v_max)
 
 
-def plotPDF(pdf, y_bins, x_bins, axis=None, plot=True, **kwargs):
+def plotPDF(pdf, y_bins, x_bins, axis=None, show=True, title=None, **kwargs):
     fig = None
 
     if not axis:    
@@ -72,9 +72,15 @@ def plotPDF(pdf, y_bins, x_bins, axis=None, plot=True, **kwargs):
     kwargs['y_label'] = 'PSD\n'+r'dB[cnts$^2$/Hz]'
     kwargs['x_label'] = 'Freq. [Hz]'
     kwargs['bar_label'] = 'PDF'
+    kwargs["cmap"] = "gist_earth_r"
+    kwargs["fq_logscale"] = True
 
     # masked = np.ma.masked_where(pdf<1e-06, pdf)
     plot_gram(y_bins, pdf, x_bins, axis, **kwargs)
+
+    axis.grid(which="major", color="k", ls="-", alpha=0.4)
+    axis.grid(which="minor", color="k", ls="--", alpha=0.4)
+    axis.set_title(title)
 
     if kwargs.get('show_models', False):
         _, nlnm = get_nlnm() # NLNM model
@@ -83,7 +89,7 @@ def plotPDF(pdf, y_bins, x_bins, axis=None, plot=True, **kwargs):
         axis.plot(1/p, nlnm, color='k', lw=1.2, label='NLNM', zorder=10)
         axis.plot(1/p, nhnm, color='k', lw=1.2, label='NHNM', zorder=10)
 
-    if plot:
+    if show:
         plt.show()
 
     return fig
