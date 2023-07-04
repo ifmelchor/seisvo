@@ -199,7 +199,7 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
          slomax - halfbin
     )
 
-    im = axis.imshow(np.flipud(slomap), cmap=cmap, interpolation=interpolation,\
+    im = axis.imshow(np.flipud(slomap).T, cmap=cmap, interpolation=interpolation,\
         extent=extent, aspect='auto', vmin=0, vmax=1)
 
     axis.set_title(title)
