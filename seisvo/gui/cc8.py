@@ -161,13 +161,13 @@ class CC8Widget(QtWidgets.QWidget):
     
     def on_key(self, key):
         if key == QtCore.Qt.Key_Right:
-            if self.starttime + self.interval > self.cc8.time_[-1]:
+            if self.starttime + self.interval - self.olap > self.cc8.time_[-1]:
                 notify("CC8", "The bound of the file was reached!")
                 endtime = self.cc8.time_[-1]
-                self.starttime = endtime - self.interval
+                self.starttime = endtime - self.interval - self.olap
             else:
                 endtime = None
-                self.starttime = self.starttime + self.interval
+                self.starttime = self.starttime + self.interval - self.olap
             
             self.canvas.plot(endtime=endtime)
 
@@ -177,7 +177,13 @@ class CC8Widget(QtWidgets.QWidget):
                 self.starttime = self.cc8.time_[0]
             else:
                 self.starttime = self.starttime - self.interval + self.olap
+            
             self.canvas.plot()
+
+
+    def update_maac(self, new_maac):
+        self.maac_th   = new_maac
+        self.canvas.plot()
 
 
 class CC8Canvas(FigureCanvas):
@@ -195,6 +201,8 @@ class CC8Canvas(FigureCanvas):
     def plot(self, endtime=None):
         self.fig.clf()
         self.ticks = dict(right=None, left=None)
+        self.baz0  = None
+        self.slow0 = None
 
         if not endtime:
             self.endtime = self.parent.starttime + self.parent.interval
@@ -218,6 +226,9 @@ class CC8Canvas(FigureCanvas):
 
             self.time = np.array(self.ccout._dout["dtime"])
             self.fig_dict = self.ccout.plot(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int, fig=self.fig, x_time=True, return_fdict=True)
+
+            # add horizontal bar in maac_th
+            self.fig_dict["maac"]["axis"].axhline(self.parent.maac_th, color="r", ls="--", alpha=0.5)
             
             # add navigation
             self.axes_ = [ax["axis"] for _, ax in self.fig_dict.items()]
@@ -282,6 +293,9 @@ class CC8Canvas(FigureCanvas):
                 x = x.replace(tzinfo=None)
                 nidx  = np.argmin(np.abs(x - self.time))
                 self.hover_nidx = nidx
+                self.hover_time = x
+                self.baz0  = self.fig_dict["bazm"]["sc"].get_offsets()[self.hover_nidx][1]
+                self.slow0 = self.fig_dict["slow"]["sc"].get_offsets()[self.hover_nidx][1]
                 self.show_green(nidx)
 
 
@@ -289,11 +303,27 @@ class CC8Canvas(FigureCanvas):
         if event.key == 'right':
             self.parent.on_key(QtCore.Qt.Key_Right)
 
+
         if event.key == 'left':
             self.parent.on_key(QtCore.Qt.Key_Left)
 
+
         if event.key == "s" and self.hover_nidx:
             self.WidgetNidex.plot(nidx=self.hover_nidx)
-            
+
+
+        if event.key == "m":
+            new_maac, ok = QtWidgets.QInputDialog.getDouble(self, "MAAC threshold","Value:", self.parent.maac_th, 0.0, 1.0, 1, QtCore.Qt.WindowStaysOnTopHint, 0.1)
+            if ok:
+                self.parent.update_maac(new_maac)
+
+
+        if event.key == "p" and self.baz0 and self.slow0:
+            if self.ticks['right'] and self.ticks['left']:
+                print(f" Take :: {self.hover_time.strftime('%Y %b %d %H:%M:%S.%f')} ::BAZ {self.baz0:5.1f} SLOW {self.slow0:4.2f}")
+                starttime = min([self.ticks['right'],self.ticks['left']])
+                endtime   = max([self.ticks['right'],self.ticks['left']])
+                fig = self.ccout.get_beamform(starttime, endtime, self.slow0, self.baz0)
+                fig.savefig("beamform_test.png")
 
 

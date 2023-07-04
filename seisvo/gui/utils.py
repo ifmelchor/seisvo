@@ -147,6 +147,7 @@ class Navigate(object):
         self.max_xlim = axes[0].get_xlim()
 
         self.ticks = dict(left=[None, []], right=[None, []]) # tick data and list of axvline
+        self.old_tick = None
         # self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
         # self.canvas.setFocus()
         self.canvas.mpl_connect('scroll_event', self.onZoom)

@@ -71,9 +71,10 @@ def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, 
     return fig
     
 
-def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, **kwargs):
+def simple_cc8_plot(dtime, datattr, bounds, slowpdf, bazmpdf, show=True, **kwargs):
     fig          = kwargs.get("fig", None)
     title        = kwargs.get("title", None)
+    maac_rv      = kwargs.get("maac_rv", None)
     x_time       = kwargs.get("x_time", False)
     return_fdict = kwargs.get("return_fdict", False)
 
@@ -103,11 +104,12 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, **kwargs):
 
     fig_dict = {}
 
-    for n, attr in enumerate(["rms", "maac", "slow", "bazm"]):
+    for n, attr in enumerate(["maac", "rms", "slow", "bazm"]):
         fig_dict[attr] = {}
         fig_dict[attr]["axis"] = axes[n,0]
         colors   = ["blue"]*len(datattr[attr])
-        fig_dict[attr]["sc"]   = axes[n,0].scatter(time, datattr[attr], facecolor=colors, edgecolor="k", alpha=0.6)
+        fig_dict[attr]["sc"]   = axes[n,0].scatter(time, datattr[attr], facecolor=colors, edgecolor="k", alpha=0.7, zorder=3)
+
         axes[n,0].set_ylabel(default_labels[attr])
 
         if not x_time:
@@ -117,18 +119,24 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, **kwargs):
         
         if attr == "maac":
             axes[n,0].set_ylim(0, 1)
+            if isinstance(maac_rv, np.ndarray):
+                axes[n,0].scatter(time, maac_rv, facecolor="blue", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr in ("slow", "bazm"):
+            axes[n,0].errorbar(time, datattr[attr], yerr=bounds[attr].T, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
+            
             if attr == "slow":
                 x, y = slowpdf
+                axes[n,1].set_ylim(y[0], y[-1])
+                axes[n,0].set_ylim(y[0], y[-1])
             else:
                 x, y = bazmpdf
+                axes[n,1].set_ylim(-5, 365)
+                axes[n,0].set_ylim(-5, 365)
             
             normx = x/x.max()
             fig_dict[attr]["pdf"] = normx
             axes[n,1].plot(normx, y, color='k')
-            axes[n,1].set_ylim(y[0], y[-1])
-            axes[n,0].set_ylim(y[0], y[-1])
             # axes[n,1].grid(which="minor", axis="y", color="k", ls="-", alpha=0.35)
             axes[n,1].grid(which="major", axis="y", color="k", ls="--", alpha=0.20)
             axes[n,1].yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
@@ -147,13 +155,14 @@ def simple_cc8_plot(dtime, datattr, slowpdf, bazmpdf, show=True, **kwargs):
         axes[n,0].yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
         axes[n,0].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
         axes[n,0].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1f'))
-    
-        # last plot
+
         axes[n,0].xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
+
         if attr == "bazm":
             axes[n,0].set_xlabel('Time [min]')
         else:
             axes[n,0].xaxis.set_major_formatter(mtick.NullFormatter())
+        
 
     fig.align_labels()
 
@@ -214,7 +223,7 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
     colorname = kwargs.get("colorname", "tolm")
 
     if not axes or not fig:
-        fig, axes = plt.subplots(2,1, figsize=(9,4))
+        fig, axes = plt.subplots(2,1, figsize=(9,4), sharex=True)
     else:
         show = False
 
@@ -233,7 +242,8 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
     axes[1].set_xlabel("Time [sec]")
     
     for ax in axes:
-        ax.axvspan(startw, endw, color="k", alpha=0.05)
+        if startw and endw:
+            ax.axvspan(startw, endw, color="k", alpha=0.05)
         ax.grid(which="major", axis="x", color="k", ls="-",  alpha=0.25)
         ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
         ax.set_xlim(time[0], time[-1])

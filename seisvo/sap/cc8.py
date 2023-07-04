@@ -339,6 +339,7 @@ class CC8out(object):
         slow_idx = kwargs.get("slow_idx", self._slidx[0])
         db_scale = kwargs.get("db_scale", True)
         maac_th  = kwargs.get("maac_th", 0.0)
+        maac_rv  = kwargs.get("maac_rv", 0.0)
         baz_int  = kwargs.get("baz_int", [])
         
         attr = self.check_attr(attr)[0]
@@ -367,7 +368,10 @@ class CC8out(object):
         if attr != "slowmap" and maac_th > 0.0:
             maac_key = "/".join([fqslo, "maac"])
             maac = self._dout[maac_key]
-            data[np.where(maac<maac_th)] = np.nan
+            if maac_rv:
+                data[np.where(maac>maac_th)] = np.nan
+            else:
+                data[np.where(maac<maac_th)] = np.nan
         
         #apply azimuth interval
         if attr != "slowmap" and baz_int:
@@ -376,6 +380,34 @@ class CC8out(object):
             baz = self._dout[baz_key]
             data = np.where(((baz<bazmax) & (baz>bazmin)), data, np.nan)
             # data[(np.where(baz>bazmax) & np.where(baz<bazmin))] = np.nan
+
+        if attr == "slowbnd":
+            slokey = "/".join([fqslo, "slow"])
+            slow = self._dout[slokey]
+            slowbnd = np.empty((data.shape[0],2))
+            n = 0
+            for x, (x0, x1) in zip(slow, data):
+                s1 = x-x0
+                s2 = x1-x
+                slowbnd[n,:] = [s1, s2]
+                n += 1
+            data = slowbnd
+
+        if attr == "bazmbnd":
+            bazkey = "/".join([fqslo, "bazm"])
+            baz = self._dout[bazkey]
+            bazmbnd = np.empty((data.shape[0],2))
+            n = 0
+            for x, (x0, x1) in zip(baz, data):
+                a1 = x-x0
+                a2 = x1-x
+                if a1 < 0:
+                    a1 = 0.0
+                if a2 < 0:
+                    a2 = 360.0
+                bazmbnd[n,:] = [a1, a2]
+                n += 1
+            data = bazmbnd
 
         return data
 
@@ -468,17 +500,65 @@ class CC8out(object):
         for attr in ["rms", "maac", "slow", "bazm"]:
             datattr[attr] = self.get_data(attr, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
         
+        bounds = {
+            "slow": self.get_data("slowbnd", slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int),
+            "bazm": self.get_data("bazmbnd", slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+        }        
+
+        slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+        bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+
+        fig_kwargs["maac_rv"] = self.get_data("maac", slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
         if show_title:
             title = f"{self.cc8stats.id} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n {self._dout['dtime'][0]}"
             fig_kwargs["title"] = title
 
-        slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, slow_idx=slow_idx, fq_idx=fq_idx)
-        bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, slow_idx=slow_idx, fq_idx=fq_idx)
-
-        ans = simple_cc8_plot(self._dout["dtime"], datattr, slowpdf, bazmpdf, **fig_kwargs)
+        ans = simple_cc8_plot(self._dout["dtime"], datattr, bounds, slowpdf, bazmpdf, **fig_kwargs)
 
         return ans
-        
+    
+
+    def get_beamform(self, starttime, endtime, slow, baz, slow_idx=None, fq_idx=None, **fig_kwargs):
+        """
+        Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
+        """
+
+        if not slow_idx:
+            slow_idx = self._slidx[0]
+        else:
+            assert slow_idx in self._slidx
+
+        sloint = self.cc8stats.slow_inc[int(slow_idx)-1]
+        slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+
+        if not fq_idx:
+            fq_idx = self._fqidx[0]
+        else:
+            assert fq_idx in self._fqidx
+
+        fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
+        fq_band = [0.5, 10]
+
+        arr, exclude_locs = self.cc8stats.get_array()
+        deltas, _ = arr.get_deltatimes(slow, baz, slomax, sloint, exclude_locs=exclude_locs)
+        stream = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=600, exlcude_locs=exclude_locs)
+
+        # shift stream
+        wvfm_dict = {}
+        interval  = endtime - starttime
+        for delta, tr in zip(deltas, stream):
+            of_npts = int(600*self.cc8stats.sample_rate)
+            d_npts  = int(delta*self.cc8stats.sample_rate)
+            data    = tr.get_data()
+            data_sh = data[of_npts+d_npts:-of_npts+d_npts]
+            wvfm_dict[tr.stats.location] = data_sh
+
+        duration = interval.total_seconds()
+        time = np.linspace(0, duration, len(data_sh))
+        fig = window_wvfm(wvfm_dict, time, None, None, **fig_kwargs)
+
+        return fig
+
 
     def plot_wvfm(self, ntime=None, off_sec=0, slow_idx=None, fq_idx=None, show_title=True, **fig_kwargs):
         """
