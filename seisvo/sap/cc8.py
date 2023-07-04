@@ -339,7 +339,8 @@ class CC8out(object):
         slow_idx = kwargs.get("slow_idx", self._slidx[0])
         db_scale = kwargs.get("db_scale", True)
         maac_th  = kwargs.get("maac_th", 0.0)
-        maac_rv  = kwargs.get("maac_rv", 0.0)
+        maac_rv  = kwargs.get("maac_rv", False)
+        max_err  = kwargs.get("max_err", 1)
         baz_int  = kwargs.get("baz_int", [])
         
         attr = self.check_attr(attr)[0]
@@ -374,40 +375,50 @@ class CC8out(object):
                 data[np.where(maac<maac_th)] = np.nan
         
         #apply azimuth interval
-        if attr != "slowmap" and baz_int:
+        if attr not in ("slowmap", "slowbnd", "bazmbnd") and baz_int:
             bazmin, bazmax = baz_int
             baz_key = "/".join([fqslo, "bazm"])
             baz = self._dout[baz_key]
             data = np.where(((baz<bazmax) & (baz>bazmin)), data, np.nan)
             # data[(np.where(baz>bazmax) & np.where(baz<bazmin))] = np.nan
 
+
+        if max_err > 0.0:
+            slokey = "/".join([fqslo, "slow"])
+            bazkey = "/".join([fqslo, "bazm"])
+            slowb  = self._dout[slokey+"bnd"]
+            bazb   = (np.pi/180)*self._dout[bazkey+"bnd"]
+            slodiff  = np.abs(slowb[:,1] - slowb[:,0])
+            bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
+            error  = (slodiff+bazdiff)/2
+            data[np.where(error>max_err)] = np.nan
+
+
         if attr == "slowbnd":
             slokey = "/".join([fqslo, "slow"])
-            slow = self._dout[slokey]
-            slowbnd = np.empty((data.shape[0],2))
+            slow   = self._dout[slokey]
+            data2  = data.copy()
             n = 0
-            for x, (x0, x1) in zip(slow, data):
+            for x, (x0, x1) in zip(slow, data2):
                 s1 = x-x0
                 s2 = x1-x
-                slowbnd[n,:] = [s1, s2]
+                data[n,:] = [s1, s2]
                 n += 1
-            data = slowbnd
 
         if attr == "bazmbnd":
             bazkey = "/".join([fqslo, "bazm"])
-            baz = self._dout[bazkey]
-            bazmbnd = np.empty((data.shape[0],2))
+            baz    = self._dout[bazkey]
+            data2  = data.copy()
             n = 0
-            for x, (x0, x1) in zip(baz, data):
+            for x, (x0, x1) in zip(baz, data2):
                 a1 = x-x0
                 a2 = x1-x
                 if a1 < 0:
                     a1 = 0.0
                 if a2 < 0:
                     a2 = 360.0
-                bazmbnd[n,:] = [a1, a2]
+                data[n,:] = [a1, a2]
                 n += 1
-            data = bazmbnd
 
         return data
 

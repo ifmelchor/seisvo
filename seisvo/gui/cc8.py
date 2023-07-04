@@ -122,8 +122,13 @@ class CC8nidxCanvas(FigureCanvas):
             axes[2,1].axis("off")
             axes[3,1].axis("off")
             self.parent.cc8out.plot_smap(nidx, axis=axes[0,0], bar_axis=axes[0,1], fig=self.fig)
-            self.parent.cc8out.plot_wvfm(nidx, off_sec=5, axes=[axes[2,0], axes[3,0]], fig=self.fig, show_title=False)
-            self.nav = Navigate([axes[2,0], axes[3,0]], self, color='red', linewidth=0.5, alpha=0.5)
+
+            try:
+                self.parent.cc8out.plot_wvfm(nidx, off_sec=5, axes=[axes[2,0], axes[3,0]], fig=self.fig, show_title=False)
+                self.nav = Navigate([axes[2,0], axes[3,0]], self, color='red', linewidth=0.5, alpha=0.5)
+            except:
+                print(" No data found to plot waveform.")
+
             self.draw()
             self.parent.show()
         
@@ -161,18 +166,18 @@ class CC8Widget(QtWidgets.QWidget):
     
     def on_key(self, key):
         if key == QtCore.Qt.Key_Right:
-            if self.starttime + self.interval - self.olap > self.cc8.time_[-1]:
+            if self.starttime + self.interval > self.cc8.time_[-1]:
                 notify("CC8", "The bound of the file was reached!")
                 endtime = self.cc8.time_[-1]
                 self.starttime = endtime - self.interval - self.olap
             else:
                 endtime = None
                 self.starttime = self.starttime + self.interval - self.olap
-            
+
             self.canvas.plot(endtime=endtime)
 
         if key == QtCore.Qt.Key_Left:
-            if self.starttime - self.interval + self.olap < self.cc8.time_[0]:
+            if self.starttime - self.interval < self.cc8.time_[0]:
                 notify("CC8", "The bound of the file was reached!")
                 self.starttime = self.cc8.time_[0]
             else:
@@ -312,6 +317,10 @@ class CC8Canvas(FigureCanvas):
             self.WidgetNidex.plot(nidx=self.hover_nidx)
 
 
+        if event.key == "t" and self.hover_nidx:
+            print(f"\n >> {self.hover_time.strftime('%Y %b %d %H:%M:%S.%f')} :: BAZ {self.baz0:5.1f} SLOW {self.slow0:4.2f}")
+
+
         if event.key == "m":
             new_maac, ok = QtWidgets.QInputDialog.getDouble(self, "MAAC threshold","Value:", self.parent.maac_th, 0.0, 1.0, 1, QtCore.Qt.WindowStaysOnTopHint, 0.1)
             if ok:
@@ -320,7 +329,6 @@ class CC8Canvas(FigureCanvas):
 
         if event.key == "p" and self.baz0 and self.slow0:
             if self.ticks['right'] and self.ticks['left']:
-                print(f" Take :: {self.hover_time.strftime('%Y %b %d %H:%M:%S.%f')} ::BAZ {self.baz0:5.1f} SLOW {self.slow0:4.2f}")
                 starttime = min([self.ticks['right'],self.ticks['left']])
                 endtime   = max([self.ticks['right'],self.ticks['left']])
                 fig = self.ccout.get_beamform(starttime, endtime, self.slow0, self.baz0)
