@@ -69,6 +69,16 @@ class CC8nidxWidget(QtWidgets.QWidget):
                 self.plot()
 
 
+    def save_fig(self, filename):
+        fig = self.canvas.fig
+        files_types = 'Image (*.png)'
+        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', filename, files_types)
+        if fileName == '':
+            return
+        else:
+            fig.savefig(fileName, bbox_inches='tight', dpi = 300)
+
+
 class CC8nidxCanvas(FigureCanvas):
     def __init__(self, parent):
         self.parent = parent
@@ -76,13 +86,17 @@ class CC8nidxCanvas(FigureCanvas):
         FigureCanvas.__init__(self, self.fig)
         self.callbacks.connect('button_press_event', self.on_click)
         self.callbacks.connect('key_press_event', self.on_key)
-    
+
     def on_key(self, event):
         if event.key == 'right':
             self.parent.on_key(QtCore.Qt.Key_Right)
 
         if event.key == 'left':
             self.parent.on_key(QtCore.Qt.Key_Left)
+        
+        if event.key == 'f1':
+            filename = f"Slowmap_1"
+            self.parent.save_fig(filename)
 
 
     def print_ticks(self):
@@ -142,7 +156,7 @@ class CC8Widget(QtWidgets.QWidget):
     """
 
     def __init__(self, cc8, starttime, interval, fq_idx, slow_idx,\
-        olap=0.1, maac_th=0.6, baz_int=[]):
+        olap=0.1, maac_th=0.6, max_err=1, baz_int=[]):
 
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
@@ -151,10 +165,16 @@ class CC8Widget(QtWidgets.QWidget):
         self.fq_idx    = fq_idx
         self.slow_idx  = slow_idx
         self.maac_th   = maac_th
+        self.max_err   = max_err
         self.baz_int   = baz_int
         self.starttime = starttime
         self.interval  = dt.timedelta(minutes=interval)
         self.olap      = dt.timedelta(minutes=interval*olap)
+
+        # before plot, compute the bounds of the RMS
+        rms_stats = self.cc8.get(attr="rms", fq_idx=self.fq_idx, slow_idx=self.slow_idx).get_stats("rms")
+        self.rms_min = rms_stats[0]
+        self.rms_max = rms_stats[1]
 
         # add canvas
         self.canvas = CC8Canvas(self)
@@ -189,6 +209,21 @@ class CC8Widget(QtWidgets.QWidget):
     def update_maac(self, new_maac):
         self.maac_th   = new_maac
         self.canvas.plot()
+    
+
+    def update_error(self, new_error):
+        self.max_err   = new_error
+        self.canvas.plot()
+
+
+    def save_fig(self, filename):
+        fig = self.canvas.fig
+        files_types = 'Image (*.png)'
+        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', filename, files_types)
+        if fileName == '':
+            return
+        else:
+            fig.savefig(fileName, bbox_inches='tight', dpi = 300)
 
 
 class CC8Canvas(FigureCanvas):
@@ -221,7 +256,7 @@ class CC8Canvas(FigureCanvas):
                 slow_idx=self.parent.slow_idx)
             
             # set nidx widget
-            self.nidx_list = self.ccout.get_nidx(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
+            self.nidx_list = self.ccout.get_nidx(max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
             
             if not self.WidgetNidex:
                 # open a widget
@@ -230,10 +265,10 @@ class CC8Canvas(FigureCanvas):
                 self.WidgetNidex.update(self.ccout, self.nidx_list)
 
             self.time = np.array(self.ccout._dout["dtime"])
-            self.fig_dict = self.ccout.plot(maac_th=self.parent.maac_th, baz_int=self.parent.baz_int, fig=self.fig, x_time=True, return_fdict=True)
+            self.fig_dict = self.ccout.plot(max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int, fig=self.fig, x_time=True, rms_lim=[self.parent.rms_min, self.parent.rms_max], return_fdict=True)
 
             # add horizontal bar in maac_th
-            self.fig_dict["maac"]["axis"].axhline(self.parent.maac_th, color="r", ls="--", alpha=0.5)
+            self.fig_dict["maac"]["axis"].axhline(self.parent.maac_th, color="r", ls="--", alpha=0.7, zorder=5)
             
             # add navigation
             self.axes_ = [ax["axis"] for _, ax in self.fig_dict.items()]
@@ -315,6 +350,10 @@ class CC8Canvas(FigureCanvas):
 
         if event.key == "s" and self.hover_nidx:
             self.WidgetNidex.plot(nidx=self.hover_nidx)
+        
+        if event.key == "f1":
+            filename = "Detecciones_1.png"
+            self.parent.save_fig(filename)
 
 
         if event.key == "t" and self.hover_nidx:
@@ -322,9 +361,14 @@ class CC8Canvas(FigureCanvas):
 
 
         if event.key == "m":
-            new_maac, ok = QtWidgets.QInputDialog.getDouble(self, "MAAC threshold","Value:", self.parent.maac_th, 0.0, 1.0, 1, QtCore.Qt.WindowStaysOnTopHint, 0.1)
+            new_maac, ok = QtWidgets.QInputDialog.getDouble(self, "MAAC threshold","Value:", self.parent.maac_th, 0.0, 1.0, 2, QtCore.Qt.WindowStaysOnTopHint, 0.05)
             if ok:
                 self.parent.update_maac(new_maac)
+        
+        if event.key == "e":
+            new_error, ok = QtWidgets.QInputDialog.getDouble(self, "Error max. threshold","Value:", self.parent.max_err, 0.0, 10.0, 1, QtCore.Qt.WindowStaysOnTopHint, 0.1)
+            if ok:
+                self.parent.update_error(new_error)
 
 
         if event.key == "p" and self.baz0 and self.slow0:
@@ -332,6 +376,6 @@ class CC8Canvas(FigureCanvas):
                 starttime = min([self.ticks['right'],self.ticks['left']])
                 endtime   = max([self.ticks['right'],self.ticks['left']])
                 fig = self.ccout.get_beamform(starttime, endtime, self.slow0, self.baz0)
-                fig.savefig("beamform_test.png")
+                fig.savefig(f"{self.parent.cc8.stats.id}-{starttime.strftime('%y%m%d-%H%M%S')}-BAZ{self.baz0:.0f}.png")
 
 

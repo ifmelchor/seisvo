@@ -273,9 +273,10 @@ class CC8(object):
         fq_idx   = kwargs.get("fq_idx", self.stats.fqidx[0])
         slow_idx = kwargs.get("slow_idx", self.stats.sidx[0])
         maac_th  = kwargs.get("maac_th", 0.6)
+        max_err  = kwargs.get("max_err", 1)
         baz_int  = kwargs.get("baz_int", [])
 
-        widget = load_cc8widget(self, starttime, interval, fq_idx, slow_idx, olap=olap, maac_th=maac_th, baz_int=baz_int)
+        widget = load_cc8widget(self, starttime, interval, fq_idx, slow_idx, olap=olap, maac_th=maac_th, baz_int=baz_int, max_err=max_err)
 
 
 class CC8out(object):
@@ -338,9 +339,11 @@ class CC8out(object):
         fq_idx   = kwargs.get("fq_idx", self._fqidx[0])
         slow_idx = kwargs.get("slow_idx", self._slidx[0])
         db_scale = kwargs.get("db_scale", True)
-        maac_th  = kwargs.get("maac_th", 0.0)
+        maac_th  = kwargs.get("maac_th", 0)
         maac_rv  = kwargs.get("maac_rv", False)
-        max_err  = kwargs.get("max_err", 1)
+        max_err  = kwargs.get("max_err", 0)
+        rms_th   = kwargs.get("rms_th", 0)
+        rms_rv  = kwargs.get("rms_rv", False)
         baz_int  = kwargs.get("baz_int", [])
         
         attr = self.check_attr(attr)[0]
@@ -354,73 +357,87 @@ class CC8out(object):
         key = "/".join([fqslo, attr])
         data = np.copy(self._dout[key])
 
-        if attr == "bazm":
-            data[data>360] = np.nan
+        if attr == "slowmap":
+            return data
 
-        if attr == "slow":
-            slow_max = self.cc8stats.slow_max[int(slow_idx)-1]
-            data[data>slow_max] = np.nan
+        else:
+            if attr == "bazm":
+                data[data>360] = np.nan
 
-        if attr == "rms":
-            data[data<=0] = np.nan
-            data = 10*np.log10(data)
+            if attr == "slow":
+                slow_max = self.cc8stats.slow_max[int(slow_idx)-1]
+                data[data>slow_max] = np.nan
 
-        # apply maac threshold
-        if attr != "slowmap" and maac_th > 0.0:
-            maac_key = "/".join([fqslo, "maac"])
-            maac = self._dout[maac_key]
-            if maac_rv:
-                data[np.where(maac>maac_th)] = np.nan
-            else:
-                data[np.where(maac<maac_th)] = np.nan
-        
-        #apply azimuth interval
-        if attr not in ("slowmap", "slowbnd", "bazmbnd") and baz_int:
-            bazmin, bazmax = baz_int
-            baz_key = "/".join([fqslo, "bazm"])
-            baz = self._dout[baz_key]
-            data = np.where(((baz<bazmax) & (baz>bazmin)), data, np.nan)
-            # data[(np.where(baz>bazmax) & np.where(baz<bazmin))] = np.nan
+            if attr == "rms":
+                data[data<=0] = np.nan
+                data = 10*np.log10(data)
+            
+            # apply rms threshold
+            if rms_th > 0.0:
+                rms_key = "/".join([fqslo, "rms"])
+                rms = self._dout[rms_key]
+                if rms_rv:
+                    data[np.where(rms>rms_th)] = np.nan
+                else:
+                    data[np.where(rms<rms_th)] = np.nan
+
+            # apply maac threshold
+            if maac_th > 0.0:
+                maac_key = "/".join([fqslo, "maac"])
+                maac = self._dout[maac_key]
+                if maac_rv:
+                    data[np.where(maac>maac_th)] = np.nan
+                else:
+                    data[np.where(maac<maac_th)] = np.nan
+            
+            #apply azimuth interval
+            if attr not in ("slowbnd", "bazmbnd") and baz_int:
+                bazmin, bazmax = baz_int
+                baz_key = "/".join([fqslo, "bazm"])
+                baz = self._dout[baz_key]
+                data = np.where(((baz<bazmax) & (baz>bazmin)), data, np.nan)
+                # data[(np.where(baz>bazmax) & np.where(baz<bazmin))] = np.nan
 
 
-        if max_err > 0.0:
-            slokey = "/".join([fqslo, "slow"])
-            bazkey = "/".join([fqslo, "bazm"])
-            slowb  = self._dout[slokey+"bnd"]
-            bazb   = (np.pi/180)*self._dout[bazkey+"bnd"]
-            slodiff  = np.abs(slowb[:,1] - slowb[:,0])
-            bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
-            error  = (slodiff+bazdiff)/2
-            data[np.where(error>max_err)] = np.nan
+            if max_err > 0.0:
+                slokey = "/".join([fqslo, "slow"])
+                bazkey = "/".join([fqslo, "bazm"])
+                slowb  = self._dout[slokey+"bnd"]
+                bazb   = (np.pi/180)*self._dout[bazkey+"bnd"]
+                slodiff  = np.abs(slowb[:,1] - slowb[:,0])
+                bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
+                error  = (slodiff+bazdiff)/2
+                data[np.where(error>max_err)] = np.nan
 
 
-        if attr == "slowbnd":
-            slokey = "/".join([fqslo, "slow"])
-            slow   = self._dout[slokey]
-            data2  = data.copy()
-            n = 0
-            for x, (x0, x1) in zip(slow, data2):
-                s1 = x-x0
-                s2 = x1-x
-                data[n,:] = [s1, s2]
-                n += 1
+            if attr == "slowbnd":
+                slokey = "/".join([fqslo, "slow"])
+                slow   = self._dout[slokey]
+                data2  = data.copy()
+                n = 0
+                for x, (x0, x1) in zip(slow, data2):
+                    s1 = x-x0
+                    s2 = x1-x
+                    data[n,:] = [s1, s2]
+                    n += 1
 
-        if attr == "bazmbnd":
-            bazkey = "/".join([fqslo, "bazm"])
-            baz    = self._dout[bazkey]
-            data2  = data.copy()
-            n = 0
-            for x, (x0, x1) in zip(baz, data2):
-                a1 = x-x0
-                a2 = x1-x
-                if a1 < 0:
-                    a1 = 0.0
-                if a2 < 0:
-                    a2 = 360.0
-                data[n,:] = [a1, a2]
-                n += 1
 
-        return data
+            if attr == "bazmbnd":
+                bazkey = "/".join([fqslo, "bazm"])
+                baz    = self._dout[bazkey]
+                data2  = data.copy()
+                n = 0
+                for x, (x0, x1) in zip(baz, data2):
+                    a1 = x-x0
+                    a2 = x1-x
+                    if a1 < 0:
+                        a1 = 0.0
+                    if a2 < 0:
+                        a2 = 360.0
+                    data[n,:] = [a1, a2]
+                    n += 1
+
+            return data
 
 
     def get_nidx(self,  **kwargs):
@@ -490,7 +507,7 @@ class CC8out(object):
         return pdf, space
 
 
-    def plot(self, slow_idx=None, fq_idx=None, show_title=True, maac_th=0.5, baz_int=[], **fig_kwargs):
+    def plot(self, slow_idx=None, fq_idx=None, show_title=True, maac_th=0.5, max_err=0.0, baz_int=[], rms_lim=[], **fig_kwargs):
 
         if not slow_idx:
             slow_idx = self._slidx[0]
@@ -509,20 +526,29 @@ class CC8out(object):
 
         datattr = {}
         for attr in ["rms", "maac", "slow", "bazm"]:
-            datattr[attr] = self.get_data(attr, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+            datattr[attr] = self.get_data(attr, slow_idx=slow_idx, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, baz_int=baz_int)
         
         bounds = {
-            "slow": self.get_data("slowbnd", slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int),
-            "bazm": self.get_data("bazmbnd", slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+            "slow": self.get_data("slowbnd", slow_idx=slow_idx, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, baz_int=baz_int),
+            "bazm": self.get_data("bazmbnd", slow_idx=slow_idx, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, baz_int=baz_int)
         }        
 
-        slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
-        bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, baz_int=baz_int)
+        slowpdf = self.get_pdf("slow", vmin=0, vmax=slomax, slow_idx=slow_idx, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, baz_int=baz_int)
+        bazmpdf = self.get_pdf("bazm", vmin=0, vmax=360, slow_idx=slow_idx, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, baz_int=baz_int)
 
-        fig_kwargs["maac_rv"] = self.get_data("maac", slow_idx=slow_idx, fq_idx=fq_idx, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
+        fig_kwargs["maac_rv"] = self.get_data("maac", slow_idx=slow_idx, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
         if show_title:
             title = f"{self.cc8stats.id} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n {self._dout['dtime'][0]}"
             fig_kwargs["title"] = title
+        
+        if not rms_lim:
+            rms_stats = self.get_stats("rms", slow_idx=slow_idx, fq_idx=fq_idx)
+            fig_kwargs["rms_min"] = rms_stats[0]
+            fig_kwargs["rms_max"] = rms_stats[1]
+        else:
+            fig_kwargs["rms_min"] = rms_lim[0]
+            fig_kwargs["rms_max"] = rms_lim[1]
+
 
         ans = simple_cc8_plot(self._dout["dtime"], datattr, bounds, slowpdf, bazmpdf, **fig_kwargs)
 

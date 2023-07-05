@@ -76,6 +76,8 @@ def simple_cc8_plot(dtime, datattr, bounds, slowpdf, bazmpdf, show=True, **kwarg
     title        = kwargs.get("title", None)
     maac_rv      = kwargs.get("maac_rv", None)
     x_time       = kwargs.get("x_time", False)
+    rms_max      = kwargs.get("rms_max", False)
+    rms_min      = kwargs.get("rms_min", False)
     return_fdict = kwargs.get("return_fdict", False)
 
     grid = {'hspace':0.15, 'left':0.08, 'right':0.92, 'wspace':0.05, 'width_ratios':[1,0.1]}
@@ -117,6 +119,9 @@ def simple_cc8_plot(dtime, datattr, bounds, slowpdf, bazmpdf, show=True, **kwarg
         else:
             axes[n,0].set_xlim(dtime[0],dtime[-1])
         
+        if attr == "rms":
+            axes[n,0].set_ylim(np.floor(rms_min), np.ceil(rms_max))
+
         if attr == "maac":
             axes[n,0].set_ylim(0, 1)
             if isinstance(maac_rv, np.ndarray):
