@@ -330,34 +330,27 @@ class CC8stats(_Stats):
     def __init__(self, header):
         super().__init__(header)
         self.fqidx = [str(fqix) for fqix in range(1, len(self.fq_bands)+1)]
-        self.sidx  = [str(sidx) for sidx in range(1, len(self.slow_max)+1)]
 
 
-    def check_idx(self, idx, type):
+    def check_idx(self, idx):
         if isinstance(idx, (str, int)):
             if isinstance(idx, int):
                 idx = str(idx)
             
-            cond1 = type == "slow" and idx in self.sidx
-            cond2 = type == "fq" and idx in self.fqidx
-            
-            if cond1 or cond2:
+            if idx in self.fqidx:
                 return [idx]
+            
             else:
                 return []
                 
         if isinstance(idx, (list, tuple)):
-            if type == "fq":
-                return [str(ix) for ix in idx if str(ix) in self.fqidx]
-            
-            if type == "slow":
-                return [str(ix) for ix in idx if str(ix) in self.sidx]
+            return [str(ix) for ix in idx if str(ix) in self.fqidx]
 
 
     def __str__(self):
         priorized_keys = ['id', 'locs', 'starttime', 'endtime',\
             'window','overlap','nro_time_bins','last_time_bin',\
-            'sample_rate','fq_bands', 'slow_max','slow_inc', 'cc_thres'
+            'sample_rate','fq_bands', 'slow_max','slow_int', 'cc_thres'
             ]
         return self._pretty_str(priorized_keys)
     
@@ -367,13 +360,13 @@ class CC8stats(_Stats):
             ltblist = h5f['header'].attrs["last_time_bin"]
 
             nbin = ltblist[fqn-1]
-            for nsi in range(1, len(self.nro_slow_bins)+1):
-                h5f[str(fqn)][str(nsi)]["slowmap"][nbin+1:nbin+1+nwin,:,:] = wdict[nsi]["slowmap"]
-                h5f[str(fqn)][str(nsi)]["slowbnd"][nbin+1:nbin+1+nwin,:] = wdict[nsi]["slowbnd"]
-                h5f[str(fqn)][str(nsi)]["bazmbnd"][nbin+1:nbin+1+nwin,:] = wdict[nsi]["bazmbnd"]
-                    
-                for attr in ("slow", "bazm", "maac", "rms"):
-                    h5f[str(fqn)][str(nsi)][attr][nbin+1:nbin+1+nwin] = wdict[nsi][attr]
+            
+            h5f[str(fqn)]["slowmap"][nbin+1:nbin+1+nwin,:,:] = wdict["slowmap"]
+            h5f[str(fqn)]["slowbnd"][nbin+1:nbin+1+nwin,:]   = wdict["slowbnd"]
+            h5f[str(fqn)]["bazmbnd"][nbin+1:nbin+1+nwin,:]   = wdict["bazmbnd"]
+                
+            for attr in ("slow", "bazm", "maac", "rms"):
+                h5f[str(fqn)][attr][nbin+1:nbin+1+nwin] = wdict[attr]
 
             ltblist[fqn-1] = nbin + nwin
             h5f['header'].attrs.modify('last_time_bin', ltblist)

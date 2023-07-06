@@ -52,7 +52,7 @@ class _CC8Process(object):
         
         t0 = time.time()
         cc8_ans = get_CC8(data, fs, xutm, yutm, fqband, self.cc8stats.slow_max,\
-            self.cc8stats.slow_inc, lwin=self.headers["lwin"], nwin=nwin,\
+            self.cc8stats.slow_int, lwin=self.headers["lwin"], nwin=nwin,\
             nadv=self.headers["nadv"], cc_thres=self.cc8stats.cc_thres,\
             toff=self.headers["toff_sec"])
         t1 = time.time()
@@ -97,17 +97,17 @@ class _CC8Process(object):
     def get_empty_dict(self, nwin):
         cc8_ans = {}
         vector_nan = np.full([nwin,], np.nan)
-        for ns, nite in enumerate(self.cc8stats.nro_slow_bins):
-            matrix_nan = np.full([nwin, nite, nite], np.nan)
-            matrixbnd_nan = np.full([nwin, 2], np.nan)
-            cc8_ans[ns+1] = {}
+        nite = self.cc8stats.nro_slow_bins
+        matrix_nan = np.full([nwin, nite, nite], np.nan)
+        matrixbnd_nan = np.full([nwin, 2], np.nan)
+        cc8_ans = {}
 
-            for attr in ("slow", "bazm", "maac", "rms"):
-                cc8_ans[ns+1][attr] = vector_nan
-            
-            cc8_ans[ns+1]["slowmap"] = matrix_nan
-            cc8_ans[ns+1]["slowbnd"] = matrixbnd_nan
-            cc8_ans[ns+1]["bazmbnd"] = matrixbnd_nan
+        for attr in ("slow", "bazm", "maac", "rms"):
+            cc8_ans[attr] = vector_nan
+        
+        cc8_ans["slowmap"] = matrix_nan
+        cc8_ans["slowbnd"] = matrixbnd_nan
+        cc8_ans["bazmbnd"] = matrixbnd_nan
         
         return cc8_ans
 

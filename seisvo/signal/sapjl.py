@@ -14,7 +14,6 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         #assert len(fq_band) == 2
         #assert len(slow_max) == len(slow_inc)
         data = data.astype(dtype=np.float64)
-        nites = len(slow_max)
 
         # convert to array
         from juliacall import Main as jl
@@ -22,8 +21,8 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         xutm = jl.Array(np.array(xutm))
         yutm = jl.Array(np.array(yutm))
         fq_band = jl.Array(np.array(fq_band))
-        slow_max = jl.Array(np.array(slow_max))
-        slow_inc = jl.Array(np.array(slow_inc))
+        slow_max = jl.Array(np.array([slow_max]))
+        slow_inc = jl.Array(np.array([slow_inc]))
 
         # get kwargs
         lwin = int(kwargs["lwin"])
@@ -39,17 +38,16 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
             # run and save
             jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff)
             pyans = dict(jlans)
-            for nsi in range(1, nites+1):
-                ans[nsi] = {}
-                for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
-                    ans[nsi][attr] = np.array(pyans[nsi][attr])
+            dictans = {}
+            for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
+                dictans[attr] = np.array(pyans[1][attr])
 
         except Exception as exc:
             print("\n ------ ERROR INFO ------")
             print(exc)
             print(" ------------------------\n")
 
-    return ans
+    return dictans
 
 
 def array_delta_times(slowness, bazimuth, slomax, slomint, xUTM, yUTM, etol=1e-2):

@@ -436,7 +436,7 @@ class Array(Network):
 
 
     def get_cc8(self, starttime, endtime, window, overlap, slow_max=3.,\
-        slow_inc=0.1, fq_band=[1., 3.], cc_thres=0.05, exclude_locs=[], **kwargs):
+        slow_int=0.1, fq_band=[1., 3.], cc_thres=0.05, exclude_locs=[], **kwargs):
         """
         compute CC8 algorithm
         window in seconds (float) and overlap between 0 an 1.
@@ -444,7 +444,7 @@ class Array(Network):
 
         toff_sec    = kwargs.get('toff_sec', 10)
         sample_rate = kwargs.get("sample_rate", self.sample_rate)
-        nite        = 1 + 2*int(slow_max/slow_inc)
+        nite        = 1 + 2*int(slow_max/slow_int)
 
         # locations and positions
         if exclude_locs:
@@ -467,13 +467,13 @@ class Array(Network):
         data = stream.to_array(detrend=True)
         lwin = int(ss.window * sample_rate)
 
-        ans = get_CC8(data, sample_rate, utmloc["x"], utmloc["y"], fq_band, [slow_max], [slow_inc],\
+        ans = get_CC8(data, sample_rate, utmloc["x"], utmloc["y"], fq_band, slow_max, slow_int,\
             lwin=lwin, nwin=ssdict["nwin"], nadv=ssdict["wadv"], toff=toff_sec, cc_thres=cc_thres)
         
         return ans
 
 
-    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=[3.,0.5],slow_inc=[0.1,0.01], fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=3., slow_int=0.05, fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], **kwargs):
         
         """ Compute CC8 file
 
@@ -498,7 +498,7 @@ class Array(Network):
         slow_max : list 
             maximum slowness in km/s, by default [3.]
 
-        slow_inc : list
+        slow_int : list
             slowness intervals in km/s, by default [0.1]
         
         fq_bands : list of tuples
@@ -515,7 +515,7 @@ class Array(Network):
 
         # do simple checks
         assert starttime < endtime
-        assert len(slow_max) == len(slow_inc)
+        assert slow_max > slow_int
         assert window/60 < interval
 
         # load parameters
@@ -525,7 +525,7 @@ class Array(Network):
         fileout      = kwargs.get("fileout", None)
         
         # compute slowness invervals
-        nites = [1 + 2*int(pmax/pinc) for pmax, pinc in zip(slow_max, slow_inc)]
+        nites = 1 + 2*int(slow_max/slow_int)
         
         # define locations and positions
         if exclude_locs:
@@ -552,7 +552,7 @@ class Array(Network):
             sample_rate     = sample_rate,
             fq_bands        = fq_bands,
             slow_max        = slow_max,
-            slow_inc        = slow_inc,
+            slow_int        = slow_int,
             nro_slow_bins   = nites,
             cc_thres        = cc_thres,
             toff_sec        = toff_sec
@@ -561,6 +561,7 @@ class Array(Network):
         # compute the steps and save info
         ssdict = SSteps(starttime, endtime, window, interval=interval,\
             win_olap=overlap, logfile=True).to_dict()
+        
         cc8base["lwin"] = int(window*sample_rate)
         cc8base["nwin"] = ssdict["nwin"]
         cc8base["nadv"] = ssdict["wadv"]
