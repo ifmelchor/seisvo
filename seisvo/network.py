@@ -615,14 +615,16 @@ class Array(Network):
         exclude_locs=[], plot=True, show=True, **st_kwargs):
 
         stream = self.get_stream(starttime, endtime, exclude_locs=exclude_locs, **st_kwargs)
+        
+        if not stream:
+            return None
 
         psd_dict = {}
-        if stream:
-            for tr in stream:
-                fs = int(tr.stats.sampling_rate)
-                psd, freq = get_PSD(tr.data, fs, lwin=int(fs*window), olap=olap,\
-                    fq_band=fq_band)
-                psd_dict[tr.stats.location] = psd
+        for tr in stream:
+            fs = int(tr.stats.sampling_rate)
+            psd, freq = get_PSD(tr.data, fs, lwin=int(fs*window), olap=olap,\
+                fq_band=fq_band)
+            psd_dict[tr.stats.location] = psd
 
         if plot:
             fig = traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}", show=show)

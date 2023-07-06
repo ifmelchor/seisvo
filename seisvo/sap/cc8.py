@@ -406,9 +406,8 @@ class CC8out(object):
                 bazb   = (np.pi/180)*self._dout[bazkey+"bnd"]
                 slodiff  = np.abs(slowb[:,1] - slowb[:,0])
                 bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
-                error  = (slodiff+bazdiff)/2
-                data[np.where(error>max_err)] = np.nan
-
+                error    = (slodiff+bazdiff)/2
+                data   = np.where(error<max_err, data, np.nan)
 
             if attr == "slowbnd":
                 slokey = "/".join([fqslo, "slow"])
@@ -732,29 +731,6 @@ class CC8out(object):
         return fig
 
 
-    # def plot_slowmap(self, fq_idx, slow_idx, fps=30, plot=True, save=False, starttime=None, endtime=None, filename=None):
-
-    #     assert "slowmap" in self.attr_list
-
-    #     if isinstance(fq_idx, int):
-    #         fq_idx = str(fq_idx)
-        
-    #     if isinstance(slow_idx, int):
-    #         slow_idx = str(slow_idx)
-
-    #     fq_slo_idx = "/".join([fq_idx, slow_idx])
-    #     motion = slowness_map_motion(self, fq_slo_idx, fps, starttime=starttime, endtime=endtime, plot=plot)
-
-    #     if save:
-    #         if not filename:
-    #             filename = "_".join(self.cc8.stats.id, fq_slo_idx) + '.mp4'
-    #         else:
-    #             if filename.split('.')[-1] != "mp4":
-    #                 filename += '.mp4'
-            
-    #         motion.save(filename, fps=fps, extra_args=['-vcodec', 'libx264'])
-    
-
     def prob_slowmap(self, **nidx_kwargs):
 
         assert "slowmap" in self.attr_list
@@ -803,30 +779,6 @@ class CC8out(object):
         fig = simple_slowmap(pdfmap, sloint, slomax, **fig_kwargs)
 
         return pdfmap
-
-
-
-
-
-
-
-
-
-        # # load SAP.jl
-        # from juliacall import Main as jl
-        # jl.seval("using SAP")
-        # slowprob = jl.mpm(jl.Array(data))
-
-        # plot = kwargs.get("plot", False)
-        # fileout = kwargs.get("fileout", None)
-
-        # if plot or fileout:
-        #     slomax = self.cc8stats.slow_max[int(slow_idx)-1]
-        #     sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
-        #     title  = f"\n {self.starttime_} -- {self.endtime_}"
-        #     simple_slowness_plot(slowprob, slomax, sloinc, title=title, bar_label="most probable MAAC", **kwargs)
-
-        # return slowprob
     
 
     # def get_slobaz_tmap(self, fq_idx, slow_idx, cc_th, starttime=None, endtime=None, savefig=True, **kwargs):
