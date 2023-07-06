@@ -440,15 +440,19 @@ class CC8out(object):
             return data
 
 
-    def get_nidx(self,  **kwargs):
+    def get_nidx(self, return_full=True, **kwargs):
         """
         Return time bins
         """
 
         fq_idx   = kwargs.get("fq_idx", self._fqidx[0])
         slow_idx = kwargs.get("slow_idx", self._slidx[0])
-        maac_th  = kwargs.get("maac_th", 0.0)
-        baz_int  = kwargs.get("baz_int")
+        maac_th  = kwargs.get("maac_th", 0)
+        maac_rv  = kwargs.get("maac_rv", False)
+        max_err  = kwargs.get("max_err", 0)
+        rms_th   = kwargs.get("rms_th", 0)
+        rms_rv   = kwargs.get("rms_rv", False)
+        baz_int  = kwargs.get("baz_int", [])
 
         fq_idx   = self.cc8stats.check_idx(fq_idx, "fq")[0]
         slow_idx = self.cc8stats.check_idx(slow_idx, "slow")[0]
@@ -456,23 +460,47 @@ class CC8out(object):
 
         assert fqslo in self.fqslo_
 
+        mackey = "/".join([fqslo, "maac"])
+        rmskey = "/".join([fqslo, "maac"])
+        bazkey = "/".join([fqslo, "bazm"])
+        maac = np.copy(self._dout[mackey])
+        baz  = np.copy(self._dout[bazkey])
+        rms  = np.copy(self._dout[rmskey])
 
-        mckey = "/".join([fqslo, "maac"])
-        maac = np.copy(self._dout[mckey])
+        # init nidx
         nidx = np.arange(len(maac))
 
-        bazkey = "/".join([fqslo, "bazm"])
-        baz  = np.copy(self._dout[bazkey])
-
         # apply maac threshold
-        nidx = np.where(maac>maac_th, nidx, np.nan)
-        
-        #apply azimuth interval
+        if maac_rv:
+            nidx = np.where(maac<maac_th, nidx, np.nan)
+        else:
+            nidx = np.where(maac>maac_th, nidx, np.nan)
+
+        # apply azimuth interval
         if baz_int:
             bazmin, bazmax = baz_int
             nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
-        
-        return nidx[np.isfinite(nidx)].astype(dtype=np.int32)
+
+        # apply rms threshold
+        if rms_rv:
+            nidx = np.where(rms<rms_th, nidx, np.nan)
+        else:
+            nidx = np.where(rms>rms_th, nidx, np.nan)
+
+        # apply max_error
+        if max_err > 0:
+            slokey = "/".join([fqslo, "slow"])
+            slowb  = np.copy(self._dout[slokey+"bnd"])
+            bazb   = (np.pi/180)*np.copy(self._dout[bazkey+"bnd"])
+            slodiff  = np.abs(slowb[:,1] - slowb[:,0])
+            bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
+            error  = (slodiff+bazdiff)/2
+            nidx = np.where(error<max_err, nidx, np.nan)
+
+        if return_full:
+            return nidx
+        else:
+            return nidx[np.isfinite(nidx)].astype(dtype=np.int32)
 
 
     def get_stats(self, attr, **data_kwargs):
@@ -727,38 +755,78 @@ class CC8out(object):
     #         motion.save(filename, fps=fps, extra_args=['-vcodec', 'libx264'])
     
 
-    # def get_maac_probmap(self, fq_idx, slow_idx, starttime=None, endtime=None, **kwargs):
+    def prob_slowmap(self, **nidx_kwargs):
 
-    #     assert "slowmap" in self.attr_list
+        assert "slowmap" in self.attr_list
 
-    #     if isinstance(fq_idx, int):
-    #         fq_idx = str(fq_idx)
-        
-    #     assert fq_idx in self._fqidx
-        
-    #     if isinstance(slow_idx, int):
-    #         slow_idx = str(slow_idx)
-        
-    #     assert slow_idx in self._slidx
+        fq_idx   = nidx_kwargs.get("fq_idx", self._fqidx[0])
+        slow_idx = nidx_kwargs.get("slow_idx", self._slidx[0])
+        maac_th  = nidx_kwargs.get("maac_th", 0)
+        maac_rv  = nidx_kwargs.get("maac_rv", False)
 
-    #     key = "/".join([fq_idx, slow_idx, "slowmap"])
-    #     data = self._dout[key]
+        # get full slowmap
+        smapkey  = "/".join([fq_idx, slow_idx, "slowmap"])
+        slowmap  = self._dout[smapkey]
 
-    #     # load SAP.jl
-    #     from juliacall import Main as jl
-    #     jl.seval("using SAP")
-    #     slowprob = jl.mpm(jl.Array(data))
+        # get filtered slowmap
+        nidx    = self.get_nidx(**nidx_kwargs)
+        fsmap   = slowmap[np.isfinite(nidx)]
 
-    #     plot = kwargs.get("plot", False)
-    #     fileout = kwargs.get("fileout", None)
+        print(fsmap.shape)
 
-    #     if plot or fileout:
-    #         slomax = self.cc8stats.slow_max[int(slow_idx)-1]
-    #         sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
-    #         title  = f"\n {self.starttime_} -- {self.endtime_}"
-    #         simple_slowness_plot(slowprob, slomax, sloinc, title=title, bar_label="most probable MAAC", **kwargs)
+        # filter each slowmap
+        for nix in range(fsmap.shape[0]):
+            if maac_rv:
+                fsmap[nix,:,:] = np.where(fsmap[nix,:,:]<maac_th,fsmap[nix,:,:],np.nan)
+            else:
+                fsmap[nix,:,:] = np.where(fsmap[nix,:,:]>maac_th,fsmap[nix,:,:],np.nan)
 
-    #     return slowprob
+        # do pdf map
+        sidx  = self.cc8stats.sidx.index(slow_idx)
+        nites = self.cc8stats.nro_slow_bins[sidx]
+        pdfmap = np.zeros((nites,nites))
+        for ii in range(nites):
+            for jj in range(nites):
+                data = fsmap[:,ii,jj]
+                data = data[np.isfinite(data)]
+                if data.shape[0] > 1:
+                    pdfmap[ii,jj] = get_Stats(data)[3]
+
+        sloint = self.cc8stats.slow_inc[sidx]
+        slomax = self.cc8stats.slow_max[sidx]
+
+        fig_kwargs = {}
+        fig_kwargs["cmap"] = "gist_earth_r"
+        fig_kwargs["vlim"] = [np.nanmin(pdfmap), np.nanmax(pdfmap)]
+        fig_kwargs["bar_label"] = "PDF MAAC > 0.7"
+
+        fig = simple_slowmap(pdfmap, sloint, slomax, **fig_kwargs)
+
+        return pdfmap
+
+
+
+
+
+
+
+
+
+        # # load SAP.jl
+        # from juliacall import Main as jl
+        # jl.seval("using SAP")
+        # slowprob = jl.mpm(jl.Array(data))
+
+        # plot = kwargs.get("plot", False)
+        # fileout = kwargs.get("fileout", None)
+
+        # if plot or fileout:
+        #     slomax = self.cc8stats.slow_max[int(slow_idx)-1]
+        #     sloinc = self.cc8stats.slow_inc[int(slow_idx)-1]
+        #     title  = f"\n {self.starttime_} -- {self.endtime_}"
+        #     simple_slowness_plot(slowprob, slomax, sloinc, title=title, bar_label="most probable MAAC", **kwargs)
+
+        # return slowprob
     
 
     # def get_slobaz_tmap(self, fq_idx, slow_idx, cc_th, starttime=None, endtime=None, savefig=True, **kwargs):

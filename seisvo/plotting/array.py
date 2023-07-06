@@ -186,7 +186,9 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
     axis  = kwargs.get("axis", None)
-    bar_axis = kwargs.get("bar_axis", None)
+    vlim  = kwargs.get("vlim", [])
+    bar_axis  = kwargs.get("bar_axis", None)
+    bar_label = kwargs.get("bar_label", "CC")
     interpolation = kwargs.get("interpolation", "gaussian")
 
     if not axis or not fig:
@@ -204,15 +206,22 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
          slomax - halfbin
     )
 
+    if not vlim:
+        vmin, vmax = 0, 1
+        ticks=[0,0.25,0.5,0.75,1]
+    else:
+        vmin, vmax = vlim
+        ticks=None
+
     im = axis.imshow(np.flipud(slomap).T, cmap=cmap, interpolation=interpolation,\
-        extent=extent, aspect='auto', vmin=0, vmax=1)
+        extent=extent, aspect='auto', vmin=vmin, vmax=vmax)
 
     axis.set_title(title)
     axis.set_xlabel("x [s/km]")
     axis.set_ylabel("y [s/km]")
-    axis.grid(ls="--", color="k", alpha=0.3)
+    axis.grid(ls="--", color="k", alpha=0.3, zorder=3)
 
-    fig.colorbar(im, cax=bar_axis, orientation='vertical', ticks=[0,0.25,0.5,0.75,1], label="CC")
+    fig.colorbar(im, cax=bar_axis, orientation='vertical', ticks=ticks, label=bar_label)
 
     if show:
         plt.show()
