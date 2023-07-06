@@ -64,6 +64,7 @@ def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, 
         vmax = ymax
 
     ax.set_ylim(vmin,vmax)
+    fig.legend(title="LOC", ncol=1)
 
     if show:
         plt.show()
