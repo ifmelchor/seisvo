@@ -499,7 +499,7 @@ class CC8out(object):
         
         datapdf = {
             "slow":self.get_pdf("slow", vmin=0, vmax=slomax, data=datattr["slow"]),
-            "baz":self.get_pdf("bazm", vmin=0, vmax=360, data=datattr["bazm"])
+            "bazm":self.get_pdf("bazm", vmin=0, vmax=360, data=datattr["bazm"])
         }
 
         fig_kwargs["maac_rv"] = self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
