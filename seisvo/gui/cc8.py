@@ -171,7 +171,7 @@ class CC8Widget(QtWidgets.QWidget):
 
         # before plot, compute the bounds of the RMS
         if not rms_lim:
-            rms_data = self.cc8.get(attr="rms", fq_idx=self.fq_idx)
+            rms_data = self.cc8.get(attr="rms", fq_idx=self.fq_idx).get_data("rms")
             rms_lim = [np.nanmin(rms_data), np.nanmax(rms_data)]
 
         self.rms_min = rms_lim[0]
