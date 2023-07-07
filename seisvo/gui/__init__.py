@@ -41,8 +41,8 @@ def load_cc8widget(cc8, starttime, interval, fq_idx,\
     if init_app:
         app = QtWidgets.QApplication([])
     
-    cc_widget = CC8Widget(cc8, starttime, interval, fq_idx,\
-        olap=olap, maac_th=maac_th, max_err=max_err, baz_int=baz_int)
+    cc_widget = CC8Widget(cc8, starttime, interval, fq_idx, olap=olap,\
+        maac_th=maac_th, max_err=max_err, baz_int=baz_int)
     cc_widget.show()
 
     if init_app:
