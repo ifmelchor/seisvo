@@ -381,5 +381,5 @@ class CC8Canvas(FigureCanvas):
         
 
         if event.key == "z":
-            fig = self.ccout.prob_slowmap(fq_idx=self.parent.fq_idx, nidx=self.nidx_list, maac_th=self.parent.maac_th)
+            fig = self.ccout.prob_slowmap(fq_idx=self.parent.fq_idx, max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
 
