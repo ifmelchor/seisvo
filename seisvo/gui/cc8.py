@@ -41,7 +41,7 @@ class CC8nidxWidget(QtWidgets.QWidget):
         else:
             self.nidx_idx, = np.where(self.nidx_list == nidx)
 
-        self.canvas.plot(nidx)
+        self.canvas.plot(int(nidx))
         self.canvas.setFocus()
     
 
@@ -127,7 +127,6 @@ class CC8nidxCanvas(FigureCanvas):
 
 
     def plot(self, nidx):
-        print(nidx)
         with pyqtgraph.BusyCursor():
             self.fig.clf()
             self.ticks = dict(right=None, left=None)
