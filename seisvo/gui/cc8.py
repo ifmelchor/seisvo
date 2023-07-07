@@ -76,7 +76,7 @@ class CC8nidxWidget(QtWidgets.QWidget):
         if fileName == '':
             return
         else:
-            fig.savefig(fileName, bbox_inches='tight', dpi = 300)
+            fig.savefig(fileName+".pdf", bbox_inches='tight', dpi = 300)
 
 
 class CC8nidxCanvas(FigureCanvas):
