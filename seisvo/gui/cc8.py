@@ -255,7 +255,7 @@ class CC8Canvas(FigureCanvas):
             self.ccout = self.parent.cc8.get(starttime=self.parent.starttime, endtime=self.endtime, slowmap=True, fq_idx=self.parent.fq_idx)
             
             # set nidx widget
-            self.nidx_list = self.ccout.get_nidx(max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
+            self.nidx_list = self.ccout.get_nidx(return_full=False, max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
             
             if not self.WidgetNidex:
                 # open a widget
