@@ -662,6 +662,7 @@ class CC8out(object):
         if not fq_idx:
             fq_idx   = self._fqidx[0]
         
+        fq_band   = self.cc8stats.fq_bands[int(fq_idx)-1]
         maac_th  = nidx_kwargs.get("maac_th", 0)
         maac_rv  = nidx_kwargs.get("maac_rv", False)
 
@@ -672,7 +673,7 @@ class CC8out(object):
         # get filtered slowmap
         if not isinstance(nidx, np.ndarray):
             nidx    = self.get_nidx(**nidx_kwargs)
-            
+
         fsmap   = slowmap[np.isfinite(nidx)]
 
         # filter each slowmap
