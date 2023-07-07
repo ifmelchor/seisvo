@@ -127,6 +127,7 @@ class CC8nidxCanvas(FigureCanvas):
 
 
     def plot(self, nidx):
+        print(nidx)
         with pyqtgraph.BusyCursor():
             self.fig.clf()
             self.ticks = dict(right=None, left=None)
