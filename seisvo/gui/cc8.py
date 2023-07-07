@@ -155,7 +155,7 @@ class CC8Widget(QtWidgets.QWidget):
     Genera el espacio físico donde se va a alojar el CANVAS y controla los botones
     """
 
-    def __init__(self, cc8, starttime, interval, fq_idx, slow_idx,\
+    def __init__(self, cc8, starttime, interval, fq_idx,\
         olap=0.1, maac_th=0.6, max_err=1, baz_int=[]):
 
         QtWidgets.QWidget.__init__(self)
@@ -163,7 +163,6 @@ class CC8Widget(QtWidgets.QWidget):
         
         self.cc8       = cc8
         self.fq_idx    = fq_idx
-        self.slow_idx  = slow_idx
         self.maac_th   = maac_th
         self.max_err   = max_err
         self.baz_int   = baz_int
@@ -172,7 +171,7 @@ class CC8Widget(QtWidgets.QWidget):
         self.olap      = dt.timedelta(minutes=interval*olap)
 
         # before plot, compute the bounds of the RMS
-        rms_stats = self.cc8.get(attr="rms", fq_idx=self.fq_idx, slow_idx=self.slow_idx).get_stats("rms")
+        rms_stats = self.cc8.get(attr="rms", fq_idx=self.fq_idx).get_stats("rms")
         self.rms_min = rms_stats[0]
         self.rms_max = rms_stats[1]
 
@@ -252,8 +251,7 @@ class CC8Canvas(FigureCanvas):
         with pyqtgraph.BusyCursor():
 
             self.ccout = self.parent.cc8.get(starttime=self.parent.starttime,\
-                endtime=self.endtime, slowmap=True, fq_idx=self.parent.fq_idx,\
-                slow_idx=self.parent.slow_idx)
+                endtime=self.endtime, slowmap=True, fq_idx=self.parent.fq_idx)
             
             # set nidx widget
             self.nidx_list = self.ccout.get_nidx(max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)

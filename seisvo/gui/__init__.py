@@ -35,13 +35,13 @@ def load_eventwidget(sde, event_id, station_id, init_app=True):
     return SDE_widget
 
 
-def load_cc8widget(cc8, starttime, interval, fq_idx, slow_idx,\
+def load_cc8widget(cc8, starttime, interval, fq_idx,\
         olap=0.1, maac_th=0.6, max_err=1, baz_int=[], init_app=True):
 
     if init_app:
         app = QtWidgets.QApplication([])
     
-    cc_widget = CC8Widget(cc8, starttime, interval, fq_idx, slow_idx,\
+    cc_widget = CC8Widget(cc8, starttime, interval, fq_idx,\
         olap=olap, maac_th=maac_th, max_err=max_err, baz_int=baz_int)
     cc_widget.show()
 
