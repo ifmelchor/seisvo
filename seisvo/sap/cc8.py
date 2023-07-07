@@ -657,9 +657,7 @@ class CC8out(object):
         return fig
     
 
-    def prob_slowmap(self, fq_idx=None, **nidx_kwargs):
-
-        assert "slowmap" in self.attr_list
+    def prob_slowmap(self, fq_idx=None, nidx=None, **nidx_kwargs):
 
         if not fq_idx:
             fq_idx   = self._fqidx[0]
@@ -672,10 +670,10 @@ class CC8out(object):
         slowmap  = self._dout[smapkey]
 
         # get filtered slowmap
-        nidx    = self.get_nidx(**nidx_kwargs)
+        if not isinstance(nidx, np.ndarray):
+            nidx    = self.get_nidx(**nidx_kwargs)
+            
         fsmap   = slowmap[np.isfinite(nidx)]
-
-        print(fsmap.shape)
 
         # filter each slowmap
         for nix in range(fsmap.shape[0]):
@@ -701,6 +699,10 @@ class CC8out(object):
         fig_kwargs["cmap"] = "gist_earth_r"
         fig_kwargs["vlim"] = [np.nanmin(pdfmap), np.nanmax(pdfmap)]
         fig_kwargs["bar_label"] = "PDF MAAC > 0.7"
+
+        starttime = self._dout["dtime"][0]
+        endtime   = self._dout["dtime"][-1]
+        fig_kwargs["title"] = f"{starttime}  -- {endtime} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}]"
 
         fig = simple_slowmap(pdfmap, sloint, slomax, **fig_kwargs)
 

@@ -350,6 +350,7 @@ class CC8Canvas(FigureCanvas):
         if event.key == "s" and self.hover_nidx:
             self.WidgetNidex.plot(nidx=self.hover_nidx)
         
+
         if event.key == "f1":
             filename = "Detecciones_1.png"
             self.parent.save_fig(filename)
@@ -364,6 +365,7 @@ class CC8Canvas(FigureCanvas):
             if ok:
                 self.parent.update_maac(new_maac)
         
+
         if event.key == "e":
             new_error, ok = QtWidgets.QInputDialog.getDouble(self, "Error max. threshold","Value:", self.parent.max_err, 0.0, 10.0, 1, QtCore.Qt.WindowStaysOnTopHint, 0.1)
             if ok:
@@ -376,5 +378,8 @@ class CC8Canvas(FigureCanvas):
                 endtime   = max([self.ticks['right'],self.ticks['left']])
                 fig = self.ccout.get_beamform(starttime, endtime, self.slow0, self.baz0)
                 fig.savefig(f"{self.parent.cc8.stats.id}-{starttime.strftime('%y%m%d-%H%M%S')}-BAZ{self.baz0:.0f}.png")
+        
 
+        if event.key == "z":
+            fig = self.ccout.prob_slowmap(fq_idx=self.parent.fq_idx, nidx=self.nidx_list, maac_th=self.parent.maac_th)
 

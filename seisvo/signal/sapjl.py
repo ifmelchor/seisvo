@@ -8,7 +8,9 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
     """
     julia wrapper for the processing of the CC8 algorithm
     """
-    ans = {}
+
+    dictans = {}
+    
     if isinstance(data, np.ndarray):
         #assert len(xutm) == len(yutm) == data.shape[0]
         #assert len(fq_band) == 2
