@@ -72,7 +72,7 @@ def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, 
     return fig
     
 
-def simple_cc8_plot(dtime, datattr, bounds, slowpdf, bazmpdf, show=True, **kwargs):
+def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
     fig          = kwargs.get("fig", None)
     title        = kwargs.get("title", None)
     maac_rv      = kwargs.get("maac_rv", None)
@@ -129,14 +129,13 @@ def simple_cc8_plot(dtime, datattr, bounds, slowpdf, bazmpdf, show=True, **kwarg
                 axes[n,0].scatter(time, maac_rv, facecolor="blue", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr in ("slow", "bazm"):
-            axes[n,0].errorbar(time, datattr[attr], yerr=bounds[attr].T, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
+            axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr+"bnd"].T, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
+            x, y = datapdf[attr]
             
             if attr == "slow":
-                x, y = slowpdf
                 axes[n,1].set_ylim(y[0], y[-1])
                 axes[n,0].set_ylim(y[0], y[-1])
             else:
-                x, y = bazmpdf
                 axes[n,1].set_ylim(-5, 365)
                 axes[n,0].set_ylim(-5, 365)
             

@@ -516,7 +516,7 @@ class CC8out(object):
             fig_kwargs["rms_max"] = rms_lim[1]
 
 
-        ans = simple_cc8_plot(self._dout["dtime"], datattr, bounds, slowpdf, bazmpdf, **fig_kwargs)
+        ans = simple_cc8_plot(self._dout["dtime"], datattr, datapdf, **fig_kwargs)
 
         return ans
     
