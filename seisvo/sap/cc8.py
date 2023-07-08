@@ -175,11 +175,14 @@ class CC8(object):
 
             stream = array.get_stream(start_int, end_int,\
                 toff_sec=headers["toff_sec"], exclude_locs=excluded_locs)
-            tsi, tei = stream.get_bounds()
-            check_bounds = tsi <= start_int and tei >= end_int
-
-            if stream and check_bounds:
-                data = stream.to_array(detrend=True)
+            
+            if stream:
+                tsi, tei = stream.get_bounds()
+                check_bounds = tsi <= start_int and tei >= end_int
+                if check_bounds:
+                    data = stream.to_array(detrend=True)
+                else:
+                    data = None
             else:
                 data = None
             
