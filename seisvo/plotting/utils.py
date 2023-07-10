@@ -105,7 +105,7 @@ def get_colors(*args):
     return color_dict
 
 
-def plot_gram(y, array, x, axis, return_bar=False, **kwargs):
+def plot_gram(y, array, x, axis, **kwargs):
     """
     This code was designer to plot both spectrogram and polargram
     """
@@ -142,21 +142,24 @@ def plot_gram(y, array, x, axis, return_bar=False, **kwargs):
         y[-1] - halfbin_y
     )
 
-    v_max = kwargs.get('v_max', None)
-    if not v_max:
-        v_max = np.nanmax(array[np.isfinite(array)])
+    norm = kwargs.get('norm', None)
+    if not norm:
+        v_max = kwargs.get('v_max', None)
+        if not v_max:
+            v_max = np.nanmax(array[np.isfinite(array)])
 
-    v_min = kwargs.get('v_min', None)
-    if not  v_min:
-        v_min = np.nanmin(array[np.isfinite(array)])
+        v_min = kwargs.get('v_min', None)
+        if not  v_min:
+            v_min = np.nanmin(array[np.isfinite(array)])
 
-    norm = mcolor.Normalize(v_min, v_max)
+        norm = mcolor.Normalize(v_min, v_max)
 
     interpolation = kwargs.get('interpolation', 'gaussian')
     cmap = kwargs.get('cmap', 'Spectral_r')
     im = axis.imshow(np.flipud(array), cmap=cmap, norm=norm, interpolation=interpolation, extent=extent, aspect="auto")
     axis.axis('tight')
-    axis.grid(False)
+    axis.grid(which="major", color="k", ls="-", alpha=0.4, zorder=4)
+    axis.grid(which="minor", color="k", ls="--", alpha=0.4, zorder=4)
     
     if is_time:
         axis.xaxis_date()
@@ -165,11 +168,14 @@ def plot_gram(y, array, x, axis, return_bar=False, **kwargs):
     if fq_logscale:
         axis.set_xscale('log')
 
-    label_size = kwargs.get('label_size', 10)
-    axis_y_label = kwargs.get('y_label', None)
-    axis_x_label = kwargs.get('x_label', None)
-    axis.set_xlabel(axis_x_label, size=label_size)
-    axis.set_ylabel(axis_y_label, size=label_size)
+    y_label = kwargs.get('y_label', None)
+    
+    if y_label:
+        axis.set_ylabel(y_label)
+    x_label = kwargs.get('x_label', None)
+    
+    if x_label:
+        axis.set_xlabel(x_label)
 
     axis_bar = kwargs.get('axis_bar', None)
     if axis_bar:
@@ -178,9 +184,6 @@ def plot_gram(y, array, x, axis, return_bar=False, **kwargs):
         cbar = fig.colorbar(im, cax=axis_bar, orientation='vertical')
         cbar.locator = mtick.MaxNLocator(nbins=4)
         cbar.update_ticks()
-        cbar.set_label(axis_bar_label, size=label_size)
+        cbar.set_label(axis_bar_label)
 
-        if return_bar:
-            return cbar
-
-    return im, (v_min, v_max)
+        return cbar
