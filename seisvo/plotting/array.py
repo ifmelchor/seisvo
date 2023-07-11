@@ -25,7 +25,7 @@ def location_map(arr, exclude_locs=[], show=True):
     return fig
 
 
-def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, title=None, colorname="tolm"):
+def traces_psd(psd_dict, freq, db_scale=False, vmin=None, vmax=None, show=False, title=None, colorname="tolm"):
 
     fig, ax = plt.subplots(1,1, figsize=(10,8))
     colorlist = get_colors(colorname)
@@ -55,6 +55,7 @@ def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, 
         ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
         ax.set_ylabel("PSD [dB]")
         ax.set_xlabel("Freq [Hz]")
+        ax.set_xscale("log")
         ax.set_title(title)
 
     if not vmin:
