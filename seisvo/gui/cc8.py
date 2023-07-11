@@ -8,6 +8,7 @@ import datetime as dt
 # matplotlib
 import numpy as np
 import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
@@ -102,6 +103,18 @@ class CC8nidxCanvas(FigureCanvas):
         if event.key == 'f1':
             filename = f"Slowmap_1"
             self.parent.save_fig(filename)
+
+        if event.key == 'p':
+            # plot particle motion
+
+            # check if loc 01 exists
+
+            # get station
+
+            # plot particle motion of station between start and endtime
+
+        if event.key == "l":
+            # add label for the event
 
 
     def print_ticks(self):
@@ -454,11 +467,12 @@ class CC8Canvas(FigureCanvas):
                 starttime = min([self.ticks['right'],self.ticks['left']])
                 endtime   = max([self.ticks['right'],self.ticks['left']])
                 fig = self.ccout.get_beamform(starttime, endtime, self.slow0, self.baz0)
-                fig.savefig(f"{self.parent.cc8.stats.id}-{starttime.strftime('%y%m%d-%H%M%S')}-BAZ{self.baz0:.0f}.png")
+                plt.close(fig)
         
 
         if event.key == "z":
             fig = self.ccout.prob_slowmap(fq_idx=self.parent.fq_idx, max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
+            plt.close(fig)
 
 
         if event.key in ("a", "l") and self.hover_nidx:
