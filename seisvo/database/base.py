@@ -74,9 +74,6 @@ class _DataBase(object):
             else:
                 event = None
         else:
-            if with_info:
-                event = session.query(self.sql_row).filter(self.sql_row.starttime != None).all()
-            else:
                 event = session.query(self.sql_row).all()
         session.close()
         return event
@@ -127,21 +124,18 @@ class _DataBase(object):
                 duration=dict_info.get('duration') # in minutes
                 )
 
-        # if self.type == 'iSDE':
-        #     new_evnt = row(
-        #         network=dict_info.get('network'),
-        #         station=dict_info.get('station'),
-        #         air_file=dict_info.get('air_file'),
-        #         channels=dict_info.get('channels'),
-        #         label=dict_info.get('label'),
-        #         label2=dict_info.get('label2'),
-        #         starttime=dict_info.get('starttime'),
-        #         duration=dict_info.get('duration'), # in seconds
-        #         pmax=dict_info.get('pmax'),
-        #         pavg=dict_info.get('pavg'),
-        #         azimuth=dict_info.get('azimuth'),
-        #         ccorr=dict_info.get('ccorr')
-        #         )
+        if self.type == 'CCE':
+            new_evnt = self.sql_row(
+                network=dict_info.get('network'),
+                station=dict_info.get('station'),
+                time=dict_info.get('time'),
+                slow=dict_info.get('slow'),
+                baz=dict_info.get('baz'),
+                maac=dict_info.get('maac'),
+                rms=dict_info.get('rms'),
+                cc8_file=dict_info.get('cc8_file'),
+                fqidx=dict_info.get('fqidx'),
+                )
         
         session.add(new_evnt)
         session.commit()
@@ -469,5 +463,69 @@ class CCE(_DataBase):
             create = False
 
         super().__init__(sql_path, 'CCE', new=create)
+
+
+    def __len__(self):
+        return len(self.get_episode_list())
+
+
+    def __getitem__(self, eid):
+        return self.get_id(eid)
+
+
+    def get_id(self, id=None):
+        return self._get_id(id=id)
+
+
+    def is_eid(self, eid):
+        return eid in self.get_episode_list()
+
+
+    def relabel_event(self, eid, new_label):
+        assert self.is_eid(eid)
+        assert isinstance(new_label, str)
+        self._update_row(eid, dict(label=new_label))
+
+
+    def get_episode_list(self, label=None, time_interval=()):
+        row_list = self.get_id()
+
+        if label:
+            if isinstance(label, str):
+                row_list = list(filter(lambda e: e.label==label, row_list))
+            
+            elif isinstance(label, list):
+                row_list_copy = []
+                for lbl in label:
+                    row_list_copy += list(filter(lambda e: e.label==lbl, row_list))
+                
+                row_list = row_list_copy
+        
+        if time_interval:
+            time_row_list = [] 
+            for row in row_list:
+                cond1 = row.time >= time_interval[0]
+                cond2 = row.time <= time_interval[1]
+                if cond1 and cond2:
+                    time_row_list.append(row)
+            row_list = time_row_list
+
+        row_list.sort(key=lambda x: x.time)
+        row_list = [e.id for e in row_list]
+
+        return row_list
+
+
+    def remove_event(self, eid):
+        if isinstance(eid, int) and self.is_eid(eid):
+            self._remove_row(eid)
+        
+        if isinstance(eid, (list, tuple)):
+            for eidi in eid:
+                if self.is_eid(eidi):
+                    self._remove_row(eid)
+    
+
+
 
 
