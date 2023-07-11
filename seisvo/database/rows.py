@@ -122,3 +122,48 @@ def get_lderow(SQLbase):
             return net.get_sta(self.station, self.location)
 
     return LDErow
+
+def get_cc8row(SQLbase):
+    class CC8row(SQLbase):
+        __tablename__ = 'LDE'
+        __table_args__ = {'extend_existing': True}
+
+        id       = sql.Column(sql.Integer, primary_key=True)
+        network  = sql.Column(sql.String, nullable=False)
+        station  = sql.Column(sql.String, nullable=False)
+        label    = sql.Column(sql.String, nullable=False)
+        time     = sql.Column(sql.DateTime(timezone=False), nullable=False)
+        nidx     = sql.Column(sql.Integer, nullable=False)
+        slow     = sql.Column(sql.Float, nullable=False)
+        baz      = sql.Column(sql.Float, nullable=False)
+        cc8_file = sql.Column(sql.String, nullable=False) # lte file containing the event info
+        
+        # additional floats
+        value_1 = sql.Column(sql.Float, nullable=True)
+        value_2 = sql.Column(sql.Float, nullable=True)
+        value_3 = sql.Column(sql.Float, nullable=True)
+        value_4 = sql.Column(sql.Float, nullable=True)
+        value_5 = sql.Column(sql.Float, nullable=True)
+        # additional strings
+        string_1 = sql.Column(sql.String, nullable=True)
+        string_2 = sql.Column(sql.String, nullable=True)
+        string_3 = sql.Column(sql.String, nullable=True)
+        string_4 = sql.Column(sql.String, nullable=True)
+        string_5 = sql.Column(sql.String, nullable=True)
+
+        @property
+        def endtime(self):
+            return self.starttime + dt.timedelta(minutes=self.duration)
+        
+        @property
+        def station_id(self):
+            return '.'.join([self.network, self.station, self.location])
+
+        def get_network(self):
+            return Network(self.network)
+        
+        def get_station(self):
+            net = self.get_network()
+            return net.get_sta(self.station, self.location)
+    
+    return CC8row
