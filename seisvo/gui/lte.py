@@ -16,6 +16,7 @@ from matplotlib.text import Annotation
 from ..utils import in_interval
 from ..plotting.lte import LTESTAplot
 from .utils import Navigate, notify
+from ..database import LDE
 
 
 class DrawEpisodes:
@@ -106,7 +107,10 @@ class LTEWidget(QtWidgets.QWidget):
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
         
-        self.lde = lde # database
+        if self.lde:
+            self.lde = LDE(lde)
+        else:
+            self.lde
         self.lte = lte 
         self.starttime = starttime
         self.interval  = dt.timedelta(hours=interval)
@@ -144,19 +148,22 @@ class LTEWidget(QtWidgets.QWidget):
 
 
     def relabel_event(self, eid, net_label):
-        self.lde.relabel_event(eid, net_label)
-        notify("LTE", f"Episode {eid} relabed!")
+        if self.lde:
+            self.lde.relabel_event(eid, net_label)
+            notify("LTE", f"Episode {eid} relabed!")
 
 
     def save_episode(self, episode_dict):
-        eid = self.lde.add_episode(episode_dict)
-        notify("LTE", f"Episode {eid} save in database")
-        return eid
+        if self.lde:
+            eid = self.lde.add_episode(episode_dict)
+            notify("LTE", f"Episode {eid} save in database")
+            return eid
 
 
     def remove_episode(self, eid):
-        self.lde.remove_event(eid)
-        notify("LTE", f"Episode {eid} removed!")
+        if self.lde:
+            self.lde.remove_event(eid)
+            notify("LTE", f"Episode {eid} removed!")
 
 
 class LTECanvas(FigureCanvas):
@@ -195,8 +202,11 @@ class LTECanvas(FigureCanvas):
             linewidth=0.5, alpha=0.5)
 
             # get episodes draw object
-            self.draw_ = DrawEpisodes(self.parent.lde, self.axes_, self.parent.interval)
-            self.draw_.draw(self.parent.starttime, self.endtime)
+            if self.parent.lde:
+                self.draw_ = DrawEpisodes(self.parent.lde, self.axes_, self.parent.interval)
+                self.draw_.draw(self.parent.starttime, self.endtime)
+            else:
+                self.draw_ = None
 
             self.draw()
 
@@ -238,49 +248,51 @@ class LTECanvas(FigureCanvas):
         
 
         if event.key == "s":
-            if self.ticks['right'] and self.ticks['left']:
-                starttime = min(self.ticks['right'], self.ticks['left'])
-                duration  = abs((self.ticks['left'] - self.ticks['right']).total_seconds()/60)
-                (net_code, sta_code, loc) = self.parent.lte.stats.id.split(".")
-                label , ok = QtWidgets.QInputDialog.getText(None,\
-                    'Nuevo Episodio', 'Define Etiqueta:', text="TR")
-                if ok:
-                    edict = {
-                        "network":net_code,
-                        "station":sta_code,
-                        "location":loc,
-                        "starttime":starttime,
-                        "duration":duration,
-                        "label":label.upper(),
-                        "lte_file":self.parent.lte.stats.file
-                    }
-                    new_eid = self.parent.save_episode(edict)
-                    self.draw_.draw_eid(new_eid, self.parent.starttime)
-                    self.draw()
+            if self.parent.lde:
+                if self.ticks['right'] and self.ticks['left']:
+                    starttime = min(self.ticks['right'], self.ticks['left'])
+                    duration  = abs((self.ticks['left'] - self.ticks['right']).total_seconds()/60)
+                    (net_code, sta_code, loc) = self.parent.lte.stats.id.split(".")
+                    label , ok = QtWidgets.QInputDialog.getText(None,\
+                        'Nuevo Episodio', 'Define Etiqueta:', text="TR")
+                    if ok:
+                        edict = {
+                            "network":net_code,
+                            "station":sta_code,
+                            "location":loc,
+                            "starttime":starttime,
+                            "duration":duration,
+                            "label":label.upper(),
+                            "lte_file":self.parent.lte.stats.file
+                        }
+                        new_eid = self.parent.save_episode(edict)
+                        self.draw_.draw_eid(new_eid, self.parent.starttime)
+                        self.draw()
 
 
         if event.key in ("delete", "l"):
-            if self.draw_.edict:
-                tick_date = mdates.num2date(event.xdata).replace(tzinfo=None)
-                eid_list = self.draw_.detect(tick_date)
-                
-                if len(eid_list) == 1:
-                    if event.key == "delete":
-                        self.parent.remove_episode(eid_list[0])
-                        self.draw_.clear(eid=eid_list[0])
+            if self.parent.lde:
+                if self.draw_.edict:
+                    tick_date = mdates.num2date(event.xdata).replace(tzinfo=None)
+                    eid_list = self.draw_.detect(tick_date)
+                    
+                    if len(eid_list) == 1:
+                        if event.key == "delete":
+                            self.parent.remove_episode(eid_list[0])
+                            self.draw_.clear(eid=eid_list[0])
+                        else:
+                            e = self.parent.lde[eid_list[0]]
+                            label , ok = QtWidgets.QInputDialog.getText(None,\
+                        f'Episodio {e.id}', 'Define Etiqueta:', text=f"{e.label}")
+                            if ok:
+                                self.parent.relabel_event(eid_list[0], label)
+                                self.draw_.relabel(eid_list[0])
+                                self.draw()
                     else:
-                        e = self.parent.lde[eid_list[0]]
-                        label , ok = QtWidgets.QInputDialog.getText(None,\
-                    f'Episodio {e.id}', 'Define Etiqueta:', text=f"{e.label}")
-                        if ok:
-                            self.parent.relabel_event(eid_list[0], label)
-                            self.draw_.relabel(eid_list[0])
-                            self.draw()
-                else:
-                    # sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID',\
-                    #     'Selecciona:', self.event.stations, self.event.stations.index(self.station_id),\
-                    #     editable=False)
-                    print(eid_list)
-                
-                self.draw()
+                        # sid , ok = QtWidgets.QInputDialog.getItem(None, 'Cambiar de StationID',\
+                        #     'Selecciona:', self.event.stations, self.event.stations.index(self.station_id),\
+                        #     editable=False)
+                        print(eid_list)
+                    
+                    self.draw()
 

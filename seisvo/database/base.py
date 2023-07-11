@@ -8,17 +8,16 @@ import subprocess as sp
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-from .rows import get_sderow, get_lderow
+from .rows import get_sderow, get_lderow, get_ccerow
 from .events import Event
 from ..utils import in_interval
-from ..gui import load_eventwidget
 
 SQLbase = declarative_base()
 
 class _DataBase(object):
     def __init__(self, sql_path, dbtype, new):
 
-        if dbtype in ('SDE', 'LDE'):
+        if dbtype in ('SDE', 'LDE', 'CCE'):
             self.type = dbtype
             
             if self.type == "SDE":
@@ -26,6 +25,10 @@ class _DataBase(object):
             
             if self.type == "LDE":
                 self.sql_row = get_lderow(SQLbase)
+
+            if self.type == "CCE":
+                self.sql_row = get_ccerow(SQLbase)
+        
         else:
             raise ValueError(' DataBase must be SDE or LDE')
 
@@ -346,6 +349,9 @@ class SDE(_DataBase):
             assert event_id in eid_list
         
         event_id = eid_list[0]
+
+        from ..gui import load_eventwidget
+        
         widget = load_eventwidget(self, event_id, station_id, init_app=init_app)
 
         return widget
@@ -454,5 +460,14 @@ class LDE(_DataBase):
                     self._remove_row(eid)
     
 
+class CCE(_DataBase):
+    def __init__(self, sql_path):
+        
+        if not os.path.isfile(sql_path):
+            create = True
+        else:
+            create = False
+
+        super().__init__(sql_path, 'CCE', new=create)
 
 

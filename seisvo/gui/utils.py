@@ -19,22 +19,40 @@ def notify(title, message, duration=2):
     c.notify_all(n)
 
 
-class getYesNo(QtWidgets.QDialog):
-    def __init__(self, title, message, parent=None):
-        super().__init__(parent)
+class DateDialog(QtWidgets.QDialog):
+    def __init__(self, current_time, minmax_times, parent=None):
+        super(DateDialog, self).__init__(parent)
 
-        self.setWindowTitle(title)
+        layout = QtWidgets.QVBoxLayout(self)
 
-        QBtn = QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        self.buttonBox = QtWidgets.QDialogButtonBox(QBtn)
+        # nice widget for editing the date
+        self.datetime = QtWidgets.QDateTimeEdit(self)
+        self.datetime.setCalendarPopup(True)
+        self.datetime.setDateTime(QtCore.QDateTime(current_time))
+        self.datetime.setMinimumDateTime(QtCore.QDateTime(minmax_times[0]))
+        self.datetime.setMaximumDateTime(QtCore.QDateTime(minmax_times[1]))
+        layout.addWidget(self.datetime)
 
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
+        # OK and Cancel buttons
+        self.buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+            QtCore.Qt.Horizontal, self)
+        layout.addWidget(self.buttons)
 
-        self.layout = QtWidgets.QVBoxLayout()
-        self.layout.addWidget(QLabel(message))
-        self.layout.addWidget(self.buttonBox)
-        self.setLayout(self.layout)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+
+    # get current date and time from the dialog
+    def dateTime(self):
+        return self.datetime.dateTime()
+
+    # static method to create the dialog and return (date, time, accepted)
+    @staticmethod
+    def getDateTime(current_time, minmax_times, parent=None):
+        dialog = DateDialog(current_time, minmax_times, parent)
+        result = dialog.exec_()
+        date = dialog.dateTime()
+        return (date.toPyDateTime(), result==QtWidgets.QDialog.Accepted)
 
 
 

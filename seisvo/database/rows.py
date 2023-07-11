@@ -2,6 +2,7 @@
 import datetime as dt
 import sqlalchemy as sql
 from ..network import Network
+from ..sap import CC8
 
 def get_sderow(SQLbase):
 
@@ -123,20 +124,24 @@ def get_lderow(SQLbase):
 
     return LDErow
 
-def get_cc8row(SQLbase):
-    class CC8row(SQLbase):
-        __tablename__ = 'LDE'
+
+def get_ccerow(SQLbase):
+
+    class CCErow(SQLbase):
+        __tablename__ = 'CCE'
         __table_args__ = {'extend_existing': True}
 
         id       = sql.Column(sql.Integer, primary_key=True)
         network  = sql.Column(sql.String, nullable=False)
         station  = sql.Column(sql.String, nullable=False)
-        label    = sql.Column(sql.String, nullable=False)
+        label    = sql.Column(sql.String, nullable=True)
         time     = sql.Column(sql.DateTime(timezone=False), nullable=False)
-        nidx     = sql.Column(sql.Integer, nullable=False)
         slow     = sql.Column(sql.Float, nullable=False)
         baz      = sql.Column(sql.Float, nullable=False)
-        cc8_file = sql.Column(sql.String, nullable=False) # lte file containing the event info
+        maac     = sql.Column(sql.Float, nullable=False)
+        rms      = sql.Column(sql.Float, nullable=False)
+        cc8_file = sql.Column(sql.String, nullable=False)
+        fqidx    = sql.Column(sql.String, nullable=False)
         
         # additional floats
         value_1 = sql.Column(sql.Float, nullable=True)
@@ -144,6 +149,7 @@ def get_cc8row(SQLbase):
         value_3 = sql.Column(sql.Float, nullable=True)
         value_4 = sql.Column(sql.Float, nullable=True)
         value_5 = sql.Column(sql.Float, nullable=True)
+        
         # additional strings
         string_1 = sql.Column(sql.String, nullable=True)
         string_2 = sql.Column(sql.String, nullable=True)
@@ -151,19 +157,30 @@ def get_cc8row(SQLbase):
         string_4 = sql.Column(sql.String, nullable=True)
         string_5 = sql.Column(sql.String, nullable=True)
 
+
         @property
-        def endtime(self):
-            return self.starttime + dt.timedelta(minutes=self.duration)
-        
-        @property
-        def station_id(self):
-            return '.'.join([self.network, self.station, self.location])
+        def array_id(self):
+            return '.'.join([self.network, self.station])
+
+        def get_cc8(self):
+            return CC8(self.cc8_file)
+
+
+        def get_windowtimes(self):
+            cc8 = self.get_cc8()
+            halfw = dt.timedelta(seconds=float(cc8.stats.window/2))
+            start = self.time - halfw
+            end   = self.time + halfw
+            return (start, end)
+
 
         def get_network(self):
             return Network(self.network)
+
         
-        def get_station(self):
+        def get_array(self):
             net = self.get_network()
-            return net.get_sta(self.station, self.location)
+            return net.get_array(self.station)
     
-    return CC8row
+
+    return CCErow

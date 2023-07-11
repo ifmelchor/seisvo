@@ -12,7 +12,16 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from matplotlib.text import Annotation
-from .utils import Navigate, notify
+from .utils import DateDialog, Navigate, notify
+from ..database import CCE
+
+
+def save_fig(fig, filename, parent=None):
+    files_types = 'Image (*.png);; Document (*.pdf)'
+    fileName, _ = QtWidgets.QFileDialog.getSaveFileName(parent, 'Save File', filename, files_types)
+    if fileName != '':
+        fig.savefig(fileName, bbox_inches='tight')
+        print(f" [info] {fileName} created")
 
  
 class CC8nidxWidget(QtWidgets.QWidget):
@@ -70,13 +79,7 @@ class CC8nidxWidget(QtWidgets.QWidget):
 
 
     def save_fig(self, filename):
-        fig = self.canvas.fig
-        files_types = 'Image (*.png)'
-        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', filename, files_types)
-        if fileName == '':
-            return
-        else:
-            fig.savefig(fileName+".pdf", bbox_inches='tight', dpi = 300)
+        save_fig(self.canvas.fig, filename, parent=self)
 
 
 class CC8nidxCanvas(FigureCanvas):
@@ -155,13 +158,19 @@ class CC8Widget(QtWidgets.QWidget):
     Genera el espacio físico donde se va a alojar el CANVAS y controla los botones
     """
 
-    def __init__(self, cc8, starttime, interval, fq_idx, olap=0.1, maac_th=0.6, max_err=0.7, rms_lim=[], baz_int=[]):
+    def __init__(self, cc8, starttime, interval, fq_idx, db, olap=0.1, maac_th=0.6, max_err=0.7, rms_lim=[], baz_int=[]):
 
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
-        
         self.cc8       = cc8
         self.fq_idx    = fq_idx
+        
+        # load database
+        if isinstance(db, str):
+            self.db = CCE(db)
+        else:
+            self.db = None
+        
         self.maac_th   = maac_th
         self.max_err   = max_err
         self.baz_int   = baz_int
@@ -190,21 +199,24 @@ class CC8Widget(QtWidgets.QWidget):
             if self.starttime + self.interval > self.cc8.time_[-1]:
                 notify("CC8", "The bound of the file was reached!")
                 endtime = self.cc8.time_[-1]
-                self.starttime = endtime - self.interval - self.olap
             else:
                 endtime = None
-                self.starttime = self.starttime + self.interval - self.olap
-
-            self.canvas.plot(endtime=endtime)
+            
+            new_starttime = self.starttime + self.interval - self.olap
+            self.plot(new_starttime, endtime=endtime)
 
         if key == QtCore.Qt.Key_Left:
             if self.starttime - self.interval < self.cc8.time_[0]:
                 notify("CC8", "The bound of the file was reached!")
-                self.starttime = self.cc8.time_[0]
+                new_starttime = self.cc8.time_[0]
             else:
-                self.starttime = self.starttime - self.interval + self.olap
-            
-            self.canvas.plot()
+                new_starttime = self.starttime - self.interval + self.olap
+            self.plot(new_starttime)
+
+
+    def plot(self, starttime, endtime=None):
+        self.starttime = starttime
+        self.canvas.plot(endtime=endtime) 
 
 
     def update_maac(self, new_maac):
@@ -218,13 +230,7 @@ class CC8Widget(QtWidgets.QWidget):
 
 
     def save_fig(self, filename):
-        fig = self.canvas.fig
-        files_types = 'Image (*.png)'
-        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', filename, files_types)
-        if fileName == '':
-            return
-        else:
-            fig.savefig(fileName, bbox_inches='tight', dpi = 300)
+        save_fig(self.canvas.fig, filename, parent=self)
 
 
 class CC8Canvas(FigureCanvas):
@@ -339,6 +345,24 @@ class CC8Canvas(FigureCanvas):
 
 
     def on_key(self, event):
+        if event.key == "h":
+            print("   key   --   info   ")
+            print(" --------  ----------")
+            print("   ->    --  advance interval")
+            print("   <-    --  retroces interval")
+            print("   tab   --  set starttime")
+            print("   f1    --  save fig")
+            print("    h    --  show key info")
+            print("    s    --  show slowmap of selected point")
+            print("    t    --  show SLOW and BAZ of selected point")
+            print("    m    --  change maac threshold")
+            print("    e    --  change error threshold")
+            print("    z    --  show proble slowmap")
+            print("    p    --  show beam form between ticks for\n\
+                         SLOW and BAZ of selected point")
+            print("    a    --  save point into database")
+
+
         if event.key == 'right':
             self.parent.on_key(QtCore.Qt.Key_Right)
 
@@ -352,8 +376,14 @@ class CC8Canvas(FigureCanvas):
         
 
         if event.key == "f1":
-            filename = "Detecciones_1.png"
+            filename = "Detecciones_1"
             self.parent.save_fig(filename)
+
+
+        if event.key == "tab":
+            starttime, ans = DateDialog.getDateTime(self.parent.starttime,(self.parent.cc8.time_[0],self.parent.cc8.time_[-1]), parent=self)
+            if ans:
+                self.parent.plot(starttime)
 
 
         if event.key == "t" and self.hover_nidx:
@@ -382,4 +412,23 @@ class CC8Canvas(FigureCanvas):
 
         if event.key == "z":
             fig = self.ccout.prob_slowmap(fq_idx=self.parent.fq_idx, max_err=self.parent.max_err, maac_th=self.parent.maac_th, baz_int=self.parent.baz_int)
+
+
+        if event.key == "a":
+            if self.parent.db:
+                maac = self.fig_dict["maac"]["sc"].get_offsets()[self.hover_nidx][1]
+                rms  = self.fig_dict["rms"]["sc"].get_offsets()[self.hover_nidx][1]
+                event_dict = {
+                    "network":
+                    "time":self.hover_time,
+                    "slow":self.slow0,
+                    "baz":self.baz0,
+                    "maac":maac,
+                    "rms":rms,
+                    "cc8_file":self.parent.cc8.stats.file,
+                    "fqidx":self.parent.fq_idx,
+                }
+                self.parent.db._add_row(event_dict)
+
+
 

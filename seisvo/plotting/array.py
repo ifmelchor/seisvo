@@ -76,6 +76,7 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
     fig          = kwargs.get("fig", None)
     title        = kwargs.get("title", None)
     maac_rv      = kwargs.get("maac_rv", None)
+    rms_rv       = kwargs.get("rms_rv", None)
     x_time       = kwargs.get("x_time", False)
     rms_max      = kwargs.get("rms_max", False)
     rms_min      = kwargs.get("rms_min", False)
@@ -122,11 +123,13 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
         
         if attr == "rms":
             axes[n,0].set_ylim(np.floor(rms_min), np.ceil(rms_max))
+            if isinstance(rms_rv, np.ndarray):
+                axes[n,0].scatter(time, rms_rv, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr == "maac":
             axes[n,0].set_ylim(0, 1)
             if isinstance(maac_rv, np.ndarray):
-                axes[n,0].scatter(time, maac_rv, facecolor="blue", edgecolor="k", alpha=0.2, zorder=1)
+                axes[n,0].scatter(time, maac_rv, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr in ("slow", "bazm"):
             axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr+"bnd"].T, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)

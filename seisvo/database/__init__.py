@@ -10,6 +10,6 @@
 
 # __all__ = ["SDE", "LDE", "Event"]
 
-from .base import SDE, LDE
+from .base import SDE, LDE, CCE
 from .events import Event
 # from .lde import LDE

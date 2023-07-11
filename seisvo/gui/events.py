@@ -9,7 +9,7 @@ from seisvo.plotting import get_colors
 from matplotlib.figure import Figure, SubplotParams
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
-from .utils import Navigate, Picker, getYesNo
+from .utils import Navigate, Picker
 
 
 phase_colors = {

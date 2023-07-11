@@ -11,7 +11,6 @@ from .cc8utils import _CC8Process
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF
 from ..plotting.array import simple_cc8_plot, simple_slowmap, window_wvfm
-from ..gui import load_cc8widget
 
 # from tqdm import tqdm
 ATTR_LIST = ["rms", "maac", "slow", "bazm", "slowmap", "bazmbnd", "slowbnd"]
@@ -251,11 +250,13 @@ class CC8(object):
         return CC8out(self.stats, dout)
 
 
-    def gui(self, interval, starttime=None, olap=0.1, **kwargs):
+    def gui(self, interval, starttime=None, olap=0.1, db=None, **kwargs):
         """
         GUI for navigate the cc8 file.
         interval in minutes
         """
+
+        from ..gui import load_cc8widget
 
         if not starttime:
             starttime = self.stats.starttime
@@ -265,7 +266,7 @@ class CC8(object):
         max_err  = kwargs.get("max_err", 0.7)
         baz_int  = kwargs.get("baz_int", [])
 
-        widget = load_cc8widget(self, starttime, interval, fq_idx, olap=olap, maac_th=maac_th, baz_int=baz_int, max_err=max_err)
+        widget = load_cc8widget(self, starttime, interval, fq_idx, db, olap, maac_th, max_err, baz_int)
 
 
 class CC8out(object):
@@ -356,6 +357,7 @@ class CC8out(object):
 
         # apply azimuth interval
         if baz_int:
+            print(baz_int)
             bazmin, bazmax = baz_int
             nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
 
@@ -504,6 +506,8 @@ class CC8out(object):
             "slow":self.get_pdf("slow", vmin=0, vmax=slomax, data=datattr["slow"]),
             "bazm":self.get_pdf("bazm", vmin=0, vmax=360, data=datattr["bazm"])
         }
+
+        fig_kwargs["rms_rv"] = self.get_data("rms", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
 
         fig_kwargs["maac_rv"] = self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
         

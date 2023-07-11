@@ -621,18 +621,26 @@ class Array(Network):
             return None
 
         psd_dict = {}
+        freq     = None
         for tr in stream:
-            fs = int(tr.stats.sampling_rate)
-            psd, freq = get_PSD(tr.data, fs, lwin=int(fs*window), olap=olap,\
-                fq_band=fq_band)
-            psd_dict[tr.stats.location] = psd
+            try:
+                fs = int(tr.stats.sampling_rate)
+                psd, freq = get_PSD(tr.data, fs, lwin=int(fs*window), olap=olap,\
+                    fq_band=fq_band)
+                psd_dict[tr.stats.location] = psd
+            except:
+                pass
 
-        if plot:
-            fig = traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}", show=show)
-            return fig
+        if isinstance(freq, np.ndarray):
+            if plot:
+                fig = traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}", show=show)
+                return fig
+
+            else:
+                return psd_dict, freq
 
         else:
-            return psd_dict, freq
+            return None
 
 
     def get_deltatimes(self, slow, baz, slomax, sloinc, tol=1e-4, pxy0=[0.,0.], exclude_locs=[]):

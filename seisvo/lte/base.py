@@ -10,7 +10,6 @@ import numpy as np
 from ..signal import get_Peaks, get_Stats, get_PDF, get_freq
 from ..stats import LTEstats
 from ..plotting import plotPDF, LTESTAplot
-from ..gui import load_ltewidget
 from .utils import _LTEProcess
 from .peaks import Peaks
 
@@ -565,23 +564,20 @@ class StationLTE(_LTE):
         return Peaks(dpeaks, self.file_, gout.starttime_, gout.endtime_, self.stats.window, fq_range, peak_thresholds)
         
 
-    def plot(self, interval, attr, chan, starttime=None, olap=0.1, lde=None, **fig_kwargs):
+    def plot(self, interval, attr, chan, starttime=None, olap=0.1, db=None, **fig_kwargs):
         """
         Inizialice the LTE GUI. Be default starttime is lte.starttime.
         the fig_kwars controls the cmap of vector parameters and the limits of the attributes
         """
+        
+        from ..gui import load_ltewidget
 
         # check attr and channels
         attr_list = self.check_attr(attr)
         chan_list = self.check_chan(chan)
 
-        if not lde:
-            
-            from ..database import LDE
-            lde = LDE(self.stats.file.replace('lte', 'db'))
-
         # init widget
-        widget = load_ltewidget(self, lde, starttime, interval, attr_list,\
+        widget = load_ltewidget(self, db, starttime, interval, attr_list,\
             chan_list, olap=olap, **fig_kwargs)
 
         return None
