@@ -38,11 +38,11 @@ def traces_psd(psd_dict, freq, db_scale=True, vmin=None, vmax=None, show=False, 
         if db_scale:
             psd = 10*np.log10(psd)
 
-        if ymin > psd.min():
-            ymin = psd.min()
+        if ymin > np.nanmin(psd):
+            ymin = np.nanmin(psd)
 
-        if ymax < psd.max():
-            ymax = psd.max()
+        if ymax < np.nanmax(psd):
+            ymax = np.nanmax(psd)
 
         if bool(n%2):
             ls = "--"
