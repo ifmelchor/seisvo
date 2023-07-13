@@ -450,23 +450,7 @@ class Station(object):
         pplot_control(title, date_list, nro_traces, sample_rate, npts, filesize)
 
 
-    # def plot(self, starttime, sde, channel='all', delta=30, app=False, **kwargs):
-    #     """ Plot seismogram of the station in a simple GUI. 
-
-    #     Args:
-    #         channel (str or list): string or list of string with the channels to plot
-    #         starttime (datetime): start time to plot
-    #         delta (int, optional): in minutes. Defaults to 15.
-    #         return_fig (bool, optional): Return fig and axes objects. Defaults to False.
-    #     """
-
-    #     from seisvo.plotting.gui.gstation import plot_station_gui
-
-    #     window = plot_station_gui(self, starttime, sde, channel=channel, delta=delta, app=app, **kwargs)
-        
-    #     if app:
-            
-    #         return window
+    # def particle_motion(self, starttime, endtime, baz=None, show=True)
 
 
 

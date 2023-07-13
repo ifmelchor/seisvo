@@ -104,7 +104,7 @@ class CC8nidxCanvas(FigureCanvas):
             filename = f"Slowmap_1"
             self.parent.save_fig(filename)
 
-        if event.key == 'p':
+        #if event.key == 'p':
             # plot particle motion
 
             # check if loc 01 exists
@@ -113,8 +113,14 @@ class CC8nidxCanvas(FigureCanvas):
 
             # plot particle motion of station between start and endtime
 
-        if event.key == "l":
-            # add label for the event
+        #if event.key == "l":
+            # add new label for the event
+            # row = self.parent.db[rowid]
+            # label , ok = QtWidgets.QInputDialog.getText(self,\
+            # f'Episodio {rowid}', 'Define Etiqueta:', text=f"{row.label}")
+            # if ok:
+            #     self.parent.db.relabel_event(rowid, label)
+            #     notify("CC8", f" Nueva etiqueta en ID {rowid}")
 
 
     def print_ticks(self):
