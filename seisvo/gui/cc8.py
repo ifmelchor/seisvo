@@ -88,6 +88,7 @@ class CC8nidxWidget(QtWidgets.QWidget):
 class CC8nidxCanvas(FigureCanvas):
     def __init__(self, parent):
         self.parent = parent
+        self.filter = True # by default, active the filter
         self.fig = Figure(figsize=(9,9))
         FigureCanvas.__init__(self, self.fig)
         self.callbacks.connect('button_press_event', self.on_click)
@@ -97,12 +98,15 @@ class CC8nidxCanvas(FigureCanvas):
         if event.key == 'right':
             self.parent.on_key(QtCore.Qt.Key_Right)
 
+
         if event.key == 'left':
             self.parent.on_key(QtCore.Qt.Key_Left)
         
+
         if event.key == 'f1':
             filename = f"Slowmap_1"
             self.parent.save_fig(filename)
+
 
         if event.key == 'p':
             # plot particle motion
@@ -113,6 +117,15 @@ class CC8nidxCanvas(FigureCanvas):
                 start   = self.parent.parent.hover_time - half_w
                 end     = start + half_w + half_w
                 fig     = sta01.particle_motion(start, end, baz=self.parent.parent.baz0)
+
+
+        if event.key == 'f':
+            if self.filter:
+                self.filter = False
+            else:
+                self.filter = True
+            self.plot(self.nidx)
+
 
         #if event.key == "l":
             # add new label for the event
@@ -163,7 +176,7 @@ class CC8nidxCanvas(FigureCanvas):
             self.parent.cc8out.plot_smap(nidx, axis=axes[0,0], bar_axis=axes[0,1], fig=self.fig)
 
             try:
-                self.parent.cc8out.plot_wvfm(nidx, off_sec=5, axes=[axes[2,0], axes[3,0]], fig=self.fig, show_title=False)
+                self.parent.cc8out.plot_wvfm(nidx, ffilter=self.filter, off_sec=5, axes=[axes[2,0], axes[3,0]], fig=self.fig, show_title=False)
                 self.nav = Navigate([axes[2,0], axes[3,0]], self, color='red', linewidth=0.5, alpha=0.5)
             except:
                 print(" No data found to plot waveform.")
@@ -174,6 +187,7 @@ class CC8nidxCanvas(FigureCanvas):
         if self.parent.parent:
             self.parent.parent.show_green(nidx)
 
+        self.nidx = nidx
 
 # CC8 Widget
 

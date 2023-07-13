@@ -560,7 +560,7 @@ class CC8out(object):
         return fig
 
 
-    def plot_wvfm(self, ntime=None, off_sec=0, fq_idx=None, show_title=True, **fig_kwargs):
+    def plot_wvfm(self, ntime=None, off_sec=0, fq_idx=None, show_title=True, ffilter=True, **fig_kwargs):
         """
         Plot shifted traces
         """
@@ -575,7 +575,10 @@ class CC8out(object):
         else:
             assert fq_idx in self._fqidx
 
-        fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
+        if ffilter:
+            fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
+        else:
+            fq_band = [0.5, 10]
 
         data_dict = self.get_data(["maac", "slow", "bazm"], fq_idx=fq_idx)
         maac  = data_dict["maac"]
