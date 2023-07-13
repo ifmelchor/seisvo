@@ -429,13 +429,13 @@ class CC8out(object):
                         if attr == "slowbnd":
                             x = slow[n]
                             x0, x1 = data[n,:]
-                            d1, d2 = x-x0, x1-x
+                            d1, d2 = abs(x-x0), abs(x1-x)
                             data[n,:] = [d1, d2]
 
                         if attr == "bazmbnd":
                             x = baz[n]
                             x0, x1 = data[n,:]
-                            d1, d2 = x-x0, x1-x
+                            d1, d2 = abs(x-x0), abs(x1-x)
                             data[n,:] = [d1, d2]
 
             data_dict[attr] = data
