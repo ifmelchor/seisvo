@@ -206,15 +206,11 @@ class CC8(object):
 
     def get(self, starttime=None, endtime=None, attr=None, slowmap=True, fq_idx=None):
         
-        if not starttime:
-            starttime = self.stats.starttime
-        else:
-            assert starttime >= self.stats.starttime
+        if not starttime or starttime < self.time_[0]:
+            starttime = self.time_[0]
 
-        if not endtime:
-            endtime = self.stats.endtime
-        else:
-            assert endtime <= self.stats.endtime
+        if not endtime or endtime > self.time_[-1]:
+            endtime = self.time_[-1]
 
         if not fq_idx:
             fq_idx = self.stats.fqidx
@@ -259,7 +255,7 @@ class CC8(object):
         from ..gui import load_cc8widget
 
         if not starttime:
-            starttime = self.stats.starttime
+            starttime = self.time_[0]
 
         fq_idx   = kwargs.get("fq_idx", self.stats.fqidx[0])
         maac_th  = kwargs.get("maac_th", 0.6)
@@ -357,7 +353,6 @@ class CC8out(object):
 
         # apply azimuth interval
         if baz_int:
-            print(baz_int)
             bazmin, bazmax = baz_int
             nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
 
@@ -546,7 +541,7 @@ class CC8out(object):
 
         arr, exclude_locs = self.cc8stats.get_array()
         deltas, _ = arr.get_deltatimes(slow, baz, slomax, sloint, exclude_locs=exclude_locs)
-        stream = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=600, exlcude_locs=exclude_locs)
+        stream = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=600, exclude_locs=exclude_locs)
 
         # shift stream
         wvfm_dict = {}
@@ -599,7 +594,7 @@ class CC8out(object):
         end     = start + half_w + half_w
 
         # get stream and delta array
-        stream = arr.get_stream(start, end, prefilt=fq_band, toff_sec=600, exlcude_locs=exclude_locs)
+        stream = arr.get_stream(start, end, prefilt=fq_band, toff_sec=600, exclude_locs=exclude_locs)
         deltas, _ = arr.get_deltatimes(slowt, bazt, slomax, sloint, exclude_locs=exclude_locs)
 
         # shift stream
@@ -625,6 +620,7 @@ class CC8out(object):
         fig = window_wvfm(wvfm_dict, time, startw, endw, **fig_kwargs)
 
         return fig
+
 
 
     def plot_smap(self, ntime=None, fq_idx=None, show_title=True, **fig_kwargs):

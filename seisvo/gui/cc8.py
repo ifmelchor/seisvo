@@ -104,14 +104,15 @@ class CC8nidxCanvas(FigureCanvas):
             filename = f"Slowmap_1"
             self.parent.save_fig(filename)
 
-        #if event.key == 'p':
+        if event.key == 'p':
             # plot particle motion
-
-            # check if loc 01 exists
-
-            # get station
-
-            # plot particle motion of station between start and endtime
+            ans, _ = self.parent.cc8out.cc8stats.get_array()
+            if ans:
+                sta01   = ans.get_sta("01")
+                half_w  = dt.timedelta(seconds=float(self.parent.cc8out.cc8stats.window/2))
+                start   = self.parent.parent.hover_time - half_w
+                end     = start + half_w + half_w
+                fig     = sta01.particle_motion(start, end, baz=self.parent.parent.baz0)
 
         #if event.key == "l":
             # add new label for the event
@@ -191,7 +192,9 @@ class CC8Widget(QtWidgets.QWidget):
         # load database
         if isinstance(db, str):
             self.db = CCE(db)
+            self.is_db = True
         else:
+            self.is_db = False
             self.db = None
         
         self.maac_th   = maac_th
@@ -219,13 +222,16 @@ class CC8Widget(QtWidgets.QWidget):
     
     def on_key(self, key):
         if key == QtCore.Qt.Key_Right:
+            # print(self.starttime + self.interval, self.cc8.time_[-1])
+
             if self.starttime + self.interval > self.cc8.time_[-1]:
                 notify("CC8", "The bound of the file was reached!")
                 endtime = self.cc8.time_[-1]
+                new_starttime = endtime - self.interval - self.olap
             else:
                 endtime = None
+                new_starttime = self.starttime + self.interval - self.olap
             
-            new_starttime = self.starttime + self.interval - self.olap
             self.plot(new_starttime, endtime=endtime)
 
         if key == QtCore.Qt.Key_Left:
@@ -257,7 +263,7 @@ class CC8Widget(QtWidgets.QWidget):
 
 
     def save_nidx(self, edict, label=None):
-        if self.db:
+        if self.is_db:
             rowid = self.db._add_row(edict)
             self.canvas.colorlist[self.canvas.hover_nidx] = "red"
             self.canvas.nidx_db[rowid] = self.canvas.hover_nidx
@@ -302,7 +308,7 @@ class CC8Canvas(FigureCanvas):
 
         with pyqtgraph.BusyCursor():
             # database
-            if self.parent.db:
+            if self.parent.is_db:
                 saved_points = self.parent.db.get_episode_list(time_interval=(self.parent.starttime, self.endtime))
             else:
                 saved_points = []
@@ -481,11 +487,41 @@ class CC8Canvas(FigureCanvas):
             plt.close(fig)
 
 
-        if event.key in ("a", "l") and self.hover_nidx:
-            if self.parent.db:
-
+        if event.key in ("a", "l") and self.hover_nidx and self.parent.is_db:
+            if event.key == "a":
                 # add event
-                if event.key == "a":
+                maac = self.fig_dict["maac"]["sc"].get_offsets()[self.hover_nidx][1]
+                rms  = self.fig_dict["rms"]["sc"].get_offsets()[self.hover_nidx][1]
+                event_dict = {
+                    "network":self.parent.cc8.stats.id.split(".")[0],
+                    "station":self.parent.cc8.stats.id.split(".")[1],
+                    "time":self.hover_time,
+                    "slow":self.slow0,
+                    "baz":self.baz0,
+                    "maac":maac,
+                    "rms":rms,
+                    "cc8_file":self.parent.cc8.stats.file,
+                    "fqidx":self.parent.fq_idx,
+                }
+                self.parent.save_nidx(event_dict)
+
+            if event.key == "l":
+                # relabel or add with new label
+                exist_event = self.hover_nidx in [nidx for _, nidx in self.nidx_db.items()]
+
+                if exist_event:
+                    # relabel
+                    for rowid, nidx in self.nidx_db.items():
+                        if self.hover_nidx == nidx:
+                            row = self.parent.db[rowid]
+                            label , ok = QtWidgets.QInputDialog.getText(self,\
+                            f'Episodio {rowid}', 'Define Etiqueta:', text=f"{row.label}")
+                            if ok:
+                                self.parent.db.relabel_event(rowid, label)
+                                notify("CC8", f" Nueva etiqueta en ID {rowid}")
+
+                else:
+                    # add event
                     maac = self.fig_dict["maac"]["sc"].get_offsets()[self.hover_nidx][1]
                     rms  = self.fig_dict["rms"]["sc"].get_offsets()[self.hover_nidx][1]
                     event_dict = {
@@ -499,46 +535,16 @@ class CC8Canvas(FigureCanvas):
                         "cc8_file":self.parent.cc8.stats.file,
                         "fqidx":self.parent.fq_idx,
                     }
-                    self.parent.save_nidx(event_dict)
 
-                else:
-                    exist_event = self.hover_nidx in [nidx for _, nidx in self.nidx_db.items()]
-
-                    if exist_event:
-                        for rowid, nidx in self.nidx_db.items():
-                            if self.hover_nidx == nidx:
-                                row = self.parent.db[rowid]
-                                label , ok = QtWidgets.QInputDialog.getText(self,\
-                                f'Episodio {rowid}', 'Define Etiqueta:', text=f"{row.label}")
-                                if ok:
-                                    self.parent.db.relabel_event(rowid, label)
-                                    notify("CC8", f" Nueva etiqueta en ID {rowid}")
-
-                    else:
-                        # add event
-                        maac = self.fig_dict["maac"]["sc"].get_offsets()[self.hover_nidx][1]
-                        rms  = self.fig_dict["rms"]["sc"].get_offsets()[self.hover_nidx][1]
-                        event_dict = {
-                            "network":self.parent.cc8.stats.id.split(".")[0],
-                            "station":self.parent.cc8.stats.id.split(".")[1],
-                            "time":self.hover_time,
-                            "slow":self.slow0,
-                            "baz":self.baz0,
-                            "maac":maac,
-                            "rms":rms,
-                            "cc8_file":self.parent.cc8.stats.file,
-                            "fqidx":self.parent.fq_idx,
-                        }
-
-                        # and label
-                        label , ok = QtWidgets.QInputDialog.getText(self,\
-                                f'Nuevo Episodio', 'Define Etiqueta:', text="")
-                        if ok:
-                            self.parent.save_nidx(event_dict, label=label)
+                    # and label
+                    label , ok = QtWidgets.QInputDialog.getText(self,\
+                            f'Nuevo Episodio', 'Define Etiqueta:', text="")
+                    if ok:
+                        self.parent.save_nidx(event_dict, label=label)
 
 
         if event.key == "delete":
-            if self.parent.db and self.nidx_db:
+            if self.parent.is_db and self.nidx_db:
                 exist_event = self.hover_nidx in [nidx for _, nidx in self.nidx_db.items()]
                 if exist_event:
                     for rowid, nidx in self.nidx_db.items():

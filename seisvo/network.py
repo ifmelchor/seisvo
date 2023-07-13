@@ -366,6 +366,9 @@ class Array(Network):
             print(" warn :: multiple sampling rates defined in config file")
         self.sample_rate = fslist[0]
 
+    def get_sta(self, loc):
+        return super().get_sta(self.sta_code, loc=loc)
+
 
     def get_aperture(self, exclude_locs=[]):
         a = 0
@@ -604,11 +607,7 @@ class Array(Network):
 
 
     def get_excluded_locs(self, loc_list):
-        exclude_loc = []
-        for loc in self.locs:
-            if loc not in loc_list:
-                exclude_loc.append(loc)
-        
+        exclude_loc = [loc for loc in self.locs if loc not in loc_list]
         return exclude_loc
 
 

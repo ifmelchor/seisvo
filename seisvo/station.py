@@ -14,6 +14,7 @@ from .obspyext import Stream2
 from .lte.base import _new_LTE
 from .signal import SSteps, get_freq, get_Polar, get_PSD, get_PDF
 from .plotting import plotPDF
+from .plotting.station import particle_motion
 
 
 class Station(object):
@@ -180,8 +181,7 @@ class Station(object):
         return stream
 
 
-    def get_psd(self, starttime, endtime, channel, window=0, olap=0.75,\
-        fq_band=(0.1,15), return_pdf=False, plot_pdf=False, **st_kwargs):
+    def get_psd(self, starttime, endtime, channel, window=0, olap=0.75, fq_band=(0.1,15), return_pdf=False, plot_pdf=False, **st_kwargs):
         """
         Compute the PSD between start and end time for a specific channel.
         if window [float, seconds] > 0, then a moving average is applied with overlap [olap] between [0,1)
@@ -224,8 +224,7 @@ class Station(object):
         return ans
 
 
-    def get_polarization(self, starttime, endtime, window=0, olap=0.75, fq_band=(1.,5.),\
-        full_analysis=True, return_pdf=False, azimuth_ambiguity=True, **st_kwargs):
+    def get_polarization(self, starttime, endtime, window=0, olap=0.75, fq_band=(1.,5.), full_analysis=True, return_pdf=False, azimuth_ambiguity=True, **st_kwargs):
         """
         Compute the polarization analysis between start and end time.
         if window [float, seconds] > 0, then a moving average is applied with overlap [olap] between [0,1)
@@ -282,8 +281,7 @@ class Station(object):
         return freq, polar
 
 
-    def lte(self, starttime, endtime, window, subwindow, interval=None,\
-        channel=None, window_olap=0, subwindow_olap=0, **kwargs):
+    def lte(self, starttime, endtime, window, subwindow, interval=None, channel=None, window_olap=0, subwindow_olap=0, **kwargs):
         """ Compute (station) LTE file
 
         Parameters
@@ -450,7 +448,41 @@ class Station(object):
         pplot_control(title, date_list, nro_traces, sample_rate, npts, filesize)
 
 
-    # def particle_motion(self, starttime, endtime, baz=None, show=True)
+    def particle_motion(self, starttime, endtime, baz=None, show=True, **st_kwargs):
+        """
+        Show and computes the particle motion for a three component data.
+        If baz is a float [in degrees], rotate to ZRT component, else use ZNE.  
+        """
+
+        # check is three-component
+        assert self.is_three_component()
+
+        stream = self.get_stream(starttime, endtime, **st_kwargs)
+
+        # check the three components are available
+        assert len(stream) == 3
+
+        data  = stream.to_array(detrend=True, sort="ZNE")
+        zcomp = data[0,:]
+        ncomp = data[1,:]
+        ecomp = data[2,:]
+
+        if baz:
+            # rotate to radial and transverse components
+            alpha = baz * np.pi/180 
+            rcomp = -ncomp*np.cos(alpha) - ecomp*np.sin(alpha)
+            tcomp =  ncomp*np.sin(alpha) - ecomp*np.cos(alpha)
+        else:
+            rcomp = ecomp
+            tcomp = ncomp
+
+        fig = particle_motion(zcomp, tcomp, rcomp, show=show, baz=baz)
+
+        return fig
+
+
+
+
 
 
 

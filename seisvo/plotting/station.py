@@ -2,7 +2,41 @@
 # coding=utf-8
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+
+
+def particle_motion(zcomp, tcomp, rcomp, show=True, **fig_kwargs):
+
+    baz     = fig_kwargs.get("baz", None)
+
+    fig = plt.figure()
+    ax  = fig.add_subplot(1,1,1, projection="3d")
+    ax.plot(tcomp, rcomp, zcomp, color="k", label='particle motion')
+
+    z_label = "Z"
+    if baz:
+        ax.set_title(f"BAZ = {baz:.1f}")
+        t_label = "Transverse"
+        r_label = "Radial"
+    else:
+        t_label = "NS"
+        r_label = "EW"
+
+    ax.set_ylabel(r_label)
+    ax.xaxis.set_major_formatter(mtick.NullFormatter())
+    ax.set_zlabel(z_label)
+    ax.zaxis.set_major_formatter(mtick.NullFormatter())
+    ax.set_xlabel(t_label)
+    ax.yaxis.set_major_formatter(mtick.NullFormatter())
+    
+    ax.legend()
+
+    if show:
+        plt.show()
+
+    return fig
+
 
 def pplot_control(title, date_list, nro_traces, sample_rate, npts, max_value):
 
