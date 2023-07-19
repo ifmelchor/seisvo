@@ -438,8 +438,7 @@ class Array(Network):
             return stream
 
 
-    def get_cc8(self, starttime, endtime, window, overlap, slow_max=3.,\
-        slow_int=0.1, fq_band=[1., 3.], cc_thres=0.05, exclude_locs=[], **kwargs):
+    def get_cc8(self, starttime, endtime, window, overlap, slow_max=3., slow_int=0.1, fq_band=[1., 3.], cc_thres=0.05, exclude_locs=[], **kwargs):
         """
         compute CC8 algorithm
         window in seconds (float) and overlap between 0 an 1.
@@ -611,8 +610,7 @@ class Array(Network):
         return exclude_loc
 
 
-    def get_psd(self, starttime, endtime, window, olap=0.25, fq_band=(0.5,15.),\
-        exclude_locs=[], plot=True, show=True, **st_kwargs):
+    def get_psd(self, starttime, endtime, window, olap=0.25, fq_band=(0.5,15.), exclude_locs=[], plot=True, show=True, **st_kwargs):
 
         stream = self.get_stream(starttime, endtime, exclude_locs=exclude_locs, **st_kwargs)
         
@@ -642,7 +640,7 @@ class Array(Network):
             return None
 
 
-    def get_deltatimes(self, slow, baz, slomax, sloinc, tol=1e-4, pxy0=[0.,0.], exclude_locs=[]):
+    def get_deltatimes(self, slow, baz, slomax, sloinc, fs, tol=1e-4, pxy0=[0.,0.], return_xy=False, exclude_locs=[]):
 
         eastern  = []
         northing = []
@@ -652,9 +650,13 @@ class Array(Network):
                 eastern.append(utm["easting"])
                 northing.append(utm["northing"])
 
-        ans = array_delta_times(slow, baz, slomax, sloinc, eastern, northing, etol=tol)
+        ans, tol = array_delta_times(slow, baz, slomax, sloinc, fs, eastern, northing, etol=tol, pxy0=pxy0, return_xy=return_xy)
 
-        return ans
+        if return_xy:
+            return ans, tol
+        
+        else:
+            return ans/fs, tol
 
 
 class SoundArray(Network):

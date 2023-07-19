@@ -23,8 +23,10 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         xutm = jl.Array(np.array(xutm))
         yutm = jl.Array(np.array(yutm))
         fq_band = jl.Array(np.array(fq_band))
-        slow_max = jl.Array(np.array([slow_max]))
-        slow_inc = jl.Array(np.array([slow_inc]))
+        # slow_max = jl.Array(np.array([slow_max]))
+        # slow_inc = jl.Array(np.array([slow_inc]))
+        slow_max = float(slow_max)
+        slow_inc = float(slow_inc)
 
         # get kwargs
         lwin = int(kwargs["lwin"])
@@ -33,16 +35,19 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         cc_thres = float(kwargs["cc_thres"])
         toff = int(kwargs["toff"])
 
+        slow0 = kwargs.get("slow0", [0, 0])
+        slow0 = jl.Array(np.array(slow0).astype(dtype=np.float64))
+
         # load julia
         jl.seval("using SAP")
         
         try:
             # run and save
-            jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff)
+            jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff, slow0)
             pyans = dict(jlans)
             dictans = {}
             for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
-                dictans[attr] = np.array(pyans[1][attr])
+                dictans[attr] = np.array(pyans[attr])
 
         except Exception as exc:
             print("\n ------ ERROR INFO ------")
@@ -52,13 +57,14 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
     return dictans
 
 
-def array_delta_times(slowness, bazimuth, slomax, slomint, xUTM, yUTM, etol=1e-2):
+def array_delta_times(slowness, bazimuth, slomax, slomint, fs, xUTM, yUTM, etol=1e-2, pxy0=[0.,0.], return_xy=False):
 
     from juliacall import Main as jl
     jl.seval("using SAP")
 
     assert len(xUTM) == len(yUTM)
 
+    fs        = int(fs)
     etol      = float(etol)
     slow_max_ = float(slomax)
     slow_inc_ = float(slomint)
@@ -66,8 +72,10 @@ def array_delta_times(slowness, bazimuth, slomax, slomint, xUTM, yUTM, etol=1e-2
     bazimuth  = float(bazimuth)
     utm_east  = jl.Array(np.array(xUTM))
     utm_north = jl.Array(np.array(yUTM))
-    deltas, tol  = jl.get_dtimes(slowness, bazimuth, slow_max_, slow_inc_,utm_east, utm_north, etol)
+    slow0     = jl.Array(np.array(pxy0))
 
+    deltas, tol  = jl.get_dtimes(slowness, bazimuth, slow_max_, slow_inc_, fs, utm_east, utm_north, etol, slow0=slow0, return_xy=return_xy)
+    
     return np.array(deltas), np.array(tol)
 
 
