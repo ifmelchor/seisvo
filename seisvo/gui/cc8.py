@@ -428,7 +428,7 @@ class CC8Widget(QtWidgets.QWidget):
     Genera el espacio físico donde se va a alojar el CANVAS y controla los botones
     """
 
-    def __init__(self, cc8, starttime, interval, fq_idx, db, olap=0.1, maac_th=0.6, max_err=0.7, rms_lim=[], rms_th=0.0):
+    def __init__(self, cc8, starttime, interval, fq_idx, db, **kwargs):
 
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
@@ -443,15 +443,16 @@ class CC8Widget(QtWidgets.QWidget):
             self.db    = None
             self.is_db = False
         
-        self.olap_pct  = olap
-        self.maac_th   = maac_th
-        self.max_err   = max_err
-        self.rms_th    = rms_th
+        self.olap_pct  = kwargs.get("olap", 0.1)
+        self.maac_th   = kwargs.get("maac_th", 0.6)
+        self.max_err   = kwargs.get("max_err", 0.7)
+        self.rms_th    = kwargs.get("rms_th", 0.0)
+        rms_lim        = kwargs.get("rms_lim",[])
         self.r_slomax  = 0.5
         self.r_sloint  = 0.01
         self.starttime = starttime
         self.interval  = dt.timedelta(minutes=interval)
-        self.olap      = dt.timedelta(minutes=interval*olap)
+        self.olap      = dt.timedelta(minutes=interval*self.olap_pct)
 
         # before plot, compute the bounds of the RMS
         if not rms_lim:
@@ -581,8 +582,7 @@ class CC8Canvas(FigureCanvas):
 
             # add horizontal bar in maac_th and rms
             self.fig_dict["maac"]["axis"].axhline(self.parent.maac_th, color="r", ls="--", alpha=0.7, zorder=1)
-            if self.parent.rms_th > 0:
-                self.fig_dict["rms"]["axis"].axhline(self.parent.rms_th, color="r", ls="--", alpha=0.7, zorder=1)
+            self.fig_dict["rms"]["axis"].axhline(self.parent.rms_th, color="r", ls="--", alpha=0.7, zorder=1)
             
             # add navigation
             self.axes_ = [ax["axis"] for _, ax in self.fig_dict.items()]

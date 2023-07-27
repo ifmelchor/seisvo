@@ -126,11 +126,17 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
             axes[n,0].set_ylim(np.floor(rms_min), np.ceil(rms_max))
             if isinstance(rms_rv, np.ndarray):
                 axes[n,0].scatter(time, rms_rv, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
+            if isinstance(rms_rv, list):
+                for r in rms_rv:
+                    axes[n,0].scatter(time, r, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr == "maac":
             axes[n,0].set_ylim(0, 1)
             if isinstance(maac_rv, np.ndarray):
                 axes[n,0].scatter(time, maac_rv, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
+            if isinstance(maac_rv, list):
+                for m in maac_rv:
+                    axes[n,0].scatter(time, m, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr in ("slow", "bazm"):
             axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr+"bnd"].T, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)

@@ -1,8 +1,12 @@
 
+import os
+from scipy import signal as ss
+import numpy as np
 import datetime as dt
 import sqlalchemy as sql
 from ..network import Network
 from ..sap import CC8
+from ..plotting.array import window_wvfm
 
 def get_sderow(SQLbase):
 
@@ -162,15 +166,15 @@ def get_ccerow(SQLbase):
         def array_id(self):
             return '.'.join([self.network, self.station])
 
-        def get_cc8(self):
-            return CC8(self.cc8_file)
+        def get_cc8(self, path_to_cc8file="./"):
+            cc8f = os.path.join(path_to_cc8file, self.cc8_file)
+            return CC8(cc8f)
 
 
-        def get_windowtimes(self):
-            cc8 = self.get_cc8()
-            halfw = dt.timedelta(seconds=float(cc8.stats.window/2))
-            start = self.time - halfw
-            end   = self.time + halfw
+        def get_windowtimes(self, window, off_sec=0):
+            halfw = dt.timedelta(seconds=float(window/2))
+            start = self.time - halfw - dt.timedelta(seconds=off_sec)
+            end   = self.time + halfw + dt.timedelta(seconds=off_sec)
             return (start, end)
 
 
@@ -181,6 +185,57 @@ def get_ccerow(SQLbase):
         def get_array(self):
             net = self.get_network()
             return net.get_array(self.station)
+
+
+        def get_beamform(self, taper=True, off_sec=2, path_to_cc8file="./", exclude_locs=[], fq_band=[], plot=False, **fig_kwargs):
+
+            cc8 = self.get_cc8(path_to_cc8file=path_to_cc8file)
+
+            sloint = cc8.stats.slow_int
+            slomax = cc8.stats.slow_max
+            fs     = cc8.stats.sample_rate
+            if not fq_band:
+                fq_band = cc8.stats.fq_bands[int(self.fqidx)-1]
+
+            arr, ex_locs = cc8.stats.get_array()
+            exclude_locs += ex_locs
+            deltas, _ = arr.get_deltatimes(self.slow, self.baz, slomax, sloint, fs, exclude_locs=exclude_locs)
+
+            starttime, endtime = self.get_windowtimes(cc8.stats.window, off_sec=off_sec)
+            stream    = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=600, exclude_locs=exclude_locs)
+
+            # shift stream
+            wvfm_dict = {}
+            interval  = endtime - starttime
+            for delta, tr in zip(deltas, stream):
+                of_npts = int(600*fs)
+                d_npts  = int(delta*fs)
+                data    = tr.get_data()
+                data_sh = data[of_npts+d_npts:-of_npts+d_npts]
+                wvfm_dict[tr.stats.location] = data_sh
+
+            duration = interval.total_seconds()
+            time = np.linspace(0, duration, len(data_sh))
+
+            if plot:
+                fig_kwargs["title"] = f"EID : {self.id} TIME: {self.time.strftime('%Y %b %m %H:%M:%S')} \n BAZ [{self.baz:.2f}] SLOW [{self.slow:.2f}]"
+                fig = window_wvfm(wvfm_dict, time, None, None, **fig_kwargs)
+                
+                return fig
+            
+            else:
+                
+                bf = np.empty((len(time), len(wvfm_dict)))
+                for n, (_, wvfm) in enumerate(wvfm_dict.items()):
+                    bf[:, n] = wvfm
+                suma = np.sum(bf, axis=1) / bf.shape[1]
+
+                if taper:
+                    suma *= ss.windows.hann(len(suma))
+
+                return time, wvfm_dict, suma
+
+        
     
 
     return CCErow

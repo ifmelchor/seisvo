@@ -253,7 +253,7 @@ class CC8(object):
         return CC8out(self.stats, dout)
 
 
-    def gui(self, interval, starttime=None, olap=0.1, db=None, **kwargs):
+    def gui(self, interval, starttime=None, db=None, **kwargs):
         """
         GUI for navigate the cc8 file.
         interval in minutes
@@ -265,11 +265,9 @@ class CC8(object):
             starttime = self.time_[0]
 
         fq_idx   = kwargs.get("fq_idx", self.stats.fqidx[0])
-        maac_th  = kwargs.get("maac_th", 0.6)
-        max_err  = kwargs.get("max_err", 0.7)
-        rms_th   = kwargs.get("rms_th", 0.0)
+        widget = load_cc8widget(self, starttime, interval, fq_idx, db, **kwargs)
 
-        widget = load_cc8widget(self, starttime, interval, fq_idx, db, olap, maac_th, max_err, rms_th)
+        return
 
 
 class CC8out(object):
@@ -365,19 +363,19 @@ class CC8out(object):
 
         # apply rms threshold
         if rms_rv:
-            nidx = np.where(rms<rms_th, nidx, np.nan)
+            nidx = np.where(10*np.log10(rms)<rms_th, nidx, np.nan)
         else:
-            nidx = np.where(rms>rms_th, nidx, np.nan)
+            nidx = np.where(10*np.log10(rms)>rms_th, nidx, np.nan)
 
         # apply max_error
         if max_err > 0:
-            slokey = "/".join([fq_idx, "slow"])
-            slowb  = np.copy(self._dout[slokey+"bnd"])
-            bazb   = (np.pi/180)*np.copy(self._dout[bazkey+"bnd"])
+            slokey   = "/".join([fq_idx, "slow"])
+            slowb    = np.copy(self._dout[slokey+"bnd"])
+            bazb     = (np.pi/180)*np.copy(self._dout[bazkey+"bnd"])
             slodiff  = np.abs(slowb[:,1] - slowb[:,0])
             bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
-            error  = (slodiff+bazdiff)/2
-            nidx = np.where(error<max_err, nidx, np.nan)
+            error    = (slodiff+bazdiff)/2
+            nidx     = np.where(error<max_err, nidx, np.nan)
 
         if return_full:
             return nidx
@@ -477,19 +475,23 @@ class CC8out(object):
         data = data[np.isfinite(data)]
         data = data.reshape(-1,1)
         
-        if not vmin:
+        if vmin == None:
             vmin = data.min()
 
-        if not vmax:
+        if vmax == None:
             vmax = data.max()
 
         space = np.linspace(vmin, vmax, 1000)
-        pdf = get_PDF(data, space)
+
+        if data.shape[0] > 10:
+            pdf = get_PDF(data, space)
+        else:
+            pdf = np.full((space.shape[0], data.shape[1]), np.nan)
 
         return pdf, space
 
 
-    def plot(self, fq_idx=None, show_title=True, maac_th=0.5, max_err=0.0, baz_int=[], rms_lim=[], **fig_kwargs):
+    def plot(self, fq_idx=None, show_title=True, maac_th=0.5, max_err=0.0, rms_th=0.0, rms_lim=[], **fig_kwargs):
 
         sloint = self.cc8stats.slow_int
         slomax = self.cc8stats.slow_max
@@ -502,16 +504,22 @@ class CC8out(object):
         fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
         attr_list = ["rms", "maac", "slow", "bazm", "slowbnd", "bazmbnd"]
-        datattr   = self.get_data(attr_list, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, baz_int=baz_int)
+        datattr   = self.get_data(attr_list, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th)
         
         datapdf = {
             "slow":self.get_pdf("slow", vmin=0, vmax=slomax, data=datattr["slow"]),
             "bazm":self.get_pdf("bazm", vmin=0, vmax=360, data=datattr["bazm"])
         }
 
-        fig_kwargs["rms_rv"] = self.get_data("rms", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
-
-        fig_kwargs["maac_rv"] = self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True, baz_int=baz_int)
+        fig_kwargs["rms_rv"]  = [
+        self.get_data("rms", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True),
+        self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th, rms_rv=True)
+        ]
+        
+        fig_kwargs["maac_rv"] = [
+        self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True),
+        self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th, rms_rv=True)
+        ]
         
         if show_title:
             title = f"{self.cc8stats.id} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n {self._dout['dtime'][0]}"

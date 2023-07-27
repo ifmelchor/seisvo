@@ -524,6 +524,7 @@ class CCE(_DataBase):
             for eidi in eid:
                 if self.is_eid(eidi):
                     self._remove_row(eid)
+
     
 
 
