@@ -487,7 +487,7 @@ class CCE(_DataBase):
         self._update_row(eid, dict(label=new_label))
 
 
-    def get_episode_list(self, label=None, time_interval=()):
+    def get_episode_list(self, label=None, time_interval=(), full=False):
         row_list = self.get_id()
 
         if label:
@@ -511,7 +511,9 @@ class CCE(_DataBase):
             row_list = time_row_list
 
         row_list.sort(key=lambda x: x.time)
-        row_list = [e.id for e in row_list]
+
+        if not full:
+            row_list = [e.id for e in row_list]
 
         return row_list
 
