@@ -508,6 +508,7 @@ class CC8Widget(QtWidgets.QWidget):
         self.olap      = dt.timedelta(minutes=new_vals["interval"]*self.olap_pct)
 
         if self.fq_idx != new_vals["fq_idx"]:
+            self.fq_idx = new_vals["fq_idx"]
             rms_data = self.cc8.get(attr="rms", fq_idx=self.fq_idx).get_data("rms")
             rms_lim = [np.nanmin(rms_data), np.nanmax(rms_data)]
             self.rms_min = rms_lim[0]
@@ -798,7 +799,7 @@ class CC8Canvas(FigureCanvas):
                 endtime   = max([self.ticks['right'],self.ticks['left']])
                 with pyqtgraph.BusyCursor():
                     fig = self.ccout.get_beamform(starttime, endtime, self.slow0, self.baz0)
-                plt.close(fig)
+                fig.close()
         
 
         if event.key == "p":

@@ -154,7 +154,7 @@ def plot_gram(y, array, x, axis, **kwargs):
 
         norm = mcolor.Normalize(v_min, v_max)
 
-    interpolation = kwargs.get('interpolation', 'gaussian')
+    interpolation = kwargs.get('interpolation', 'spline36')
     cmap = kwargs.get('cmap', 'Spectral_r')
     im = axis.imshow(np.flipud(array), cmap=cmap, norm=norm, interpolation=interpolation, extent=extent, aspect="auto")
     axis.axis('tight')

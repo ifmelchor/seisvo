@@ -16,6 +16,11 @@ seisvo/database/events.py
 seisvo/database/isde.py
 seisvo/database/lde.py
 seisvo/database/rows.py
+seisvo/gui/__init__.py
+seisvo/gui/cc8.py
+seisvo/gui/events.py
+seisvo/gui/lte.py
+seisvo/gui/utils.py
 seisvo/lte/__init__.py
 seisvo/lte/base.py
 seisvo/lte/peaks.py
@@ -26,14 +31,11 @@ seisvo/old/cc8.py
 seisvo/old/infrasound.py
 seisvo/old/lte.py
 seisvo/plotting/__init__.py
+seisvo/plotting/array.py
 seisvo/plotting/lte.py
 seisvo/plotting/signal.py
 seisvo/plotting/station.py
 seisvo/plotting/utils.py
-seisvo/plotting/gui/__init__.py
-seisvo/plotting/gui/events.py
-seisvo/plotting/gui/lte.py
-seisvo/plotting/gui/utils.py
 seisvo/sap/__init__.py
 seisvo/sap/cc8.py
 seisvo/sap/cc8utils.py
