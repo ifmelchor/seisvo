@@ -421,7 +421,6 @@ class LTEstats(_Stats):
         kwdict = {"type":self.type, "time_bandwidth":self.time_bandwidth, "pad":self.pad}
         
         if self.type == "station":
-            kwdict["opt_params"] = self.opt_params
             kwdict["polar"] = self.polar
             kwdict["PE_order"] = self.PE_order
             kwdict["PE_tau"] = self.PE_tau
@@ -438,7 +437,7 @@ class LTEstats(_Stats):
             priorized_keys = ['type', 'id','channel','starttime',\
             'endtime','window', 'window_olap', 'subwindow','subwindow_olap','sample_rate',\
             'rm_sens','nro_time_bins','last_time_bin','fq_band',\
-            'nro_freq_bins','polar','opt_params']
+            'nro_freq_bins','polar']
 
         else:
             # network not implemented yet!
@@ -453,19 +452,10 @@ class LTEstats(_Stats):
             nbin = h5f['header'].attrs["last_time_bin"]
             
             if self.type == "station":
-                # base params
-                for chan in self.channel:
-                    # h5f[chan]["perm_entr"][nbin+1:nbin+1+nwin] = wdict[chan]["perm_entr"]
-                    for attr in ("energy", "fq_dominant", "fq_centroid", "specgram", "perm_entr"):
-                        if attr == "specgram":
-                            h5f[chan][attr][nbin+1:nbin+1+nwin,:] = wdict[chan][attr]
-                        else:
-                            h5f[chan][attr][nbin+1:nbin+1+nwin] = wdict[chan][attr]
-
-                # opt params
-                if self.opt_params:
-                    for attr in ("dsar", "vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
-                        h5f["opt"][attr][nbin+1:nbin+1+nwin] = wdict["opt"][attr]
+                for n, chan in enumerate(self.channel):
+                    h5f[chan]["specgram"][nbin+1:nbin+1+nwin,:] = wdict[chan]["specgram"]
+                    for attr in ("perm_entr", "dsar", "vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf"):
+                        h5f[chan][attr][nbin+1:nbin+1+nwin] = wdict[chan][attr]
 
                 # polar params
                 if self.polar:

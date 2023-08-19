@@ -218,7 +218,6 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
             nswin = lswin = swadv = None
         
         if lte_dict["type"] == "station":
-            optp  = lte_dict["opt_params"]
             polar = lte_dict["polar"]
             peo   = int(lte_dict["PE_order"])
             pet   = int(lte_dict["PE_tau"])
@@ -228,25 +227,18 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
             # run in julia
             try:
                 ans = jl.sta_run(data, chan, fs, nwin, lwin, wadv, nswin, lswin,\
-                    swadv, band, NW, pad, optp, polar, peo, pet, optw, opth)    
+                    swadv, band, NW, pad, polar, peo, pet, optw, opth)    
                 jlans = dict(ans)
                 # convert the jl dict into a python dict
                 for chan in chan_list:
                     lte_ans[chan] = {}
-                    lte_ans[chan]["specgram"] = np.array(jlans[chan]["specgram"])
-
-                    for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
+                    for attr in ("specgram", "perm_entr", "vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
                         lte_ans[chan][attr] = np.array(jlans[chan][attr])
                     
-                    if optp:
-                        lte_ans["opt"] = {}
-                        for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
-                            lte_ans["opt"][attr] = np.array(jlans["opt"][attr])
-                    
-                    if polar:
-                        lte_ans["polar"] = {}
-                        for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
-                            lte_ans["polar"][attr] = np.array(jlans["polar"][attr])
+                if polar:
+                    lte_ans["polar"] = {}
+                    for attr in ("degree", "rect", "azimuth", "elev", "phyhh", "phyvh"):
+                        lte_ans["polar"][attr] = np.array(jlans["polar"][attr])
             
             except Exception as exc:
                 print("\n ------ ERROR INFO ------")

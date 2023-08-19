@@ -341,10 +341,10 @@ class Station(object):
             pad             = pad,
             fq_band         = fq_band,
             polar           = kwargs.get('polar', False),
-            opt_params      = kwargs.get('opt_params', False),
+            opt_params      = kwargs.get('opt_params', True),
             rm_sens         = kwargs.get('rm_sens', False),
             opt_twin        = kwargs.get('opt_twin', 150),
-            opt_th          = kwargs.get('opt_th', 5.0),
+            opt_th          = kwargs.get('opt_th', 0.0),
             pe_tau          = int(kwargs.get("pe_tau", 2)),
             pe_order        = int(kwargs.get("pe_order", 7)),
             time_bandwidth  = kwargs.get('time_bandwidth', 3.5)

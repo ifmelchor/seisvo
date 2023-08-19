@@ -56,17 +56,11 @@ class _LTEProcess(object):
             matrix_nan = np.full([nwin, nfb], np.nan)
             vector_nan = np.full([nwin,], np.nan)
 
-            for chan in self.ltestats.channel:
+            for n, chan in enumerate(self.ltestats.channel):
                 lte_ans[chan] = {}
-                lte_ans[chan]["specgram"] = matrix_nan
-
-                for attr in ("perm_entr", "energy", "fq_dominant", "fq_centroid"):
+                lte_ans[chan]["specgram"]  = matrix_nan
+                for attr in ("perm_entr", "vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
                     lte_ans[chan][attr] = vector_nan
-            
-            if self.ltestats.opt_params:
-                lte_ans["opt"] = {}
-                for attr in ("vlf", "lf", "vlar", "rsam", "lrar", "mf", "rmar", "hf", "dsar"):
-                    lte_ans["opt"][attr] = vector_nan
 
             if self.ltestats.polar:
                 lte_ans["polar"] = {}

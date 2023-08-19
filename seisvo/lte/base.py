@@ -13,7 +13,7 @@ from ..plotting import plotPDF, LTESTAplot
 from .utils import _LTEProcess
 from .peaks import Peaks
 
-STA_SCALAR_PARAMS = ['fq_dominant', 'fq_centroid', 'energy', 'perm_entr', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
+STA_SCALAR_PARAMS = ['perm_entr', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar']
 
 STA_VECTOR_PARAMS = ['specgram', 'degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh']
 
@@ -78,7 +78,6 @@ def _new_LTE(base, lte_file, headers, njobs):
             hdr.attrs['time_bandwidth']  = headers['time_bandwidth']
             # optional param
             hdr.attrs['polar']           = headers['polar']
-            hdr.attrs['opt_params']      = headers['opt_params']
             hdr.attrs['rm_sens']         = headers['rm_sens']
             hdr.attrs['opt_twin']        = headers['opt_twin']
             hdr.attrs['opt_th']          = headers['opt_th']
@@ -98,7 +97,7 @@ def _new_LTE(base, lte_file, headers, njobs):
             
             for info_key in ['id', 'type', 'channel', 'starttime', 'endtime',\
                 'window', 'window_olap', 'subwindow', 'subwindow_olap',\
-                'sample_rate', 'rm_sens' ,'fq_band' ,'polar' ,'opt_params']:
+                'sample_rate', 'rm_sens' ,'fq_band' ,'polar']:
 
                 if info_key == "window":
                     print(f'   {info_key} [sec]:  {headers[info_key]}')
@@ -111,25 +110,19 @@ def _new_LTE(base, lte_file, headers, njobs):
             
             print(' ----------------\n')
 
-            for chan in headers['channel']:
+            for n, chan in enumerate(headers['channel']):
                 chgr = f.create_group(chan)
-                chgr.create_dataset('specgram',    (timebins, freqbins), chunks=True, dtype=np.float32)
-                chgr.create_dataset('perm_entr',   (timebins,), chunks=True, dtype=np.float32)
-                chgr.create_dataset('fq_dominant', (timebins,), chunks=True, dtype=np.float32)
-                chgr.create_dataset('fq_centroid', (timebins,), chunks=True, dtype=np.float32)
-                chgr.create_dataset('energy',      (timebins,), chunks=True, dtype=np.float32)
-            
-            if headers['opt_params']:
-                opt  = f.create_group("opt")
-                opt.create_dataset('lf',   (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('mf',   (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('hf',   (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('vlf',  (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('rsam', (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('vlar', (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('lrar', (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('rmar', (timebins,), chunks=True, dtype=np.float32)
-                opt.create_dataset('dsar', (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('specgram',  (timebins, freqbins), chunks=True, dtype=np.float32)
+                chgr.create_dataset('perm_entr', (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('lf',        (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('mf',        (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('hf',        (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('vlf',       (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('rsam',      (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('vlar',      (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('lrar',      (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('rmar',      (timebins,), chunks=True, dtype=np.float32)
+                chgr.create_dataset('dsar',      (timebins,), chunks=True, dtype=np.float32)
 
             if headers['polar']:
                 polar = f.create_group("polar")
@@ -296,22 +289,16 @@ class _LTE(object):
 
                     if db_scale:
                         ts = 10*np.log10(ts)
-                
-                if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr'):
+
+                if attr in ('perm_entr', 'rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
                     ts = f.get(chan)[attr][n0:nf]
 
-                    if attr == "energy" and db_scale:
-                        ts = 10*np.log10(ts)
-            
                 if attr in ('degree', 'elev', 'rect', 'azimuth', 'phyhh', 'phyvh'):
                     ts = f.get("polar")[attr][n0:nf,:]
 
                     if attr == "azimuth" and azimuth_ambiguity:
                         ts = np.where(ts>180, ts-180, ts)
                 
-                if attr in ('rsam', 'mf', 'hf', 'vlf', 'lf', 'vlar', 'lrar', 'rmar', 'dsar'):
-                    ts = f.get("opt")[attr][n0:nf]
-
         if self.stats.type == "network":
             with h5py.File(self.stats.file, "r") as f:
                 if attr in self.stats.stations or attr == "csw":
@@ -365,7 +352,6 @@ class StationLTE(_LTE):
                 subwindow_olap  = float(hdr.attrs['subwindow_olap']),
                 rm_sens         = bool(hdr.attrs['rm_sens']),
                 polar           = bool(hdr.attrs['polar']),
-                opt_params      = bool(hdr.attrs['opt_params']),
                 opt_th          = float(hdr.attrs['opt_th']),
                 opt_twin        = float(hdr.attrs['opt_twin']),
                 PE_tau          = int(hdr.attrs["PE_tau"]),
@@ -375,18 +361,14 @@ class StationLTE(_LTE):
             )
 
         # set attr
-        attrs = [STA_VECTOR_PARAMS[0]] + STA_SCALAR_PARAMS[:4]
-
-        if dstats["opt_params"]:
-            attrs += STA_SCALAR_PARAMS[4:]
-        
+        attrs = STA_SCALAR_PARAMS + [STA_VECTOR_PARAMS[0]]
         if dstats["polar"]:
             attrs += STA_VECTOR_PARAMS[1:]
         
         self.__set_stats__(dstats, attrs)
 
 
-    def check_attr(self, attr, only_scalars=False, only_vectors=False):
+    def check_attr(self, attr, chan=None, only_scalars=False, only_vectors=False):
         """
         Check if attribute list or string is available and return available attributes
         """
@@ -440,8 +422,18 @@ class StationLTE(_LTE):
         return chan_list
 
 
-    def get(self, starttime, endtime, attr=None, chan=None, db_scale=True, azimuth_ambiguity=True):
+    def get(self, starttime=None, endtime=None, attr=None, chan=None, db_scale=True, azimuth_ambiguity=True):
         
+        if not starttime:
+            starttime = self.stats.starttime
+        else:
+            assert starttime >= self.stats.starttime
+        
+        if not endtime:
+            endtime = self.stats.endtime
+        else:
+            assert endtime <= self.stats.endtime
+
         stakwargs = {"chan":None, "db_scale":db_scale, "azimuth_ambiguity":azimuth_ambiguity}
     
         # if attr is None, return all attributes
@@ -473,8 +465,8 @@ class StationLTE(_LTE):
             dout["freq"] = get_freq(lwin, self.stats.sample_rate, fq_band=self.stats.fq_band, pad=self.stats.pad)[0]
 
         for attr in attr_list:
-            if attr in ('fq_dominant', 'fq_centroid', 'energy', 'perm_entr', 'specgram'):
-                for chan in chan_list:
+            if attr in STA_SCALAR_PARAMS + [STA_VECTOR_PARAMS[0]]:
+                for n, chan in enumerate(chan_list):
                     stakwargs["chan"] = chan
                     dout[chan][attr] = self.__read__(attr, n0, nf, stakwargs=stakwargs)
             else:
@@ -628,9 +620,10 @@ class LTEout(object):
         # define some stats
         self.npts = len(dout["dtime"])
         self.npfs = len(dout["freq"])
-        self.chan_list, self.chan_attr_list = [], []
-        self.polar_attr_list, self.opt_attr_list = [],[]
-        
+        self.chan_list = []
+        self.chan_attr_list = []
+        self.polar_attr_list = []
+
         for key, item in dout.items():
             if key in ltestats.channel:
                 self.chan_list.append(key)
@@ -639,10 +632,7 @@ class LTEout(object):
                         self.chan_attr_list.append(chankey)
             else:
                 if key not in ("freq", "dtime"):
-                    if key in STA_VECTOR_PARAMS:
-                        self.polar_attr_list.append(key)
-                    else:
-                        self.opt_attr_list.append(key)
+                    self.polar_attr_list.append(key)
                     
 
     def __str__(self):
@@ -673,7 +663,7 @@ class LTEout(object):
 
     def check_attr(self, attr, which=None):
         # check attr list
-        all_attr = self.polar_attr_list + self.chan_attr_list + self.opt_attr_list
+        all_attr = self.polar_attr_list + self.chan_attr_list
         
         if isinstance(attr, str):
             if attr in all_attr:
@@ -751,8 +741,13 @@ class LTEout(object):
         return pdf, space.reshape(-1,), self._dout["freq"]
 
 
-    def plot(self, chan, attr, **plot_kw):
-        chan_list = self.check_chan(chan)
+    def plot(self, chan=None, attr=["specgram", "rsam", "lf", "hf"], **plot_kw):
+        
+        if not chan:
+            chan_list = [self.chan_list[0]]
+        else:
+            chan_list = self.check_chan(chan)
+        
         attr_list = self.check_attr(attr)
         
         fig, _ = LTESTAplot(self, chan_list, attr_list, plot=True, **plot_kw)

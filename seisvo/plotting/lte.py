@@ -118,8 +118,7 @@ def get_axes_dict(lteout, attr_list, chan_list, fig):
     return axes_dict
 
 
-def LTESTAplot(lteout, chan_list, attr_list, fig=None,\
-        return_stats=False, plot=False, **kwargs):
+def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=False, **kwargs):
 
     if not fig:
         fig = plt.figure()
@@ -144,7 +143,8 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None,\
                 ax = axes[key]
                 
                 if not lteout.any_vector([attr]): # scalar attribute
-                    ax[0].plot(time, data, color='k')
+                    ax[0].plot(time, data, color='k', ls="--")
+                    ax[0].scatter(time, data, color='blue', ec="k")
                     data_stats = lteout.get_stats(attr, chan)
                     
                     # set vlimits
