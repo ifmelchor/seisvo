@@ -3,6 +3,7 @@
 
 import os
 import h5py
+import pickle
 import numpy as np
 import pandas as pd
 import datetime as dt
@@ -10,7 +11,7 @@ import datetime as dt
 from .cc8utils import _CC8Process
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF, get_CC8
-from ..plotting.array import simple_cc8_plot, simple_slowmap, window_wvfm
+from ..plotting.array import simple_cc8_plot, simple_slowmap, window_wvfm, _detections
 
 # from tqdm import tqdm
 ATTR_LIST = ["rms", "maac", "slow", "bazm", "slowmap", "bazmbnd", "slowbnd"]
@@ -125,6 +126,8 @@ class CC8(object):
         for n in range(self.stats.nro_time_bins-1):
             start += advance
             self.time_.append(start + half_delta)
+
+        self.time_ = np.array(self.time_, dtype=dt.datetime)
 
 
     def __str__(self):
@@ -268,6 +271,84 @@ class CC8(object):
         widget = load_cc8widget(self, starttime, interval, fq_idx, db, **kwargs)
 
         return
+
+
+    def detect(self, fq_idx=None, rate_in_hr=1, starttime=None, endtime=None, plot=True, db=None, **nidx_kwargs):
+        """
+        This code define thresholds for detection and counts the nro of detection per hr.
+        For save the results into a database, db shoul be a CC8 database
+        """
+
+        if not fq_idx:
+            fq_idx = self.stats.fqidx[0]
+
+        if not starttime or starttime < self.time_[0]:
+            starttime = self.time_[0]
+
+        if not endtime or endtime > self.time_[-1]:
+            endtime = self.time_[-1]
+
+        interval = dt.timedelta(hours=rate_in_hr)
+        steps = np.arange(starttime, endtime, interval, dtype=dt.datetime)
+        bins  = []
+        bincount = []
+
+        for tinit in steps:
+            tfi   = tinit + interval
+            out   = self.get(starttime=tinit, endtime=tfi, slowmap=False, fq_idx=fq_idx)
+            
+            try:
+                nout = out.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
+                maac = out.get_data("maac", fq_idx=fq_idx, **nidx_kwargs)
+                b    = np.where(~np.isnan(nout))[0]
+
+                # if there are two consecutive bins, get the bin with highest maac
+                while True:
+                    bdiff = np.where(np.diff(b)==1)[0]
+                    if bdiff.any():
+                        for i in bdiff:
+                            m0 = maac[b[i]]
+                            m1 = maac[b[i+1]]
+                            if m0 > m1:
+                                b[i+1] = -1
+                            else:
+                                b[i] = -1
+                        b = b[b>0]
+                    else:
+                        # save into database
+                        if db != None:
+                            data = out.get_data(["slow", "bazm", "maac", "rms"], fq_idx=fq_idx, **nidx_kwargs)
+                            for i in b:
+                                db._add_row({
+                                    "network":self.stats.id.split(".")[0],
+                                    "station":self.stats.id.split(".")[1],
+                                    "time":out._dout["dtime"][i],
+                                    "slow":data["slow"][i],
+                                    "baz":data["bazm"][i],
+                                    "maac":data["maac"][i],
+                                    "rms":data["rms"][i],
+                                    "cc8_file":os.path.basename(self.stats.file),
+                                    "fqidx":fq_idx,
+                                })
+                        break
+            except:
+                b    = np.array([])
+
+            # # save bin info
+            print("  >>> " + str(tinit) + f" N={len(b):<7} ", end="\r")
+            bincount.append(len(b))
+            bins.append(b)
+
+        # save into pickle file
+        a = {"bins":bins, "time":steps}
+        with open("./cc8_detect.pkl", 'wb') as handle:
+            pickle.dump(a, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        if plot:
+            _detections(np.array(bincount), steps)
+
+        return bins, steps
+
 
 
 class CC8out(object):

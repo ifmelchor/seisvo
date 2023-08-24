@@ -6,6 +6,19 @@ import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
 from .utils import get_colors
 
+
+def _detections(count, time):
+    count = np.where(count<1, np.nan, count)
+
+    fig, ax = plt.subplots(1,1)
+    ax.plot(time, count, color="k")
+    ax.set_ylabel("nro_detection/hours")
+    ax.set_xlim(time[0],time[-1])
+    plt.show()
+
+    return
+
+
 def location_map(arr, exclude_locs=[], show=True):
 
     fig, ax = plt.subplots(1,1, figsize=(4,4))
@@ -262,7 +275,7 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
     # axes[0].xaxis.set_major_formatter(mtick.NullFormatter())
     
     # plot average wvfm
-    axes[1].plot(time, avg_data, color="k")
+    axes[1].plot(time, avg_data*np.hanning(len(time)), color="k")
     axes[1].set_xlabel("Time [sec]")
     
     for ax in axes:

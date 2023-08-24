@@ -4,7 +4,7 @@ from scipy import signal as ss
 import numpy as np
 import datetime as dt
 import sqlalchemy as sql
-from ..network import Network
+from ..network import Array
 from ..sap import CC8
 from ..plotting.array import window_wvfm
 
@@ -170,21 +170,14 @@ def get_ccerow(SQLbase):
             cc8f = os.path.join(path_to_cc8file, self.cc8_file)
             return CC8(cc8f)
 
-
         def get_windowtimes(self, window, off_sec=0):
             halfw = dt.timedelta(seconds=float(window/2))
             start = self.time - halfw - dt.timedelta(seconds=off_sec)
             end   = self.time + halfw + dt.timedelta(seconds=off_sec)
             return (start, end)
 
-
-        def get_network(self):
-            return Network(self.network)
-
-        
         def get_array(self):
-            net = self.get_network()
-            return net.get_array(self.station)
+            return Array(self.network, self.station)
 
 
         def get_beamform(self, taper=True, off_sec=2, path_to_cc8file="./", exclude_locs=[], fq_band=[], plot=False, **fig_kwargs):
@@ -202,13 +195,13 @@ def get_ccerow(SQLbase):
             deltas, _ = arr.get_deltatimes(self.slow, self.baz, slomax, sloint, fs, exclude_locs=exclude_locs)
 
             starttime, endtime = self.get_windowtimes(cc8.stats.window, off_sec=off_sec)
-            stream    = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=600, exclude_locs=exclude_locs)
+            stream    = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=10, exclude_locs=exclude_locs)
 
             # shift stream
             wvfm_dict = {}
             interval  = endtime - starttime
             for delta, tr in zip(deltas, stream):
-                of_npts = int(600*fs)
+                of_npts = int(10*fs)
                 d_npts  = int(delta*fs)
                 data    = tr.get_data()
                 data_sh = data[of_npts+d_npts:-of_npts+d_npts]
@@ -218,6 +211,8 @@ def get_ccerow(SQLbase):
             time = np.linspace(0, duration, len(data_sh))
 
             if plot:
+                if not fig_kwargs:
+                    fig_kwargs = {}
                 fig_kwargs["title"] = f"EID : {self.id} TIME: {self.time.strftime('%Y %b %m %H:%M:%S')} \n BAZ [{self.baz:.2f}] SLOW [{self.slow:.2f}]"
                 fig = window_wvfm(wvfm_dict, time, None, None, **fig_kwargs)
                 
@@ -235,7 +230,5 @@ def get_ccerow(SQLbase):
 
                 return time, wvfm_dict, suma
 
-        
-    
 
     return CCErow
