@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolor
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+from matplotlib.gridspec import GridSpec
 from .utils import get_colors
 
 
@@ -252,7 +253,7 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
     return fig
 
 
-def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
+def window_wvfm(wvfm_dict, time, shadow_times, show=True, **kwargs):
 
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
@@ -279,8 +280,8 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
     axes[1].set_xlabel("Time [sec]")
     
     for ax in axes:
-        if startw and endw:
-            ax.axvspan(startw, endw, color="k", alpha=0.05)
+        if shadow_times:
+            ax.axvspan(shadow_times[0], shadow_times[1], color="k", alpha=0.05)
         ax.grid(which="major", axis="x", color="k", ls="-",  alpha=0.25)
         ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
         ax.set_xlim(time[0], time[-1])
@@ -291,5 +292,29 @@ def window_wvfm(wvfm_dict, time, startw, endw, show=True, **kwargs):
 
     if show:
         plt.show()
+
+    return fig
+
+
+def plot_slowmap(array, starttime, window, offsec=3, slowarg={}):
+
+    # create frame
+    fig  = plt.figure(figsize=(12,9))
+    gs   = GridSpec(3, 4, wspace=0.5, width_ratios=[1, 2, 0.1, 1], height_ratios=[2, 1, 1])
+    ax1  = fig.add_subplot(gs[0,1])
+    ax2  = fig.add_subplot(gs[0,2])
+    ax3  = fig.add_subplot(gs[1,:])
+    ax4  = fig.add_subplot(gs[2,:])
+    ans0 = array.slowmap(starttime, window, slowarg=slowarg, plot=True, axis=ax1, fig=fig, bar_axis=ax2)
+
+    slow = ans0["slow"][0]
+    baz  = ans0["bazm"][0]
+
+    time0 = starttime - dt.timedelta(seconds=offsec) 
+    time1 = starttime + dt.timedelta(seconds=window+offsec)
+    duration = (time1 - time0).total_seconds()
+    startw = duration/2 - window/2
+    endw   = startw + window
+    ans1  = self.beamform(time0, time1, slow, baz, shadow_times=(startw, endw), slowarg=slowarg, plot=True, fig=fig, axes=[ax3,ax4])
 
     return fig

@@ -7,7 +7,7 @@ import json
 import numpy as np
 import datetime as dt
 
-from seisvo import seisvo_paths
+from  seisvo import seisvo_paths
 from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
@@ -15,7 +15,28 @@ from .sap import _new_CC8
 from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times
 from .lte.base import _new_LTE
 from .utils import nCPU
-from .plotting.array import location_map, traces_psd, simple_slowmap
+from .plotting.array import location_map, traces_psd, simple_slowmap, window_wvfm, plot_slowmap
+
+default_slowarg = {
+    "slomax":4.0, 
+    "sloint":0.1, 
+    "fq_band":[1., 3.], 
+    "slow0":[0.,0.], 
+    "cc_thres":0.05, 
+    "exclude_locs":[]
+}
+
+def _slowarg(slowarg):
+    if slowarg:
+        slowarg0 = default_slowarg
+        for key in list(slowarg0.keys()):
+            if key in list(slowarg.keys()):
+                slowarg0[key] = slowarg[key]
+        slowarg = slowarg0
+    else:
+        slowarg = default_slowarg
+
+    return slowarg
 
 
 def get_network(net_code):
@@ -366,11 +387,28 @@ class Array(Network):
             print(" warn :: multiple sampling rates defined in config file")
         self.sample_rate = fslist[0]
 
+    
     def get_sta(self, loc):
         return super().get_sta(self.sta_code, loc=loc)
 
 
-    def get_aperture(self, exclude_locs=[]):
+    def get_utm(self, exclude_locs=[]):
+
+        if exclude_locs:
+            locs = [loc for loc in self.locs if loc not in exclude_locs]
+        else:
+            locs = self.locs
+
+        utmloc = {"x":[],"y":[]}
+        for loc, utm in self.utm.items():
+            if loc in locs:
+                utmloc["x"].append(utm["easting"])
+                utmloc["y"].append(utm["northing"])
+
+        return utmloc
+
+
+    def aperture(self, exclude_locs=[]):
         a = 0
 
         for i in range(len(self)):
@@ -397,7 +435,7 @@ class Array(Network):
         return a
 
     
-    def get_response(self, slomax, sloint, fq_band=(1.,10.), fq_int=0.1, exclude_locs=[], plot=True):
+    def response(self, slomax, sloint, fq_band=(1.,10.), fq_int=0.1, exclude_locs=[], plot=True):
         """
         Return array response dictionary
         """
@@ -438,39 +476,34 @@ class Array(Network):
             return stream
 
 
-    def get_cc8(self, starttime, endtime, window, overlap, slow_max=3., slow_int=0.1, fq_band=[1., 3.], cc_thres=0.05, exclude_locs=[], **kwargs):
+    def get_cc8(self, starttime, endtime, window, overlap, slowarg={}, **kwargs):
         """
         compute CC8 algorithm
         window in seconds (float) and overlap between 0 an 1.
         """
 
+        slowarg = _slowarg(slowarg)
+
         toff_sec    = kwargs.get('toff_sec', 10)
         sample_rate = kwargs.get("sample_rate", self.sample_rate)
-        nite        = 1 + 2*int(slow_max/slow_int)
+        nite        = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
 
         # locations and positions
-        if exclude_locs:
-            locs = [loc for loc in self.locs if loc not in exclude_locs]
-        else:
-            locs = self.locs
-
-        utmloc = {"x":[],"y":[]}
-        for loc, utm in self.utm.items():
-            if loc in locs:
-                utmloc["x"].append(utm["easting"])
-                utmloc["y"].append(utm["northing"])
+        utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         
         ss = SSteps(starttime, endtime, window, win_olap=overlap, logfile=True)
         ssdict = ss.to_dict()
 
         stream = self.get_stream(starttime, endtime, toff_sec=toff_sec,\
-            exclude_locs=exclude_locs, sample_rate=sample_rate, avoid_exception=True)
+            exclude_locs=slowarg["exclude_locs"], sample_rate=sample_rate, 
+            avoid_exception=True)
         
         data = stream.to_array(detrend=True)
         lwin = int(ss.window * sample_rate)
 
-        ans = get_CC8(data, sample_rate, utmloc["x"], utmloc["y"], fq_band, slow_max, slow_int,\
-            lwin=lwin, nwin=ssdict["nwin"], nadv=ssdict["wadv"], toff=toff_sec, cc_thres=cc_thres)
+        ans = get_CC8(data, sample_rate, utmloc["x"], utmloc["y"], slowarg["fq_band"], 
+            slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=ssdict["nwin"], 
+            nadv=ssdict["wadv"], toff=toff_sec, cc_thres=slowarg["cc_thres"])
         
         return ans
 
@@ -530,16 +563,7 @@ class Array(Network):
         nites = 1 + 2*int(slow_max/slow_int)
         
         # define locations and positions
-        if exclude_locs:
-            locs = [loc for loc in self.locs if loc not in exclude_locs]
-        else:
-            locs = self.locs
-
-        utmloc = {"x":[],"y":[]}
-        for loc, utm in self.utm.items():
-            if loc in locs:
-                utmloc["x"].append(utm["easting"])
-                utmloc["y"].append(utm["northing"])
+        utmloc = self.get_utm(exclude_locs=exclude_locs)
         
         # define the header of the cc8 file
         cc8base = dict(
@@ -610,7 +634,7 @@ class Array(Network):
         return exclude_loc
 
 
-    def get_psd(self, starttime, endtime, window, olap=0.25, fq_band=(0.5,15.), exclude_locs=[], plot=True, show=True, **st_kwargs):
+    def psd(self, starttime, endtime, window, olap=0.25, fq_band=(0.5,10.), exclude_locs=[], plot=True, show=True, **st_kwargs):
 
         stream = self.get_stream(starttime, endtime, exclude_locs=exclude_locs, **st_kwargs)
         
@@ -640,23 +664,108 @@ class Array(Network):
             return None
 
 
-    def get_deltatimes(self, slow, baz, slomax, sloinc, fs, tol=1e-4, pxy0=[0.,0.], return_xy=False, exclude_locs=[]):
+    def deltatimes(self, slow, baz, slowarg={}, tol=1e-4, return_xy=False):
+        """
+        compute the waveforms displaced by given a slowness vector (slow, baz)
+        """
 
-        eastern  = []
-        northing = []
+        slowarg = _slowarg(slowarg)
 
-        for loc, utm in self.utm.items():
-            if loc not in exclude_locs:
-                eastern.append(utm["easting"])
-                northing.append(utm["northing"])
-
-        ans, tol = array_delta_times(slow, baz, slomax, sloinc, fs, eastern, northing, etol=tol, pxy0=pxy0, return_xy=return_xy)
+        utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+        ans, tol = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
+            self.sample_rate, utmloc["x"], utmloc["y"], etol=tol, pxy0=[0.,0.], return_xy=return_xy)
 
         if return_xy:
             return ans, tol
         
         else:
             return ans/fs, tol
+
+
+    def beamform(self, starttime, endtime, slow, baz, slowarg={}, shadow_times=None, plot=True, **fig_kwargs):
+        """
+        Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
+        """
+
+        slowarg = _slowarg(slowarg)
+
+        deltas, _ = self.deltatimes(slow, baz, slomax=slowarg["slomax"], sloint=slowarg["sloint"], exclude_locs=slowarg["exclude_locs"])
+        stream    = self.get_stream(starttime, endtime, prefilt=slowarg["fq_band"], toff_sec=10, exclude_locs=slowarg["exclude_locs"])
+
+        # shift stream
+        wvfm_dict = {}
+        interval  = endtime - starttime
+        for delta, tr in zip(deltas, stream):
+            of_npts = int(10*self.sample_rate)
+            d_npts  = int(delta*self.sample_rate)
+            data    = tr.get_data()
+            data_sh = data[of_npts+d_npts:-of_npts+d_npts]
+            wvfm_dict[tr.stats.location] = data_sh
+
+        duration = interval.total_seconds()
+        time = np.linspace(0, duration, len(data_sh))
+
+        if plot:
+            fig = window_wvfm(wvfm_dict, time, shadow_times, **fig_kwargs)
+            return fig
+        
+        else:
+            return wvfm_dict, time
+
+
+    def slowmap(self, starttime, window, slowarg={}, plot=True, show_title=True, **fig_kwargs):
+        """
+        Compute the slowness map
+        """
+
+        slowarg = _slowarg(slowarg)
+
+        # init some parameters
+        toff_sec = 10
+        nite     = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
+        endtime  = starttime + dt.timedelta(seconds=window)
+        lwin     = int(window * self.sample_rate)
+        nwin     = 1
+        nadv     = 0
+        
+        # get data
+        stream = self.get_stream(starttime, endtime, toff_sec=10,\
+            exclude_locs=slowarg["exclude_locs"], sample_rate=self.sample_rate, avoid_exception=True)
+        data   = stream.to_array(detrend=True)
+
+        # locations and positions
+        utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+        
+        # compute CC8 algorithm
+        ans    = get_CC8(data, self.sample_rate, np.array(utmloc["x"]), np.array(utmloc["y"]),\
+            slowarg["fq_band"], slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=nwin, \
+            nadv=nadv, cc_thres=slowarg["cc_thres"], toff=toff_sec, slow0=slowarg["slow0"])
+
+        if plot:
+            if not fig_kwargs:
+                fig_kwargs = {}
+            
+            if show_title:    
+                maact  = ans["maac"][0]
+                slowt  = ans["slow"][0]
+                bazt   = ans["bazm"][0]
+
+                fig_kwargs["title"] = f' time :: {starttime}  [{window} sec] \n Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}'
+        
+            slomap = ans["slowmap"][0,:,:]
+            smin   = slomap.min().min()
+            smax   = slomap.max().max()
+            fig_kwargs["vlim"] = [smin, smax]
+            fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], **fig_kwargs)
+            return fig
+
+        else:
+            return ans
+
+
+    def plot(self, starttime, window, offsec=3, slowarg={}, **fig_kwargs):
+        return plot_slowmap(starttime, window, offsec=offsec, slowarg=slowarg)
+
 
 
 class SoundArray(Network):

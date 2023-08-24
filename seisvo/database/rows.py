@@ -166,9 +166,11 @@ def get_ccerow(SQLbase):
         def array_id(self):
             return '.'.join([self.network, self.station])
 
+
         def get_cc8(self, path_to_cc8file="./"):
             cc8f = os.path.join(path_to_cc8file, self.cc8_file)
             return CC8(cc8f)
+
 
         def get_windowtimes(self, window, off_sec=0):
             halfw = dt.timedelta(seconds=float(window/2))
@@ -176,8 +178,27 @@ def get_ccerow(SQLbase):
             end   = self.time + halfw + dt.timedelta(seconds=off_sec)
             return (start, end)
 
+
         def get_array(self):
             return Array(self.network, self.station)
+
+
+        def get_slowmap(self, slomax=None, sloint=None, path_to_cc8file="./", exclude_locs=[], fq_band=[], **fig_kwargs):
+
+            cc8 = self.get_cc8(path_to_cc8file=path_to_cc8file)
+
+            if not sloint:
+                sloint = cc8.stats.slow_int
+
+            if not slomax:
+                slomax = cc8.stats.slow_max
+
+            if not fq_band:
+                fq_band = cc8.stats.fq_bands[int(self.fqidx)-1]
+
+            arr, ex_locs = cc8.stats.get_array()
+            exclude_locs += ex_locs
+
 
 
         def get_beamform(self, taper=True, off_sec=2, path_to_cc8file="./", exclude_locs=[], fq_band=[], plot=False, **fig_kwargs):
@@ -195,6 +216,7 @@ def get_ccerow(SQLbase):
             deltas, _ = arr.get_deltatimes(self.slow, self.baz, slomax, sloint, fs, exclude_locs=exclude_locs)
 
             starttime, endtime = self.get_windowtimes(cc8.stats.window, off_sec=off_sec)
+
             stream    = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=10, exclude_locs=exclude_locs)
 
             # shift stream
@@ -219,7 +241,6 @@ def get_ccerow(SQLbase):
                 return fig
             
             else:
-                
                 bf = np.empty((len(time), len(wvfm_dict)))
                 for n, (_, wvfm) in enumerate(wvfm_dict.items()):
                     bf[:, n] = wvfm

@@ -619,43 +619,6 @@ class CC8out(object):
         return ans
     
 
-    def get_beamform(self, starttime, endtime, slow, baz, fq_idx=None, fq_band=[], **fig_kwargs):
-        """
-        Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
-        """
-
-        sloint = self.cc8stats.slow_int
-        slomax = self.cc8stats.slow_max
-
-        if not fq_idx:
-            fq_idx = self._fqidx[0]
-        else:
-            assert fq_idx in self._fqidx
-
-        if not fq_band:
-            fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
-
-        arr, exclude_locs = self.cc8stats.get_array()
-        deltas, _ = arr.get_deltatimes(slow, baz, slomax, sloint, self.cc8stats.sample_rate, exclude_locs=exclude_locs)
-        stream = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=600, exclude_locs=exclude_locs)
-
-        # shift stream
-        wvfm_dict = {}
-        interval  = endtime - starttime
-        for delta, tr in zip(deltas, stream):
-            of_npts = int(600*self.cc8stats.sample_rate)
-            d_npts  = int(delta*self.cc8stats.sample_rate)
-            data    = tr.get_data()
-            data_sh = data[of_npts+d_npts:-of_npts+d_npts]
-            wvfm_dict[tr.stats.location] = data_sh
-
-        duration = interval.total_seconds()
-        time = np.linspace(0, duration, len(data_sh))
-        fig = window_wvfm(wvfm_dict, time, None, None, **fig_kwargs)
-
-        return fig
-
-
     def plot_wvfm(self, ntime=None, off_sec=0, fq_idx=None, show_title=True, ffilter=True, **fig_kwargs):
         """
         Plot shifted traces
@@ -663,18 +626,22 @@ class CC8out(object):
         
         arr, exclude_locs = self.cc8stats.get_array()
 
-        sloint = self.cc8stats.slow_int
-        slomax = self.cc8stats.slow_max
-
         if not fq_idx:
             fq_idx = self._fqidx[0]
         else:
             assert fq_idx in self._fqidx
-
+        
         if ffilter:
             fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
         else:
-            fq_band = [0.5, 10]
+            fq_band = [0.5, 5]
+
+        slowarg = {
+            "slomax":self.cc8stats.slow_max,
+            "sloint":self.cc8stats.slow_int,
+            "exclude_locs":exclude_locs,
+            "fq_band":fq_band,
+        }
 
         data_dict = self.get_data(["maac", "slow", "bazm"], fq_idx=fq_idx)
         maac  = data_dict["maac"]
@@ -685,38 +652,17 @@ class CC8out(object):
             ntime = np.argmax(maac)
             print(f" Best MAAC [{maac[ntime]:.1f}] is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f}")
 
-        bazt    = baz[ntime]
-        slowt   = slow[ntime]
-        maact   = maac[ntime]
-        half_w  = dt.timedelta(seconds=float(self.cc8stats.window/2))
-        start   = self._dout["dtime"][ntime] - half_w
-        end     = start + half_w + half_w
-
-        # get stream and delta array
-        stream = arr.get_stream(start, end, prefilt=fq_band, toff_sec=600, exclude_locs=exclude_locs)
-        deltas, _ = arr.get_deltatimes(slowt, bazt, slomax, sloint, self.cc8stats.sample_rate, exclude_locs=exclude_locs)
-        
-        # shift stream
-        wvfm_dict = {}
-        dtoff = dt.timedelta(seconds=off_sec)
-        for delta, tr in zip(deltas, stream):
-            starttime = start + dt.timedelta(seconds=delta) - dtoff
-            endtime = starttime + half_w + half_w + dtoff + dtoff
-            wvfm_dict[tr.stats.location] = tr.get_data(starttime=starttime, endtime=endtime)
-    
-        # create time array
-        duration = self.cc8stats.window + 2*off_sec
-        time = np.linspace(0, duration, int(duration*self.cc8stats.sample_rate)+1)
-        
-        # make fig
-        if show_title:
-            title = f"Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}"
-            fig_kwargs["title"] = title
-
-        startw = duration/2 - self.cc8stats.window/2
-        endw   = startw + self.cc8stats.window
-
-        fig = window_wvfm(wvfm_dict, time, startw, endw, **fig_kwargs)
+        bazt     = baz[ntime]
+        slowt    = slow[ntime]
+        half_w   = dt.timedelta(seconds=float(self.cc8stats.window/2))
+        dtoff    = dt.timedelta(seconds=off_sec)
+        start    = self._dout["dtime"][ntime] - half_w - dtoff
+        end      = start + half_w + half_w + dtoff
+        duration = (end - start).total_seconds()
+        startw   = duration/2 - self.cc8stats.window/2
+        endw     = startw + self.cc8stats.window
+        fig      = arr.beamform(start, end, slowt, bazt, slowarg=slowarg,
+            shadow_times=(startw, endw), plot=True, **fig_kwargs)
 
         return fig
 
@@ -811,7 +757,7 @@ class CC8out(object):
         return pdfmap
     
 
-    def plot_detailed_smap(self, ntime, fq_idx=None, slomax=0.5, sloint=0.025, toffsec=2, exclude_locs=[], show_title=True, **fig_kwargs):
+    def compute_smap(self, ntime, fq_idx=None, slowarg={}, show_title=True, **fig_kwargs):
         """
         This function computes the smap for a specific window (ntime), 
         the center of the point (slownes, baz) is taken from the maac
@@ -829,50 +775,18 @@ class CC8out(object):
 
         arr, exloc = self.cc8stats.get_array()
         exclude_locs += exloc
-        fs       = self.cc8stats.sample_rate
-        eastern  = []
-        northing = []
-        for loc, utm in arr.utm.items():
-            if loc not in exclude_locs:
-                eastern.append(utm["easting"])
-                northing.append(utm["northing"])
+
+        slowarg = {
+            "slomax":self.cc8stats.slow_max,
+            "sloint":self.cc8stats.slow_int,
+            "exclude_locs":exclude_locs
+        }
         
-        pxy0, tol = arr.get_deltatimes(slow, baz, self.cc8stats.slow_max, 
-            self.cc8stats.slow_int, fs, exclude_locs=exclude_locs, return_xy=True)
+        pxy0, tol = arr.get_deltatimes(slow, baz, slowarg=slowarg, return_xy=True)
         
-        # get start and end window
-        toffw = dt.timedelta(seconds=toffsec)
-        halfw = dt.timedelta(seconds=float(self.cc8stats.window/2))
-        fullw = dt.timedelta(seconds=self.cc8stats.window)
+        slowarg["slow0"] = pxy0
         timet = self._dout["dtime"][ntime]
-        start = timet - halfw - toffw
-        end   = start + fullw + toffw + toffw
-
-        # get stream and data in numpy array
-        stream  = arr.get_stream(start, end, toff_sec=0, exclude_locs=exclude_locs)
-
-        data    = stream.to_array()
-        fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
-        lwin    = int(fs*self.cc8stats.window)
-        nwin    = 1
-        nadv    = 0
-        cc_th   = self.cc8stats.cc_thres
-        toff    = toffsec
-
-        ans = get_CC8(data, fs, np.array(eastern), np.array(northing), fq_band, slomax, sloint,
-            lwin=lwin, nwin=nwin, nadv=nadv, cc_thres=cc_th, toff=toff, slow0=pxy0)
-        
-        maact = ans["maac"][0]
-        slowt = ans["slow"][0]
-        bazt  = ans["bazm"][0]
-
-        if show_title:
-            fig_kwargs["title"] = f" nidx :: {ntime}  >> {timet} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}"
-        
-        smin = ans["slowmap"][0,:,:].min().min()
-        smax = ans["slowmap"][0,:,:].max().max()
-        fig_kwargs["vlim"] = [smin, smax]
-        fig = simple_slowmap(ans["slowmap"][0,:,:], sloint, slomax, **fig_kwargs)
-
+        fig = arr.slowmap(timet, self.cc8stats.window, slowarg=slowarg, plot=True, show_title=show_title, **fig_kwargs) 
+    
         return fig
 
