@@ -300,6 +300,7 @@ class CC8(object):
             try:
                 nout = out.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
                 maac = out.get_data("maac", fq_idx=fq_idx, **nidx_kwargs)
+                rms  = out.get_data("rms", fq_idx=fq_idx, **nidx_kwargs)
                 b    = np.where(~np.isnan(nout))[0]
 
                 # if there are two consecutive bins, get the bin with highest maac
@@ -307,8 +308,8 @@ class CC8(object):
                     bdiff = np.where(np.diff(b)==1)[0]
                     if bdiff.any():
                         for i in bdiff:
-                            m0 = maac[b[i]]
-                            m1 = maac[b[i+1]]
+                            m0 = maac[b[i]]*rms[b[i]]
+                            m1 = maac[b[i+1]]*rms[b[i+1]]
                             if m0 > m1:
                                 b[i+1] = -1
                             else:
