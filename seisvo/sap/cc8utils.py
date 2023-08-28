@@ -9,6 +9,14 @@ from ..signal import get_CC8, get_Stats, get_PDF
 
 # from .plotting import cc8_plot, slowness_map_motion, simple_slowness_plot, plot_slowbaz_tmap
 
+def _error_of_bounds(slowbnd, azmbnd):
+    bazb     = (np.pi/180)*azmbnd
+    slodiff  = np.abs(slowbnd[:,1] - slowbnd[:,0])
+    bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
+    error    = (slodiff + bazdiff) / 2
+    return error
+
+
 def attr_filt(attr_list, which):
     """
     Filter a list of attributes to only vector or scalar.

@@ -6,6 +6,7 @@ from matplotlib.backends.qt_compat import QtWidgets
 from .events import EventWidget
 from .lte import LTEWidget
 from .cc8 import CC8Widget
+from .cce import CCEWidget
 
 
 def load_ltewidget(lte, db, starttime, interval, attr_list, chan_list, olap=0.1, init_app=True, **kwargs):
@@ -49,4 +50,15 @@ def load_cc8widget(cc8, starttime, interval, fq_idx, db, init_app=True, **kwargs
     
     return cc_widget
 
+
+def load_cceWidget(cce, eid_list, path_to_cc8file="./"):
+
+    app = QtWidgets.QApplication([])
+    
+    CCE_widget = CCEWidget(cce, eid_list, path_to_cc8file=path_to_cc8file)
+    CCE_widget.show()
+    
+    app.exec_()
+
+    return CCE_widget
 

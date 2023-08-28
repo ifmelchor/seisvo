@@ -1,11 +1,18 @@
 
 import numpy as np
+import datetime as dt
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolor
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
 from matplotlib.gridspec import GridSpec
 from .utils import get_colors
+
+def _slowbnds_error(x, th):
+    xmax = np.argmax(x)
+    x1 = np.argmin(np.abs(x[:xmax]-th))
+    x2 = np.argmin(np.abs(x[xmax:]-th))
+    return (x1, xmax+x2)
 
 
 def _detections(count, time):
@@ -205,7 +212,7 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
         return fig
 
 
-def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
+def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     cmap  = kwargs.get("cmap", "Spectral_r")
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
@@ -213,6 +220,7 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
     vlim  = kwargs.get("vlim", [])
     bar_axis  = kwargs.get("bar_axis", None)
     bar_label = kwargs.get("bar_label", "CC")
+    adjust_vlim   = kwargs.get("adjust_vlim", False)
     interpolation = kwargs.get("interpolation", "gaussian")
 
     if not axis or not fig:
@@ -230,15 +238,36 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
          slomax - halfbin
     )
 
-    if not vlim:
-        vmin, vmax = 0, 1
-        ticks=[0,0.25,0.5,0.75,1]
-    else:
-        vmin, vmax = vlim
-        ticks=None
+    ticks = None
 
+    if adjust_vlim:
+        vmin = slomap.min()
+        vmax = slomap.max()
+
+    else:
+        if not vlim:
+            vmin, vmax = 0, 1
+            ticks = [0,0.25,0.5,0.75,1]
+        else:
+            vmin, vmax = vlim
+    
     im = axis.imshow(np.flipud(slomap).T, cmap=cmap, interpolation=interpolation,\
-        extent=extent, aspect='auto', vmin=vmin, vmax=vmax)
+        extent=extent, aspect='auto', vmin=vmin, vmax=vmax, zorder=1)
+    
+    maxpos = np.where(slomap==slomap.max())
+    slox = np.linspace(slomax - halfbin, -slomax + halfbin, slomap.shape[0])
+    # slox == sloy
+    slov0x = np.linspace(0,slox[maxpos[0]],100)
+    slov0y = np.linspace(0,slox[maxpos[1]],100)
+    axis.plot(slov0x, slov0y, ls="--", color="k", alpha=0.7, zorder=2)
+    axis.scatter(slox[maxpos[0]],slox[maxpos[1]], marker="o", color="r", ec="k", zorder=3)
+    axis.scatter(0, 0, marker="o", color="k", ec="k", zorder=3)
+
+    # plot error bars
+    maacth = slomap.max()*(1-cc_th)
+    x1, x2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
+    y1, y2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
+    axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", fmt="none", zorder=2)
 
     axis.set_title(title)
     axis.set_xlabel("x [s/km]")
@@ -253,11 +282,12 @@ def simple_slowmap(slomap, sloint, slomax, show=True, **kwargs):
     return fig
 
 
-def window_wvfm(wvfm_dict, time, shadow_times, show=True, **kwargs):
+def beamform_wvfm(wvfm_dict, suma, time, show=True, **kwargs):
 
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
     axes  = kwargs.get("axes", None)
+    shadow_times = kwargs.get("shadow_times", ())
     colorname = kwargs.get("colorname", "tolm")
 
     if not axes or not fig:
@@ -267,21 +297,18 @@ def window_wvfm(wvfm_dict, time, shadow_times, show=True, **kwargs):
 
     colorlist = get_colors(colorname)
     axes[0].set_title(title)
-
-    avg_data = np.zeros(len(time))
     for n, (loc, data) in enumerate(wvfm_dict.items()):
         axes[0].plot(time, data, lw=1.2, color=colorlist[n], label=loc, alpha=0.7)
-        avg_data += data/np.abs(data).max()
-
+    
     # axes[0].xaxis.set_major_formatter(mtick.NullFormatter())
     
     # plot average wvfm
-    axes[1].plot(time, avg_data*np.hanning(len(time)), color="k")
+    axes[1].plot(time, suma, color="k")
     axes[1].set_xlabel("Time [sec]")
     
     for ax in axes:
         if shadow_times:
-            ax.axvspan(shadow_times[0], shadow_times[1], color="k", alpha=0.05)
+            ax.axvspan(shadow_times[0], shadow_times[1], color="k", alpha=0.2)
         ax.grid(which="major", axis="x", color="k", ls="-",  alpha=0.25)
         ax.grid(which="minor", axis="x", color="k", ls="--", alpha=0.15)
         ax.set_xlim(time[0], time[-1])
@@ -296,7 +323,7 @@ def window_wvfm(wvfm_dict, time, shadow_times, show=True, **kwargs):
     return fig
 
 
-def plot_slowmap(array, starttime, window, offsec=3, slowarg={}):
+def plot_slowmap(array, starttime, window, offsec=3, taper=True, slowarg={}):
 
     # create frame
     fig  = plt.figure(figsize=(12,9))
@@ -305,7 +332,7 @@ def plot_slowmap(array, starttime, window, offsec=3, slowarg={}):
     ax2  = fig.add_subplot(gs[0,2])
     ax3  = fig.add_subplot(gs[1,:])
     ax4  = fig.add_subplot(gs[2,:])
-    ans0 = array.slowmap(starttime, window, slowarg=slowarg, plot=True, axis=ax1, fig=fig, bar_axis=ax2)
+    _, ans0 = array.slowmap(starttime, window, slowarg=slowarg, plot=True, axis=ax1, fig=fig, bar_axis=ax2)
 
     slow = ans0["slow"][0]
     baz  = ans0["bazm"][0]
@@ -315,6 +342,8 @@ def plot_slowmap(array, starttime, window, offsec=3, slowarg={}):
     duration = (time1 - time0).total_seconds()
     startw = duration/2 - window/2
     endw   = startw + window
-    ans1  = self.beamform(time0, time1, slow, baz, shadow_times=(startw, endw), slowarg=slowarg, plot=True, fig=fig, axes=[ax3,ax4])
+    array.beamform(time0, time1, slow, baz, shadow_times=(startw, endw), taper=taper, slowarg=slowarg, plot=True, fig=fig, axes=[ax3,ax4])
+
+    plt.show()
 
     return fig

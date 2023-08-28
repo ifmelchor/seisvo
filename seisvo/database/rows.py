@@ -6,7 +6,6 @@ import datetime as dt
 import sqlalchemy as sql
 from ..network import Array
 from ..sap import CC8
-from ..plotting.array import window_wvfm
 
 def get_sderow(SQLbase):
 
@@ -161,7 +160,6 @@ def get_ccerow(SQLbase):
         string_4 = sql.Column(sql.String, nullable=True)
         string_5 = sql.Column(sql.String, nullable=True)
 
-
         @property
         def array_id(self):
             return '.'.join([self.network, self.station])
@@ -172,18 +170,11 @@ def get_ccerow(SQLbase):
             return CC8(cc8f)
 
 
-        def get_windowtimes(self, window, off_sec=0):
-            halfw = dt.timedelta(seconds=float(window/2))
-            start = self.time - halfw - dt.timedelta(seconds=off_sec)
-            end   = self.time + halfw + dt.timedelta(seconds=off_sec)
-            return (start, end)
-
-
         def get_array(self):
             return Array(self.network, self.station)
 
 
-        def get_slowmap(self, slomax=None, sloint=None, path_to_cc8file="./", exclude_locs=[], fq_band=[], **fig_kwargs):
+        def slowmap(self, slomax=None, sloint=None, path_to_cc8file="./", exclude_locs=[], fq_band=[], tol=1e-4, **fig_kwargs):
 
             cc8 = self.get_cc8(path_to_cc8file=path_to_cc8file)
 
@@ -198,58 +189,94 @@ def get_ccerow(SQLbase):
 
             arr, ex_locs = cc8.stats.get_array()
             exclude_locs += ex_locs
+            
+            slowarg = {
+                "slomax":slomax,
+                "sloint":sloint,
+                "exclude_locs":exclude_locs,
+                "fq_band":fq_band,
+            }
+            
+            # slowarg["slow0"], _ = arr.deltatimes(self.slow, self.baz, slowarg=slowarg, tol=tol, return_xy=True)
+            
+            halfw     = dt.timedelta(seconds=cc8.stats.window/2)
+            starttime = self.time - halfw
+
+            fig = arr.slowmap(starttime, cc8.stats.window, slowarg=slowarg, plot=True, show_title=True, **fig_kwargs)
+
+            return fig
 
 
-
-        def get_beamform(self, taper=True, off_sec=2, path_to_cc8file="./", exclude_locs=[], fq_band=[], plot=False, **fig_kwargs):
+        def beamform(self, taper=True, off_sec=5, slomax=None, sloint=None, path_to_cc8file="./", exclude_locs=[], fq_band=[], plot=False, **fig_kwargs):
 
             cc8 = self.get_cc8(path_to_cc8file=path_to_cc8file)
 
-            sloint = cc8.stats.slow_int
-            slomax = cc8.stats.slow_max
-            fs     = cc8.stats.sample_rate
+            if not sloint:
+                sloint = cc8.stats.slow_int
+            
+            if not slomax:
+                slomax = cc8.stats.slow_max
+        
             if not fq_band:
                 fq_band = cc8.stats.fq_bands[int(self.fqidx)-1]
 
             arr, ex_locs = cc8.stats.get_array()
             exclude_locs += ex_locs
-            deltas, _ = arr.get_deltatimes(self.slow, self.baz, slomax, sloint, fs, exclude_locs=exclude_locs)
 
-            starttime, endtime = self.get_windowtimes(cc8.stats.window, off_sec=off_sec)
+            slowarg = {
+                "slomax":slomax,
+                "sloint":sloint,
+                "exclude_locs":exclude_locs,
+                "fq_band":fq_band
+            }
 
-            stream    = arr.get_stream(starttime, endtime, prefilt=fq_band, toff_sec=10, exclude_locs=exclude_locs)
-
-            # shift stream
-            wvfm_dict = {}
-            interval  = endtime - starttime
-            for delta, tr in zip(deltas, stream):
-                of_npts = int(10*fs)
-                d_npts  = int(delta*fs)
-                data    = tr.get_data()
-                data_sh = data[of_npts+d_npts:-of_npts+d_npts]
-                wvfm_dict[tr.stats.location] = data_sh
-
-            duration = interval.total_seconds()
-            time = np.linspace(0, duration, len(data_sh))
-
-            if plot:
-                if not fig_kwargs:
-                    fig_kwargs = {}
-                fig_kwargs["title"] = f"EID : {self.id} TIME: {self.time.strftime('%Y %b %m %H:%M:%S')} \n BAZ [{self.baz:.2f}] SLOW [{self.slow:.2f}]"
-                fig = window_wvfm(wvfm_dict, time, None, None, **fig_kwargs)
-                
-                return fig
+            halfw     = dt.timedelta(seconds=cc8.stats.window/2)
+            starttime = self.time - halfw
+            endtime   = starttime + dt.timedelta(seconds=cc8.stats.window)
             
+            if off_sec > 0:
+                starttime -= dt.timedelta(seconds=off_sec)
+                endtime   += dt.timedelta(seconds=off_sec)
+                duration = (endtime - starttime).total_seconds()
+                startw   = duration/2 - cc8.stats.window/2
+                endw     = startw + cc8.stats.window
+                shadow_times = (startw, endw)
             else:
-                bf = np.empty((len(time), len(wvfm_dict)))
-                for n, (_, wvfm) in enumerate(wvfm_dict.items()):
-                    bf[:, n] = wvfm
-                suma = np.sum(bf, axis=1) / bf.shape[1]
+                shadow_times = ()
 
-                if taper:
-                    suma *= ss.windows.hann(len(suma))
+            ans = arr.beamform(starttime, endtime, self.slow, self.baz, slowarg=slowarg,\
+                shadow_times=shadow_times, taper=taper, plot=plot, **fig_kwargs)
 
-                return time, wvfm_dict, suma
+            return ans
+
+
+        def plot(self, off_sec=7, taper=True, path_to_cc8file="./", exclude_locs=[], fq_band=[]):
+
+            cc8 = self.get_cc8(path_to_cc8file=path_to_cc8file)
+            arr, ex_locs = cc8.stats.get_array()
+            exclude_locs += ex_locs
+
+            if not fq_band:
+                fq_band = cc8.stats.fq_bands[int(self.fqidx)-1]
+
+            slowarg = {
+                "slomax":cc8.stats.slow_max,
+                "sloint":cc8.stats.slow_int,
+                "exclude_locs":exclude_locs,
+                "fq_band":fq_band
+            }
+
+            halfw     = dt.timedelta(seconds=cc8.stats.window/2)
+            starttime = self.time - halfw
+
+            fig = arr.plot(starttime, cc8.stats.window, offsec=off_sec, taper=taper, slowarg=slowarg)
+
+            return fig
+
+
+
+
+
 
 
     return CCErow

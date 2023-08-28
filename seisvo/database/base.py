@@ -466,59 +466,87 @@ class CCE(_DataBase):
 
 
     def __len__(self):
-        return len(self.get_episode_list())
+        return len(self._get_id())
 
 
     def __getitem__(self, eid):
-        return self.get_id(eid)
+        return self.get_rows(eid=eid)
 
 
-    def get_id(self, id=None):
-        return self._get_id(id=id)
+    def get_rows(self, eid=None, return_eid=True, **kwargs):
+
+        label = kwargs.get("label", None)
+        time_interval = kwargs.get("time_interval", ())
+        slow_range = kwargs.get("slow_range", [])
+        baz_range = kwargs.get("baz_range", [])
+        rms_range = kwargs.get("rms_range", []) 
+
+        if eid:
+            return self._get_id(id=eid)
+        
+        else:
+            row_list = self._get_id()
+
+            if label:
+                if isinstance(label, str):
+                    row_list = list(filter(lambda e: e.label==label, row_list))
+                
+                elif isinstance(label, list):
+                    row_list_copy = []
+                    for lbl in label:
+                        row_list_copy += list(filter(lambda e: e.label==lbl, row_list))        
+                    row_list = row_list_copy
+        
+            if time_interval:
+                time_row_list = [] 
+                for row in row_list:
+                    cond1 = row.time >= time_interval[0]
+                    cond2 = row.time <= time_interval[1]
+                    if cond1 and cond2:
+                        time_row_list.append(row)
+                row_list = time_row_list
+            
+            if slow_range:
+                slomin = slow_range[0]
+                slomax = slow_range[1]
+                if slomax == -1:
+                    slomax = 6e66
+                slow_row_list = [row for row in row_list if row.slow < slomax and row.slow > slomin]
+                row_list = slow_row_list
+
+            if baz_range:
+                bazmin = baz_range[0] 
+                bazmax = baz_range[1]
+                baz_row_list = [row for row in row_list if row.baz <= bazmax and row.baz >= bazmin]
+                row_list = baz_row_list
+            
+            if rms_range:
+                rmsmin = rms_range[0] 
+                rmsmax = rms_range[1]
+                if rmsmax == -1:
+                    rmsmax = 6e66
+                rms_row_list = [row for row in row_list if row.rms <= rmsmax and row.rms >= rmsmin]
+                row_list = rms_row_list
+                
+            row_list.sort(key=lambda x: x.time)
+
+            if return_eid:
+                row_list = [e.id for e in row_list]
+
+            return row_list
 
 
     def is_eid(self, eid):
-        return eid in self.get_episode_list()
+        return eid in self.get_rows()
 
 
-    def relabel_event(self, eid, new_label):
+    def relabel(self, eid, new_label):
         assert self.is_eid(eid)
         assert isinstance(new_label, str)
         self._update_row(eid, dict(label=new_label))
 
 
-    def get_episode_list(self, label=None, time_interval=(), full=False):
-        row_list = self.get_id()
-
-        if label:
-            if isinstance(label, str):
-                row_list = list(filter(lambda e: e.label==label, row_list))
-            
-            elif isinstance(label, list):
-                row_list_copy = []
-                for lbl in label:
-                    row_list_copy += list(filter(lambda e: e.label==lbl, row_list))
-                
-                row_list = row_list_copy
-        
-        if time_interval:
-            time_row_list = [] 
-            for row in row_list:
-                cond1 = row.time >= time_interval[0]
-                cond2 = row.time <= time_interval[1]
-                if cond1 and cond2:
-                    time_row_list.append(row)
-            row_list = time_row_list
-
-        row_list.sort(key=lambda x: x.time)
-
-        if not full:
-            row_list = [e.id for e in row_list]
-
-        return row_list
-
-
-    def remove_event(self, eid):
+    def remove(self, eid):
         if isinstance(eid, int) and self.is_eid(eid):
             self._remove_row(eid)
         
@@ -528,7 +556,8 @@ class CCE(_DataBase):
                     self._remove_row(eid)
 
     
-
-
-
+    def gui(self, path_to_cc8file, **row_kwargs):
+        from ..gui import load_cceWidget
+        load_cceWidget(self, self.get_rows(**row_kwargs), path_to_cc8file=path_to_cc8file)
+    
 

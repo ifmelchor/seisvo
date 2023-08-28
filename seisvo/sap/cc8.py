@@ -11,7 +11,7 @@ import datetime as dt
 from .cc8utils import _CC8Process
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF, get_CC8
-from ..plotting.array import simple_cc8_plot, simple_slowmap, window_wvfm, _detections
+from ..plotting.array import simple_cc8_plot, simple_slowmap, _detections
 
 # from tqdm import tqdm
 ATTR_LIST = ["rms", "maac", "slow", "bazm", "slowmap", "bazmbnd", "slowbnd"]
@@ -619,7 +619,7 @@ class CC8out(object):
         return ans
     
 
-    def plot_wvfm(self, ntime=None, off_sec=0, fq_idx=None, show_title=True, ffilter=True, **fig_kwargs):
+    def plot_beamform(self, ntime=None, off_sec=0, fq_idx=None, show_title=True, fq_band=[], **fig_kwargs):
         """
         Plot shifted traces
         """
@@ -631,11 +631,9 @@ class CC8out(object):
         else:
             assert fq_idx in self._fqidx
         
-        if ffilter:
+        if not fq_band:
             fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
-        else:
-            fq_band = [0.5, 5]
-
+        
         slowarg = {
             "slomax":self.cc8stats.slow_max,
             "sloint":self.cc8stats.slow_int,
@@ -661,8 +659,9 @@ class CC8out(object):
         duration = (end - start).total_seconds()
         startw   = duration/2 - self.cc8stats.window/2
         endw     = startw + self.cc8stats.window
+
         fig      = arr.beamform(start, end, slowt, bazt, slowarg=slowarg,
-            shadow_times=(startw, endw), plot=True, **fig_kwargs)
+            shadow_times=(startw, endw), taper=False, plot=True, **fig_kwargs)
 
         return fig
 
@@ -757,7 +756,7 @@ class CC8out(object):
         return pdfmap
     
 
-    def compute_smap(self, ntime, fq_idx=None, slowarg={}, show_title=True, **fig_kwargs):
+    def compute_smap(self, ntime, fq_idx=None, slowarg={}, tol=1e-4, show_title=True, **fig_kwargs):
         """
         This function computes the smap for a specific window (ntime), 
         the center of the point (slownes, baz) is taken from the maac
@@ -781,10 +780,8 @@ class CC8out(object):
             "sloint":self.cc8stats.slow_int,
             "exclude_locs":exclude_locs
         }
+        slowarg["slow0"], _ = arr.deltatimes(slow, baz, slowarg=slowarg, tol=tol, return_xy=True)
         
-        pxy0, tol = arr.get_deltatimes(slow, baz, slowarg=slowarg, return_xy=True)
-        
-        slowarg["slow0"] = pxy0
         timet = self._dout["dtime"][ntime]
         fig = arr.slowmap(timet, self.cc8stats.window, slowarg=slowarg, plot=True, show_title=show_title, **fig_kwargs) 
     

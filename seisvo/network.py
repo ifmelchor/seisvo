@@ -12,10 +12,11 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
+from .sap.cc8utils import _error_of_bounds
 from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times
 from .lte.base import _new_LTE
 from .utils import nCPU
-from .plotting.array import location_map, traces_psd, simple_slowmap, window_wvfm, plot_slowmap
+from .plotting.array import location_map, traces_psd, simple_slowmap, beamform_wvfm, plot_slowmap
 
 default_slowarg = {
     "slomax":4.0, 
@@ -476,32 +477,31 @@ class Array(Network):
             return stream
 
 
-    def get_cc8(self, starttime, endtime, window, overlap, slowarg={}, **kwargs):
+    def get_cc8(self, starttime, endtime, window, overlap, slowarg={}, toff_sec=10):
         """
         compute CC8 algorithm
         window in seconds (float) and overlap between 0 an 1.
         """
 
         slowarg = _slowarg(slowarg)
-
-        toff_sec    = kwargs.get('toff_sec', 10)
-        sample_rate = kwargs.get("sample_rate", self.sample_rate)
-        nite        = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
+        nite    = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
 
         # locations and positions
         utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         
-        ss = SSteps(starttime, endtime, window, win_olap=overlap, logfile=True)
+        # compute steps
+        ss     = SSteps(starttime, endtime, window, win_olap=overlap, logfile=True)
         ssdict = ss.to_dict()
 
+        # get data array
         stream = self.get_stream(starttime, endtime, toff_sec=toff_sec,\
-            exclude_locs=slowarg["exclude_locs"], sample_rate=sample_rate, 
+            exclude_locs=slowarg["exclude_locs"], sample_rate=self.sample_rate, 
             avoid_exception=True)
-        
         data = stream.to_array(detrend=True)
-        lwin = int(ss.window * sample_rate)
+        lwin = int(ss.window * self.sample_rate)
 
-        ans = get_CC8(data, sample_rate, utmloc["x"], utmloc["y"], slowarg["fq_band"], 
+        # wrapper into julia
+        ans = get_CC8(data, self.sample_rate, utmloc["x"], utmloc["y"], slowarg["fq_band"], 
             slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=ssdict["nwin"], 
             nadv=ssdict["wadv"], toff=toff_sec, cc_thres=slowarg["cc_thres"])
         
@@ -554,10 +554,10 @@ class Array(Network):
         assert window/60 < interval
 
         # load parameters
+        sample_rate = self.sample_rate
         njobs       = kwargs.get('njobs', 1)
         toff_sec    = kwargs.get('toff_sec', 3)
-        sample_rate = kwargs.get("sample_rate", self.sample_rate)
-        fileout      = kwargs.get("fileout", None)
+        fileout     = kwargs.get("fileout", None)
         
         # compute slowness invervals
         nites = 1 + 2*int(slow_max/slow_int)
@@ -669,9 +669,8 @@ class Array(Network):
         compute the waveforms displaced by given a slowness vector (slow, baz)
         """
 
-        slowarg = _slowarg(slowarg)
-
-        utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+        slowarg  = _slowarg(slowarg)
+        utmloc   = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         ans, tol = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
             self.sample_rate, utmloc["x"], utmloc["y"], etol=tol, pxy0=[0.,0.], return_xy=return_xy)
 
@@ -679,38 +678,44 @@ class Array(Network):
             return ans, tol
         
         else:
-            return ans/fs, tol
+            return ans/self.sample_rate, tol
 
 
-    def beamform(self, starttime, endtime, slow, baz, slowarg={}, shadow_times=None, plot=True, **fig_kwargs):
+    def beamform(self, starttime, endtime, slow, baz, slowarg={}, taper=False, tol=1e-4, plot=True, **fig_kwargs):
         """
         Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
         """
 
-        slowarg = _slowarg(slowarg)
-
-        deltas, _ = self.deltatimes(slow, baz, slomax=slowarg["slomax"], sloint=slowarg["sloint"], exclude_locs=slowarg["exclude_locs"])
+        slowarg   = _slowarg(slowarg)
+        deltas, _ = self.deltatimes(slow, baz, slowarg=slowarg, tol=tol)
         stream    = self.get_stream(starttime, endtime, prefilt=slowarg["fq_band"], toff_sec=10, exclude_locs=slowarg["exclude_locs"])
 
         # shift stream
         wvfm_dict = {}
-        interval  = endtime - starttime
         for delta, tr in zip(deltas, stream):
-            of_npts = int(10*self.sample_rate)
-            d_npts  = int(delta*self.sample_rate)
-            data    = tr.get_data()
-            data_sh = data[of_npts+d_npts:-of_npts+d_npts]
+            of_npts  = int(10*self.sample_rate)
+            d_npts   = int(delta*self.sample_rate)
+            data     = tr.get_data()
+            data_sh  = data[of_npts+d_npts:-of_npts+d_npts]
             wvfm_dict[tr.stats.location] = data_sh
+        
+        # beamform
+        bf = np.empty((len(data_sh), len(deltas)))
+        for n, (_, data) in enumerate(wvfm_dict.items()):
+            bf[:, n] = data/np.abs(data).max()
+        
+        suma = np.sum(bf, axis=1) / bf.shape[1]
+        if taper:
+            suma *= np.hanning(len(suma))
 
-        duration = interval.total_seconds()
-        time = np.linspace(0, duration, len(data_sh))
+        duration = (endtime - starttime).total_seconds()
+        time     = np.linspace(0, duration, len(data_sh))
 
         if plot:
-            fig = window_wvfm(wvfm_dict, time, shadow_times, **fig_kwargs)
+            fig = beamform_wvfm(wvfm_dict, suma, time, **fig_kwargs)
             return fig
-        
         else:
-            return wvfm_dict, time
+            return wvfm_dict, suma, time
 
 
     def slowmap(self, starttime, window, slowarg={}, plot=True, show_title=True, **fig_kwargs):
@@ -746,25 +751,25 @@ class Array(Network):
                 fig_kwargs = {}
             
             if show_title:    
+                rms    = 10*np.log10(ans["rms"][0])
                 maact  = ans["maac"][0]
                 slowt  = ans["slow"][0]
                 bazt   = ans["bazm"][0]
+                error  = _error_of_bounds(ans["slowbnd"], ans["bazmbnd"])[0]
 
-                fig_kwargs["title"] = f' time :: {starttime}  [{window} sec] \n Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]}] \n MAAC {maact:.1f} :: Slow {slowt:.2f} [s/km] :: Baz {bazt:.1f}'
+                fig_kwargs["title"] = f' {starttime}  [{window} sec] :: Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]} s/km] \n RMS {rms:.1f} [dB] :: MAAC {maact:.2f} :: SLOW {slowt:.2f} [s/km] :: BAZ {bazt:.1f} :: ERR {error:.1f} \n'
         
-            slomap = ans["slowmap"][0,:,:]
-            smin   = slomap.min().min()
-            smax   = slomap.max().max()
-            fig_kwargs["vlim"] = [smin, smax]
+            slomap   = ans["slowmap"][0,:,:]
+
             fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], **fig_kwargs)
-            return fig
+            return fig, ans
 
         else:
             return ans
 
 
-    def plot(self, starttime, window, offsec=3, slowarg={}, **fig_kwargs):
-        return plot_slowmap(starttime, window, offsec=offsec, slowarg=slowarg)
+    def plot(self, starttime, window, taper=False, offsec=3, slowarg={}):
+        return plot_slowmap(self, starttime, window, taper=taper, offsec=offsec, slowarg=slowarg)
 
 
 
