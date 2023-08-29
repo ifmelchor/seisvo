@@ -28,6 +28,7 @@ def get_PSD(data, fs, lwin=None, olap=0., fq_band=(0.5,15), NW=3.5, pad=1.0, ful
         npts = len(data)
         nwin = None
         lwin = None
+        nadv = None
         full_return = False
 
     data = data.astype(dtype=np.float64)

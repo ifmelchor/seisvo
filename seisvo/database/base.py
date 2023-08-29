@@ -2,6 +2,7 @@
 # coding=utf-8
 
 import os
+import numpy as np
 import datetime as dt
 import sqlalchemy as sql
 import subprocess as sp
@@ -560,4 +561,24 @@ class CCE(_DataBase):
         from ..gui import load_cceWidget
         load_cceWidget(self, self.get_rows(**row_kwargs), path_to_cc8file=path_to_cc8file)
     
+
+    def to_numpy(self, path_to_cc8file, taper=True, off_sec=2, fout="./bm-data.npz", exclude_locs=[], **row_kwargs):
+
+        row_list = self.get_rows(return_eid=False, **row_kwargs)
+
+        eid_list = []
+        for n, row in enumerate(row_list):
+            print(f"{n:5} -> {row.id:5}", end="\r")
+            eid_list.append(row.id)
+            _, bm, _ = row.beamform(taper=taper, off_sec=off_sec, path_to_cc8file=path_to_cc8file, exclude_locs=exclude_locs, plot=False)
+        
+            if n == 0:
+                bm_mat = np.empty((len(row_list), bm.shape[0]))
+
+            bm_mat[n,:] = bm
+
+        np.savez(fout, np.array(eid_list), bm_mat)
+        print(f"\n  --->> {fout}  ")
+
+
 

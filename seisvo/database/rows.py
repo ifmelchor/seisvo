@@ -6,6 +6,7 @@ import datetime as dt
 import sqlalchemy as sql
 from ..network import Array
 from ..sap import CC8
+from ..signal import get_PSD
 
 def get_sderow(SQLbase):
 
@@ -248,6 +249,17 @@ def get_ccerow(SQLbase):
                 shadow_times=shadow_times, taper=taper, plot=plot, **fig_kwargs)
 
             return ans
+            
+
+        def get_psd(self, fs, slomax=None, sloint=None, path_to_cc8file="./", exclude_locs=[]):
+
+            cc8 = self.get_cc8(path_to_cc8file=path_to_cc8file)
+            fq_band = cc8.stats.fq_bands[int(self.fqidx)-1]
+            
+            _, bmf, time = self.beamform(taper=True, off_sec=2, slomax=slomax, sloint=sloint, path_to_cc8file=path_to_cc8file, exclude_locs=exclude_locs, fq_band=fq_band, plot=False)
+
+            return get_PSD(bmf, fs, fq_band=fq_band)
+
 
 
         def plot(self, off_sec=7, taper=True, path_to_cc8file="./", exclude_locs=[], fq_band=[]):
