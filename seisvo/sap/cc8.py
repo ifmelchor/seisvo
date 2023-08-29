@@ -273,7 +273,7 @@ class CC8(object):
         return
 
 
-    def detect(self, fq_idx=None, rate_in_hr=1, starttime=None, endtime=None, plot=True, db=None, **nidx_kwargs):
+    def detect(self, fq_idx=None, rate_in_hr=1, starttime=None, endtime=None, db=None, fout="./cc8_detect", **nidx_kwargs):
         """
         This code define thresholds for detection and counts the nro of detection per hr.
         For save the results into a database, db shoul be a CC8 database
@@ -342,11 +342,12 @@ class CC8(object):
 
         # save into pickle file
         a = {"bins":bins, "time":steps}
-        with open("./cc8_detect.pkl", 'wb') as handle:
+        with open(f"{fout}.pkl", 'wb') as handle:
             pickle.dump(a, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
-        if plot:
-            _detections(np.array(bincount), steps)
+        # save into png file
+        fig = _detections(np.array(bincount), steps)
+        fig.savefig(f"{fout}.png")
 
         return bins, steps
 

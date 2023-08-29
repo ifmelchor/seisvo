@@ -562,7 +562,7 @@ class CCE(_DataBase):
         load_cceWidget(self, self.get_rows(**row_kwargs), path_to_cc8file=path_to_cc8file)
     
 
-    def to_numpy(self, path_to_cc8file, taper=True, off_sec=2, fout="./bm-data.npz", exclude_locs=[], **row_kwargs):
+    def to_numpy(self, path_to_cc8file, taper=True, off_sec=4, fout="./bm-data.npz", exclude_locs=[], **row_kwargs):
 
         row_list = self.get_rows(return_eid=False, **row_kwargs)
 
@@ -580,5 +580,6 @@ class CCE(_DataBase):
         np.savez(fout, np.array(eid_list), bm_mat)
         print(f"\n  --->> {fout}  ")
 
+        return eid_list, bm_mat
 
 

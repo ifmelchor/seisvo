@@ -22,9 +22,8 @@ def _detections(count, time):
     ax.plot(time, count, color="k")
     ax.set_ylabel("nro_detection/hours")
     ax.set_xlim(time[0],time[-1])
-    plt.show()
 
-    return
+    return fig
 
 
 def location_map(arr, exclude_locs=[], show=True):
