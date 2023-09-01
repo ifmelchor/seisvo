@@ -43,6 +43,17 @@ def get_sderow(SQLbase):
         value_3 = sql.Column(sql.Float, nullable=True)
         value_4 = sql.Column(sql.Float, nullable=True)
         value_5 = sql.Column(sql.Float, nullable=True)
+        value_6 = sql.Column(sql.Float, nullable=True)
+        value_7 = sql.Column(sql.Float, nullable=True)
+        value_8 = sql.Column(sql.Float, nullable=True)
+        value_9 = sql.Column(sql.Float, nullable=True)
+        value_10 = sql.Column(sql.Float, nullable=True)
+        value_11 = sql.Column(sql.Float, nullable=True)
+        value_12 = sql.Column(sql.Float, nullable=True)
+        value_13 = sql.Column(sql.Float, nullable=True)
+        value_14 = sql.Column(sql.Float, nullable=True)
+        value_15 = sql.Column(sql.Float, nullable=True)
+
 
         # additional strings
         string_1 = sql.Column(sql.String, nullable=True)
