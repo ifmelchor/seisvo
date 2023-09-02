@@ -8,13 +8,17 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 
-from .cc8utils import _CC8Process
+from .cc8utils import _CC8Process, _uncertainty
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF, get_CC8
 from ..plotting.array import simple_cc8_plot, simple_slowmap, _detections
 
 # from tqdm import tqdm
-ATTR_LIST = ["rms", "maac", "slow", "bazm", "slowmap", "bazmbnd", "slowbnd"]
+ATTR_LIST = ["rms", "maac", "slow", "baz", "slowmap", "bazbnd", "slowbnd"]
+
+# uncertainty slowness
+def _error(slow_u, baz_u):
+    return np.sqrt( (slow_u*slow_u) + (baz_u*baz_u) )
 
 
 def check_cc8_attr(attr):
@@ -77,12 +81,12 @@ def _new_CC8(array, cc8file, headers, njobs):
         for fq_n in range(1, len(headers['fq_bands'])+1):
             fq_n = cc8h5.create_group(str(fq_n))
 
-            for attr in ("slow", "bazm", "maac", "rms"):
+            for attr in ("slow", "baz", "maac", "rms"):
                 fq_n.create_dataset(attr, (timebins,), chunks=True, dtype=np.float32)
             
             fq_n.create_dataset('slowmap', (timebins, slowbins, slowbins), chunks=True, dtype=np.float32)
             fq_n.create_dataset('slowbnd', (timebins, 2), chunks=True, dtype=np.float32)
-            fq_n.create_dataset('bazmbnd', (timebins, 2), chunks=True, dtype=np.float32)
+            fq_n.create_dataset('bazbnd', (timebins, 2), chunks=True, dtype=np.float32)
 
         cc8h5.flush()
     
@@ -296,7 +300,6 @@ class CC8(object):
         for tinit in steps:
             tfi   = tinit + interval
             out   = self.get(starttime=tinit, endtime=tfi, slowmap=False, fq_idx=fq_idx)
-            
             try:
                 nout = out.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
                 maac = out.get_data("maac", fq_idx=fq_idx, **nidx_kwargs)
@@ -318,21 +321,26 @@ class CC8(object):
                     else:
                         # save into database
                         if db != None:
-                            data = out.get_data(["slow", "bazm", "maac", "rms"], fq_idx=fq_idx, **nidx_kwargs)
+                            data = out.get_data(["slow", "baz", "maac", "rms", "slowbnd", "bazbnd"], fq_idx=fq_idx, **nidx_kwargs)
+                            slow_u = _uncertainty(data["slow"], data["slowbnd"])
+                            baz_u  = _uncertainty((np.pi/180)*data["baz"], (np.pi/180)*data["bazbnd"])
                             for i in b:
                                 db._add_row({
                                     "network":self.stats.id.split(".")[0],
                                     "station":self.stats.id.split(".")[1],
                                     "time":out._dout["dtime"][i],
                                     "slow":data["slow"][i],
-                                    "baz":data["bazm"][i],
+                                    "slow_u":slow_u[i],
+                                    "baz":data["baz"][i],
+                                    "baz_u":baz_u[i],
                                     "maac":data["maac"][i],
                                     "rms":data["rms"][i],
                                     "cc8_file":os.path.basename(self.stats.file),
                                     "fqidx":fq_idx,
                                 })
                         break
-            except:
+            except Exception as e:
+                print(" >>>>  warn...\n ", e)
                 b    = np.array([])
 
             # # save bin info
@@ -381,9 +389,11 @@ class CC8out(object):
 
         # check attr list
         assert isinstance(attr, (list, tuple, str))
+
+        error_attrs = ["error", "slow_u", "baz_u"]
         
         if isinstance(attr, str):
-            if attr in self.attr_list:
+            if attr in self.attr_list or attr in error_attrs:
                 attr_list = [attr]
             else:
                 print("attribute %s not found" % attr)
@@ -392,7 +402,7 @@ class CC8out(object):
         else:
             attr_list = []
             for at in attr:
-                if at in self.attr_list:
+                if at in self.attr_list or attr in error_attrs:
                     attr_list.append(at)
                 else:
                     print("attribute %s not found" % at)
@@ -425,7 +435,7 @@ class CC8out(object):
         fq_idx   = self.cc8stats.check_idx(fq_idx)[0]
         mackey = "/".join([fq_idx, "maac"])
         rmskey = "/".join([fq_idx, "rms"])
-        bazkey = "/".join([fq_idx, "bazm"])
+        bazkey = "/".join([fq_idx, "baz"])
         maac = np.copy(self._dout[mackey])
         baz  = np.copy(self._dout[bazkey])
         rms  = np.copy(self._dout[rmskey])
@@ -452,16 +462,16 @@ class CC8out(object):
 
         # apply max_error
         if max_err > 0:
-            slokey   = "/".join([fq_idx, "slow"])
-            slowb    = np.copy(self._dout[slokey+"bnd"])
-            bazb     = (np.pi/180)*np.copy(self._dout[bazkey+"bnd"])
-            slodiff  = np.abs(slowb[:,1] - slowb[:,0])
-            bazdiff  = np.abs(bazb[:,1] - bazb[:,0])
-            error    = (slodiff+bazdiff)/2
-            nidx     = np.where(error<max_err, nidx, np.nan)
-
+            slow = self._dout["/".join([fq_idx, "slow"])]
+            sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
+            baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
+            bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
+            error = _error(_uncertainty(baz, bbnd), _uncertainty(slow, sbnd))
+            nidx  = np.where(error<max_err, nidx, np.nan)
+            
         if return_full:
             return nidx
+        
         else:
             return nidx[np.isfinite(nidx)].astype(dtype=np.int32)
 
@@ -486,18 +496,36 @@ class CC8out(object):
             slokey = "/".join([fq_idx, "slow"])
             slow   = self._dout[slokey]
         
-        if "bazmbnd" in attr_list:
-            bazkey   = "/".join([fq_idx, "bazm"])
+        if "bazbnd" in attr_list:
+            bazkey   = "/".join([fq_idx, "baz"])
             baz      = self._dout[bazkey]
 
         for attr in attr_list:
             # get time series
-            key = "/".join([fq_idx, attr])
-            data = np.copy(self._dout[key])
-
             if attr == "slowmap":
                 data_dict[attr] = data
                 continue
+            
+            if attr == "error":
+                slow = self._dout["/".join([fq_idx, "slow"])]
+                sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
+                baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
+                bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
+                data = _error(_uncertainty(baz, bbnd), _uncertainty(slow, sbnd))
+            
+            elif attr == "slow_u":
+                slow = self._dout["/".join([fq_idx, "slow"])]
+                sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
+                data = _uncertainty(slow, sbnd)
+            
+            elif attr == "baz_u":
+                baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
+                bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
+                data = _uncertainty(baz, bbnd)
+            
+            else:
+                key = "/".join([fq_idx, attr])
+                data = np.copy(self._dout[key])
 
             if attr == "slow":
                 data[data>slow_max] = np.nan
@@ -505,26 +533,6 @@ class CC8out(object):
             if attr == "rms":
                 data[data<=0] = np.nan
                 data = 10*np.log10(data)
-
-            if isinstance(nidx, np.ndarray):
-                for n, idx_nan in enumerate(np.isnan(nidx)):
-                    if idx_nan:
-                        if attr in ("slowbnd", "bazmbnd"):
-                            data[n,:] = [np.nan, np.nan]
-                        else:
-                            data[n] = np.nan
-                    else:
-                        if attr == "slowbnd":
-                            x = slow[n]
-                            x0, x1 = data[n,:]
-                            d1, d2 = abs(x-x0), abs(x1-x)
-                            data[n,:] = [d1, d2]
-
-                        if attr == "bazmbnd":
-                            x = baz[n]
-                            x0, x1 = data[n,:]
-                            d1, d2 = abs(x-x0), abs(x1-x)
-                            data[n,:] = [d1, d2]
 
             data_dict[attr] = data
         
@@ -586,12 +594,12 @@ class CC8out(object):
 
         fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
-        attr_list = ["rms", "maac", "slow", "bazm", "slowbnd", "bazmbnd"]
+        attr_list = ["rms", "maac", "slow", "baz", "slow_u", "baz_u"]
         datattr   = self.get_data(attr_list, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th)
         
         datapdf = {
             "slow":self.get_pdf("slow", vmin=0, vmax=slomax, data=datattr["slow"]),
-            "bazm":self.get_pdf("bazm", vmin=0, vmax=360, data=datattr["bazm"])
+            "baz":self.get_pdf("baz", vmin=0, vmax=360, data=datattr["baz"])
         }
 
         fig_kwargs["rms_rv"]  = [
@@ -643,10 +651,10 @@ class CC8out(object):
             "fq_band":fq_band,
         }
 
-        data_dict = self.get_data(["maac", "slow", "bazm"], fq_idx=fq_idx)
+        data_dict = self.get_data(["maac", "slow", "baz"], fq_idx=fq_idx)
         maac  = data_dict["maac"]
         slow  = data_dict["slow"]
-        baz   = data_dict["bazm"]
+        baz   = data_dict["baz"]
         
         if not ntime:
             ntime = np.argmax(maac)
@@ -680,11 +688,11 @@ class CC8out(object):
 
         fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
-        data_dict = self.get_data(["maac", "slow", "bazm", "slowmap"], fq_idx=fq_idx)
+        data_dict = self.get_data(["maac", "slow", "baz", "slowmap"], fq_idx=fq_idx)
         data  = data_dict["slowmap"]
         maac  = data_dict["maac"]
         slow  = data_dict["slow"]
-        baz   = data_dict["bazm"]
+        baz   = data_dict["baz"]
 
         if not ntime:
             ntime = np.argmax(maac)
@@ -769,10 +777,10 @@ class CC8out(object):
         else:
             assert fq_idx in self._fqidx
 
-        data_dict = self.get_data(["maac", "slow", "bazm"], fq_idx=fq_idx)
+        data_dict = self.get_data(["maac", "slow", "baz"], fq_idx=fq_idx)
         maac  = data_dict["maac"][ntime]
         slow  = data_dict["slow"][ntime]
-        baz   = data_dict["bazm"][ntime]
+        baz   = data_dict["baz"][ntime]
 
         arr, exloc = self.cc8stats.get_array()
         exclude_locs += exloc

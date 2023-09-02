@@ -152,7 +152,7 @@ class CCECanvas(FigureCanvas):
             
             if self.ticks['right'] and self.ticks['left']:
                 dist = abs((self.ticks['left'] - self.ticks['right']))
-                print(f" distance |R-L|  >>  {dist}  [sec]")
+                print(f" distance |R-L|  >>  {dist:.2f} sec [{1/dist:.2f} Hz]")
         except:
             self.ticks = dict(right=None, left=None)
 

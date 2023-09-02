@@ -123,13 +123,13 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
     default_labels = {
     'rms':'RMS [dB]',
     'slow':'Slowness [s/km]',
-    'bazm':'Back-azimuth' r'[$\degree$]',
+    'baz':'Back-azimuth' r'[$\degree$]',
     'maac':'MAAC',
     }
 
     fig_dict = {}
 
-    for n, attr in enumerate(["maac", "rms", "slow", "bazm"]):
+    for n, attr in enumerate(["maac", "rms", "slow", "baz"]):
         fig_dict[attr] = {}
         fig_dict[attr]["axis"] = axes[n,0]
         colors   = ["blue"]*len(datattr[attr])
@@ -158,8 +158,8 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
                 for m in maac_rv:
                     axes[n,0].scatter(time, m, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
-        if attr in ("slow", "bazm"):
-            axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr+"bnd"].T, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
+        if attr in ("slow", "baz"):
+            axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr]*datattr[attr+"_u"], capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
             x, y = datapdf[attr]
             
             if attr == "slow":
@@ -193,7 +193,7 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
 
         axes[n,0].xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
 
-        if attr == "bazm":
+        if attr == "baz":
             axes[n,0].set_xlabel('Time [min]')
         else:
             axes[n,0].xaxis.set_major_formatter(mtick.NullFormatter())
@@ -334,7 +334,7 @@ def plot_slowmap(array, starttime, window, offsec=3, taper=True, slowarg={}):
     _, ans0 = array.slowmap(starttime, window, slowarg=slowarg, plot=True, axis=ax1, fig=fig, bar_axis=ax2)
 
     slow = ans0["slow"][0]
-    baz  = ans0["bazm"][0]
+    baz  = ans0["baz"][0]
 
     time0 = starttime - dt.timedelta(seconds=offsec) 
     time1 = starttime + dt.timedelta(seconds=window+offsec)

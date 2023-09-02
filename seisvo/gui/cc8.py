@@ -356,7 +356,7 @@ class CC8nidxCanvas(FigureCanvas):
         
         if self.ticks['right'] and self.ticks['left']:
             dist = abs((self.ticks['left'] - self.ticks['right']))
-            print(f" distance |R-L|  >>  {dist}  [sec]")
+            print(f" distance |R-L|  >>  {dist:.2f} s  [{1/dist:.2f} Hz]")
     
 
     def on_click(self, event):
@@ -400,15 +400,21 @@ class CC8nidxCanvas(FigureCanvas):
             self.parent.cc8out.plot_smap(nidx, axis=ax1, bar_axis=ax1b, fig=self.fig)
 
             try:
-                self.parent.cc8canvas.ccout.plot_detailed_smap(nidx, fq_idx=self.parent.cc8canvas.parent.fq_idx, show_title=False, slomax=self.parent.cc8canvas.parent.r_slomax, sloint=self.parent.cc8canvas.parent.r_sloint, axis=ax2, bar_axis=ax2b, fig=self.fig)
+                # self.parent.cc8canvas.ccout.plot_detailed_smap(nidx, fq_idx=self.parent.cc8canvas.parent.fq_idx, show_title=False, slomax=self.parent.cc8canvas.parent.r_slomax, sloint=self.parent.cc8canvas.parent.r_sloint, axis=ax2, bar_axis=ax2b, fig=self.fig)
                 ax2.xaxis.set_major_formatter(mtick.NullFormatter())
                 ax2.yaxis.set_major_formatter(mtick.NullFormatter())
                 ax2.set_xlabel("")
                 ax2.set_ylabel("")
-                self.parent.cc8out.plot_wvfm(nidx, ffilter=self.filter, off_sec=5, axes=[ax3, ax4], fig=self.fig, show_title=False)
+
+                if self.filter:
+                    fqband = [1, 5]
+                else:
+                    fqband = [] 
+                self.parent.cc8out.plot_beamform(ntime=nidx, fq_band=fqband, off_sec=2, axes=[ax3, ax4], fig=self.fig, show_title=False)
                 self.nav = Navigate([ax3, ax4], self, color='red', linewidth=0.5, alpha=0.5)
-            except:
-                print(" [warn] No data found to plot waveform.")
+            except Exception as e:
+                print(" [warn] .... ")
+                print(e)
 
             if self.row:
                 ax2.set_title(f" ID [{self.row.id}] LABEL [{self.row.label}]")
@@ -641,7 +647,7 @@ class CC8Canvas(FigureCanvas):
         time = self.time[nidx]
         maac = self.fig_dict["maac"]["sc"].get_offsets()[nidx][1]
         slow = self.fig_dict["slow"]["sc"].get_offsets()[nidx][1]
-        bazm = self.fig_dict["bazm"]["sc"].get_offsets()[nidx][1]
+        baz = self.fig_dict["baz"]["sc"].get_offsets()[nidx][1]
         rms  = self.fig_dict["rms"]["sc"].get_offsets()[nidx][1]
         
         event_dict = {
@@ -649,7 +655,7 @@ class CC8Canvas(FigureCanvas):
             "station":self.parent.cc8.stats.id.split(".")[1],
             "time":time,
             "slow":slow,
-            "baz":bazm,
+            "baz":baz,
             "maac":maac,
             "rms":rms,
             "cc8_file":self.parent.cc8.stats.file,
@@ -716,7 +722,7 @@ class CC8Canvas(FigureCanvas):
                 nidx  = np.argmin(np.abs(x - self.time))
                 self.hover_time = x
                 self.hover_nidx = nidx
-                self.baz0  = self.fig_dict["bazm"]["sc"].get_offsets()[nidx][1]
+                self.baz0  = self.fig_dict["baz"]["sc"].get_offsets()[nidx][1]
                 self.slow0 = self.fig_dict["slow"]["sc"].get_offsets()[nidx][1]
                 self.show_green(nidx)
 

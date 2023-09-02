@@ -18,7 +18,7 @@ default_LTE_color = get_colors('zesty')[1]
 default_labels = {
     'rms':'RMS [dB]',
     'slow':'Slowness [km/s]',
-    'bazm':'Back-azimuth' r'[$\degree$]',
+    'baz':'Back-azimuth' r'[$\degree$]',
     'maac':'MAAC',
 }
 
@@ -66,7 +66,7 @@ def cc8_plot(cc8out, fq_slo_idx="1/1", cc_th=0.5, fig=None, axes=None, plot=Fals
     if axes:
         clear_ax = True
     else:
-        axes = get_axes_dict(["maac","rms","bazm","slow"], fig)
+        axes = get_axes_dict(["maac","rms","baz","slow"], fig)
         clear_ax = False
             
     # define time and x format
@@ -80,15 +80,15 @@ def cc8_plot(cc8out, fq_slo_idx="1/1", cc_th=0.5, fig=None, axes=None, plot=Fals
     # compute PDF
     maac_pdf = cc8out.get_pdf("maac", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=0.01)
     rms_pdf = cc8out.get_pdf("rms", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=0.1)
-    bazm_pdf = cc8out.get_pdf("bazm", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=5.0)
+    baz_pdf = cc8out.get_pdf("baz", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=5.0)
     slow_pdf = cc8out.get_pdf("slow", fq_idx=fq_idx, slow_idx=slow_idx, bandwidth=0.1)
     
     # filter data
     maac = cc8out._dout["/".join([fq_slo_idx, "maac"])]
     rms  = 10*np.log10(cc8out._dout["/".join([fq_slo_idx, "rms"])])
     slow = cc8out._dout["/".join([fq_slo_idx, "slow"])]
-    bazm = cc8out._dout["/".join([fq_slo_idx, "bazm"])]
-    bazm[bazm>400] = np.nan
+    baz = cc8out._dout["/".join([fq_slo_idx, "baz"])]
+    baz[baz>400] = np.nan
     
     yed = np.where(maac > cc_th) # detections
     nod = np.where(maac < cc_th) # non detections
@@ -100,9 +100,9 @@ def cc8_plot(cc8out, fq_slo_idx="1/1", cc_th=0.5, fig=None, axes=None, plot=Fals
         "rms_yd":rms[yed], 
         "rms_nd":rms[nod], 
         "rms_pdf":rms_pdf, 
-        "bazm_yd":bazm[yed],
-        "bazm_nd":bazm[nod],
-        "bazm_pdf":bazm_pdf,
+        "baz_yd":baz[yed],
+        "baz_nd":baz[nod],
+        "baz_pdf":baz_pdf,
         "slow_yd":slow[yed], 
         "slow_nd":slow[nod], 
         "slow_pdf":slow_pdf, 
@@ -113,7 +113,7 @@ def cc8_plot(cc8out, fq_slo_idx="1/1", cc_th=0.5, fig=None, axes=None, plot=Fals
     else:
         time = cc8out._dout["time"]
     
-    for attr in ("rms","maac","slow","bazm"):
+    for attr in ("rms","maac","slow","baz"):
         ax = axes[attr][0]
         prob_ax = axes[attr][1]
         

@@ -152,7 +152,9 @@ def get_ccerow(SQLbase):
         label    = sql.Column(sql.String, nullable=True)
         time     = sql.Column(sql.DateTime(timezone=False), nullable=False)
         slow     = sql.Column(sql.Float, nullable=False)
+        slow_u   = sql.Column(sql.Float, nullable=False)
         baz      = sql.Column(sql.Float, nullable=False)
+        baz_u    = sql.Column(sql.Float, nullable=False)
         maac     = sql.Column(sql.Float, nullable=False)
         rms      = sql.Column(sql.Float, nullable=False)
         cc8_file = sql.Column(sql.String, nullable=False)
@@ -175,6 +177,10 @@ def get_ccerow(SQLbase):
         @property
         def array_id(self):
             return '.'.join([self.network, self.station])
+        
+        @property
+        def error(self):
+            return np.sqrt(self.baz_u*self.baz_u + self.slow_u*self.slow_u)
 
 
         def get_cc8(self, path_to_cc8file="./"):
@@ -295,11 +301,6 @@ def get_ccerow(SQLbase):
             fig = arr.plot(starttime, cc8.stats.window, offsec=off_sec, taper=taper, slowarg=slowarg)
 
             return fig
-
-
-
-
-
 
 
     return CCErow

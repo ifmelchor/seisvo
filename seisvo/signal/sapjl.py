@@ -46,7 +46,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
             jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff, slow0)
             pyans = dict(jlans)
             dictans = {}
-            for attr in ("slow", "bazm", "maac", "rms", "slowmap", "slowbnd", "bazmbnd"):
+            for attr in ("slow", "baz", "maac", "rms", "slowmap", "slowbnd", "bazbnd"):
                 dictans[attr] = np.array(pyans[attr])
 
         except Exception as exc:
