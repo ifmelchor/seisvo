@@ -406,7 +406,7 @@ class Array(Network):
                 utmloc["x"].append(utm["easting"])
                 utmloc["y"].append(utm["northing"])
 
-        return utmloc
+        return locs, utmloc
 
 
     def aperture(self, exclude_locs=[]):
@@ -487,7 +487,7 @@ class Array(Network):
         nite    = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
 
         # locations and positions
-        utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+        _, utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         
         # compute steps
         ss     = SSteps(starttime, endtime, window, win_olap=overlap, logfile=True)
@@ -563,7 +563,7 @@ class Array(Network):
         nites = 1 + 2*int(slow_max/slow_int)
         
         # define locations and positions
-        utmloc = self.get_utm(exclude_locs=exclude_locs)
+        locs, utmloc = self.get_utm(exclude_locs=exclude_locs)
         
         # define the header of the cc8 file
         cc8base = dict(
@@ -670,7 +670,7 @@ class Array(Network):
         """
 
         slowarg  = _slowarg(slowarg)
-        utmloc   = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+        _, utmloc   = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         ans, tol = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
             self.sample_rate, utmloc["x"], utmloc["y"], etol=tol, pxy0=[0.,0.], return_xy=return_xy)
 
@@ -739,7 +739,7 @@ class Array(Network):
         data   = stream.to_array(detrend=True)
 
         # locations and positions
-        utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+        _, utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         
         # compute CC8 algorithm
         ans    = get_CC8(data, self.sample_rate, np.array(utmloc["x"]), np.array(utmloc["y"]),\

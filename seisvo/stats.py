@@ -363,9 +363,9 @@ class CC8stats(_Stats):
             
             h5f[str(fqn)]["slowmap"][nbin+1:nbin+1+nwin,:,:] = wdict["slowmap"]
             h5f[str(fqn)]["slowbnd"][nbin+1:nbin+1+nwin,:]   = wdict["slowbnd"]
-            h5f[str(fqn)]["bazmbnd"][nbin+1:nbin+1+nwin,:]   = wdict["bazmbnd"]
+            h5f[str(fqn)]["bazbnd"][nbin+1:nbin+1+nwin,:]   = wdict["bazbnd"]
                 
-            for attr in ("slow", "bazm", "maac", "rms"):
+            for attr in ("slow", "baz", "maac", "rms"):
                 h5f[str(fqn)][attr][nbin+1:nbin+1+nwin] = wdict[attr]
 
             ltblist[fqn-1] = nbin + nwin
