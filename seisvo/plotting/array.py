@@ -261,10 +261,11 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     axis.scatter(0, 0, marker="o", color="k", ec="k", zorder=3)
 
     # plot error bars
-    maacth = slomap.max()*(1-cc_th)
-    x1, x2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
-    y1, y2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
-    axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", fmt="none", zorder=2)
+    if cc_th > 0:
+        maacth = slomap.max()*(1-cc_th)
+        x1, x2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
+        y1, y2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
+        axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", fmt="none", zorder=2)
 
     axis.set_title(title)
     axis.set_xlabel("x [s/km]")

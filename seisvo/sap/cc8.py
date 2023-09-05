@@ -360,7 +360,6 @@ class CC8(object):
         return bins, steps
 
 
-
 class CC8out(object):
     def __init__(self, cc8stats, dout):
         self.cc8stats = cc8stats
@@ -425,6 +424,7 @@ class CC8out(object):
         rms_th   = kwargs.get("rms_th", 0)
         rms_rv   = kwargs.get("rms_rv", False)
         baz_int  = kwargs.get("baz_int", [])
+        rms_int  = kwargs.get("rms_int", [])
 
         if "maac" not in self.attr_list:
             return None
@@ -435,7 +435,7 @@ class CC8out(object):
         fq_idx = self.cc8stats.check_idx(fq_idx)[0]
         maac = self._dout["/".join([fq_idx, "maac"])]
         baz  = self._dout["/".join([fq_idx, "baz"])]
-        rms  = self._dout["/".join([fq_idx, "rms"])]
+        rms  = 10*np.log10(self._dout["/".join([fq_idx, "rms"])])
 
         # init nidx
         nidx = np.arange(len(maac))
@@ -452,10 +452,14 @@ class CC8out(object):
             nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
 
         # apply rms threshold
-        if rms_rv:
-            nidx = np.where(10*np.log10(rms)<rms_th, nidx, np.nan)
+        if rms_int:
+            rmsmin, rmsmax = rms_int
+            nidx = np.where(((rms<=rmsmax) & (rms>=rmsmin)), nidx, np.nan)
         else:
-            nidx = np.where(10*np.log10(rms)>rms_th, nidx, np.nan)
+            if rms_rv:
+                nidx = np.where(rms<rms_th, nidx, np.nan)
+            else:
+                nidx = np.where(rms>rms_th, nidx, np.nan)
 
         # apply max_error
         if max_err > 0:
@@ -719,31 +723,17 @@ class CC8out(object):
         return fig
     
 
-    def prob_slowmap(self, fq_idx=None, nidx=None, **nidx_kwargs):
+    def prob_slowmap(self, fq_idx=None, nidx=None, plot=True, **fig_kwargs):
 
         if not fq_idx:
             fq_idx   = self._fqidx[0]
         
         fq_band   = self.cc8stats.fq_bands[int(fq_idx)-1]
-        maac_th  = nidx_kwargs.get("maac_th", 0)
-        maac_rv  = nidx_kwargs.get("maac_rv", False)
-
-        # get full slowmap
-        smapkey  = "/".join([fq_idx, "slowmap"])
-        slowmap  = self._dout[smapkey]
+        slowmap  = self._dout["/".join([fq_idx, "slowmap"])]
 
         # get filtered slowmap
-        if not isinstance(nidx, np.ndarray):
-            nidx    = self.get_nidx(**nidx_kwargs)
-
-        fsmap   = slowmap[np.isfinite(nidx)]
-
-        # filter each slowmap
-        for nix in range(fsmap.shape[0]):
-            if maac_rv:
-                fsmap[nix,:,:] = np.where(fsmap[nix,:,:]<maac_th,fsmap[nix,:,:],np.nan)
-            else:
-                fsmap[nix,:,:] = np.where(fsmap[nix,:,:]>maac_th,fsmap[nix,:,:],np.nan)
+        if isinstance(nidx, np.ndarray):
+            slowmap = slowmap[np.isfinite(nidx)]
 
         # do pdf map
         nites = self.cc8stats.nro_slow_bins
@@ -758,18 +748,14 @@ class CC8out(object):
         sloint = self.cc8stats.slow_int
         slomax = self.cc8stats.slow_max
 
-        fig_kwargs = {}
-        fig_kwargs["cmap"] = "gist_earth_r"
-        fig_kwargs["vlim"] = [np.nanmin(pdfmap), np.nanmax(pdfmap)]
-        fig_kwargs["bar_label"] = f"PDF"
+        if plot:
+            if not fig_kwargs:
+                fig_kwargs = {}
 
-        starttime = self._dout["dtime"][0]
-        endtime   = self._dout["dtime"][-1]
-        fig_kwargs["title"] = f"{starttime}  -- {endtime} \n Fq {fq_band} :: Slomax/Sloint [{slomax}/{sloint}]"
+            fig_kwargs["cmap"] = fig_kwargs.get("cmap", "gist_earth_r")
+            fig = simple_slowmap(pdfmap, sloint, slomax, cc_th=0, **fig_kwargs)
 
-        fig = simple_slowmap(pdfmap, sloint, slomax, **fig_kwargs)
-
-        return pdfmap
+        return pdfmap, (sloint, slomax)
     
 
     def compute_smap(self, ntime, fq_idx=None, slowarg={}, tol=1e-4, show_title=True, **fig_kwargs):
