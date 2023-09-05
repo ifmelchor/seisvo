@@ -73,7 +73,8 @@ class Trace2(Trace):
 
         delta = self.stats.delta
         npts = int((endtime-starttime).total_seconds()*self.stats.sampling_rate)+1
-        return [starttime + dt.timedelta(seconds=delta*x) for x in range(npts)]
+        timelist = [starttime + dt.timedelta(seconds=delta*x) for x in range(npts)]
+        return np.array(timelist, dtype=dt.datetime)
 
 
     def plot_specgram(self, axis, cax=None, show_xticks=False, window_length=None, fq_band=(), per_lap=0.75, show=False, **kwargs):

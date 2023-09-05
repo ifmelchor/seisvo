@@ -402,7 +402,7 @@ class CC8out(object):
         else:
             attr_list = []
             for at in attr:
-                if at in self.attr_list or attr in error_attrs:
+                if at in self.attr_list or at in error_attrs:
                     attr_list.append(at)
                 else:
                     print("attribute %s not found" % at)
@@ -421,7 +421,7 @@ class CC8out(object):
         # get kwargs
         maac_th  = kwargs.get("maac_th", 0)
         maac_rv  = kwargs.get("maac_rv", False)
-        max_err  = kwargs.get("max_err", 0)
+        max_err  = kwargs.get("max_err", 0.0)
         rms_th   = kwargs.get("rms_th", 0)
         rms_rv   = kwargs.get("rms_rv", False)
         baz_int  = kwargs.get("baz_int", [])
@@ -432,13 +432,10 @@ class CC8out(object):
         if not fq_idx:
             fq_idx   = self._fqidx[0]
 
-        fq_idx   = self.cc8stats.check_idx(fq_idx)[0]
-        mackey = "/".join([fq_idx, "maac"])
-        rmskey = "/".join([fq_idx, "rms"])
-        bazkey = "/".join([fq_idx, "baz"])
-        maac = np.copy(self._dout[mackey])
-        baz  = np.copy(self._dout[bazkey])
-        rms  = np.copy(self._dout[rmskey])
+        fq_idx = self.cc8stats.check_idx(fq_idx)[0]
+        maac = self._dout["/".join([fq_idx, "maac"])]
+        baz  = self._dout["/".join([fq_idx, "baz"])]
+        rms  = self._dout["/".join([fq_idx, "rms"])]
 
         # init nidx
         nidx = np.arange(len(maac))
@@ -485,12 +482,9 @@ class CC8out(object):
         if not fq_idx:
             fq_idx   = self._fqidx[0]
 
-        fq_idx   = self.cc8stats.check_idx(fq_idx)[0]
-
         attr_list = self.check_attr(attr)
-        data_dict = {}
+        fq_idx    = self.cc8stats.check_idx(fq_idx)[0]
         nidx      = self.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
-        slow_max  = self.cc8stats.slow_max
 
         if "slowbnd" in attr_list:
             slokey = "/".join([fq_idx, "slow"])
@@ -500,11 +494,9 @@ class CC8out(object):
             bazkey   = "/".join([fq_idx, "baz"])
             baz      = self._dout[bazkey]
 
+        data_dict = {}
         for attr in attr_list:
             # get time series
-            if attr == "slowmap":
-                data_dict[attr] = data
-                continue
             
             if attr == "error":
                 slow = self._dout["/".join([fq_idx, "slow"])]
@@ -516,28 +508,41 @@ class CC8out(object):
             elif attr == "slow_u":
                 slow = self._dout["/".join([fq_idx, "slow"])]
                 sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
-                data = _uncertainty(slow, sbnd)
+                data = slow * _uncertainty(slow, sbnd)
             
             elif attr == "baz_u":
                 baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
                 bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
-                data = _uncertainty(baz, bbnd)
+                data = (180/np.pi) * baz * _uncertainty(baz, bbnd)
             
             else:
                 key = "/".join([fq_idx, attr])
                 data = np.copy(self._dout[key])
+            
+            if attr == "slowmap":
+                data_dict[attr] = data
+                continue
 
             if attr == "slow":
-                data[data>slow_max] = np.nan
+                data[data>self.cc8stats.slow_max] = np.nan
 
             if attr == "rms":
                 data[data<=0] = np.nan
-                data = 10*np.log10(data)
+                data = 10 * np.log10(data)
+
+            if isinstance(nidx, np.ndarray):
+                for n, idx_nan in enumerate(np.isnan(nidx)):
+                    if idx_nan:
+                        if attr in ("slowbnd", "bazbnd"):
+                            data[n,:] = [np.nan, np.nan]
+                        else:
+                            data[n] = np.nan
 
             data_dict[attr] = data
         
         if len(attr_list) > 1:
             return data_dict
+        
         else:
             return data_dict[attr_list[0]]
 
@@ -582,7 +587,7 @@ class CC8out(object):
         return pdf, space
 
 
-    def plot(self, fq_idx=None, show_title=True, maac_th=0.5, max_err=0.0, rms_th=0.0, rms_lim=[], **fig_kwargs):
+    def plot(self, fq_idx=None, show_title=True, maac_th=0.75, max_err=1.0, rms_th=0.0, rms_lim=[], **fig_kwargs):
 
         sloint = self.cc8stats.slow_int
         slomax = self.cc8stats.slow_max
@@ -603,13 +608,13 @@ class CC8out(object):
         }
 
         fig_kwargs["rms_rv"]  = [
-        self.get_data("rms", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True),
-        self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th, rms_rv=True)
+            self.get_data("rms", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True),
+            self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th, rms_rv=True)
         ]
         
         fig_kwargs["maac_rv"] = [
-        self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True),
-        self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th, rms_rv=True)
+            self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, maac_rv=True),
+            self.get_data("maac", fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th, rms_rv=True)
         ]
         
         if show_title:
@@ -688,7 +693,8 @@ class CC8out(object):
 
         fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
-        data_dict = self.get_data(["maac", "slow", "baz", "slowmap"], fq_idx=fq_idx)
+        data_dict  = self.get_data(["maac", "slow", "baz", "slowmap"], fq_idx=fq_idx)
+        # data_dict = self.get_data(["maac", "slow", "baz"], fq_idx=fq_idx)
         data  = data_dict["slowmap"]
         maac  = data_dict["maac"]
         slow  = data_dict["slow"]

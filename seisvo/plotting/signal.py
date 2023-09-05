@@ -54,9 +54,9 @@ def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_ba
     if db_norm:
         sxx = 10*np.log10(sxx)
 
-    im, (v_min, v_max) = plot_gram(freq, sxx, date_list, axes, **kwargs)
+    plot_gram(freq, sxx, date_list, axes, **kwargs)
 
-    return im, (v_min, v_max)
+    return
 
 
 def plotPDF(pdf, y_bins, x_bins, axis=None, show=True, title=None, **kwargs):

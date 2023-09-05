@@ -11,8 +11,11 @@ from ..signal import get_CC8, get_Stats, get_PDF
 
 def _uncertainty(x_best, x_bound):
     # computes the fractional uncertainty of x
-    half_diff = np.abs(x_bound[:,1] - x_bound[:,0]) / 2
-    return  half_diff / x_best
+    np.seterr(all="ignore")
+    df = np.abs(x_bound[:,1] - x_bound[:,0]) / 2
+    u  = df / x_best
+    u[~np.isfinite(u)] = np.nan
+    return  u
 
 
 def attr_filt(attr_list, which):

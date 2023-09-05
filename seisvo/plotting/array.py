@@ -128,7 +128,6 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
     }
 
     fig_dict = {}
-
     for n, attr in enumerate(["maac", "rms", "slow", "baz"]):
         fig_dict[attr] = {}
         fig_dict[attr]["axis"] = axes[n,0]
@@ -159,7 +158,7 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
                     axes[n,0].scatter(time, m, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr in ("slow", "baz"):
-            axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr]*datattr[attr+"_u"], capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
+            axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr+"_u"], capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
             x, y = datapdf[attr]
             
             if attr == "slow":
@@ -190,7 +189,6 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
         axes[n,0].yaxis.set_major_locator(mtick.MaxNLocator(nbins=4, min_n_ticks=3))
         axes[n,0].yaxis.set_minor_locator(mtick.AutoMinorLocator(3))
         axes[n,0].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1f'))
-
         axes[n,0].xaxis.set_minor_locator(mtick.AutoMinorLocator(3))
 
         if attr == "baz":

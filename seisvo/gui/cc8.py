@@ -386,8 +386,8 @@ class CC8nidxCanvas(FigureCanvas):
 
             ax1  = self.fig.add_subplot(gs[0, 0])
             ax1b = self.fig.add_subplot(gs[0, 1])
-            ax2  = self.fig.add_subplot(gs[0, 3])
-            ax2b = self.fig.add_subplot(gs[0, 4])
+            # ax2  = self.fig.add_subplot(gs[0, 3])
+            # ax2b = self.fig.add_subplot(gs[0, 4])
             ax3  = self.fig.add_subplot(gs[2, :])
             ax4  = self.fig.add_subplot(gs[3, :])
             self.axes = {
@@ -401,10 +401,10 @@ class CC8nidxCanvas(FigureCanvas):
 
             try:
                 # self.parent.cc8canvas.ccout.plot_detailed_smap(nidx, fq_idx=self.parent.cc8canvas.parent.fq_idx, show_title=False, slomax=self.parent.cc8canvas.parent.r_slomax, sloint=self.parent.cc8canvas.parent.r_sloint, axis=ax2, bar_axis=ax2b, fig=self.fig)
-                ax2.xaxis.set_major_formatter(mtick.NullFormatter())
-                ax2.yaxis.set_major_formatter(mtick.NullFormatter())
-                ax2.set_xlabel("")
-                ax2.set_ylabel("")
+                # ax2.xaxis.set_major_formatter(mtick.NullFormatter())
+                # ax2.yaxis.set_major_formatter(mtick.NullFormatter())
+                # ax2.set_xlabel("")
+                # ax2.set_ylabel("")
 
                 if self.filter:
                     fqband = [1, 5]
