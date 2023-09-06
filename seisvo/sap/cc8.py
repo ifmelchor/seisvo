@@ -740,7 +740,7 @@ class CC8out(object):
         pdfmap = np.zeros((nites,nites))
         for ii in range(nites):
             for jj in range(nites):
-                data = fsmap[:,ii,jj]
+                data = slowmap[:,ii,jj]
                 data = data[np.isfinite(data)]
                 if data.shape[0] > 1:
                     pdfmap[ii,jj] = get_Stats(data)[3]
