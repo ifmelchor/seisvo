@@ -350,7 +350,7 @@ class CC8stats(_Stats):
     def __str__(self):
         priorized_keys = ['id', 'locs', 'starttime', 'endtime',\
             'window','overlap','nro_time_bins','last_time_bin',\
-            'sample_rate','fq_bands', 'slow_max','slow_int', 'cc_thres'
+            'sample_rate','fq_bands', 'slow_max','slow_int', 'cc_thres', 'slowmap'
             ]
         return self._pretty_str(priorized_keys)
     
@@ -361,7 +361,9 @@ class CC8stats(_Stats):
 
             nbin = ltblist[fqn-1]
             
-            h5f[str(fqn)]["slowmap"][nbin+1:nbin+1+nwin,:,:] = wdict["slowmap"]
+            if self.slowmap:
+                h5f[str(fqn)]["slowmap"][nbin+1:nbin+1+nwin,:,:] = wdict["slowmap"]
+            
             h5f[str(fqn)]["slowbnd"][nbin+1:nbin+1+nwin,:]   = wdict["slowbnd"]
             h5f[str(fqn)]["bazbnd"][nbin+1:nbin+1+nwin,:]   = wdict["bazbnd"]
                 

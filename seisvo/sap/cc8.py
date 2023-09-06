@@ -54,6 +54,7 @@ def _new_CC8(array, cc8file, headers, njobs):
         hdr.attrs['slow_max']      = headers['slow_max']
         hdr.attrs['slow_int']      = headers['slow_int']
         hdr.attrs['cc_thres']      = headers['cc_thres']
+        hdr.attrs['slowmap']       = headers['slowmap']
 
         # print info
         print('')
@@ -84,7 +85,9 @@ def _new_CC8(array, cc8file, headers, njobs):
             for attr in ("slow", "baz", "maac", "rms"):
                 fq_n.create_dataset(attr, (timebins,), chunks=True, dtype=np.float32)
             
-            fq_n.create_dataset('slowmap', (timebins, slowbins, slowbins), chunks=True, dtype=np.float32)
+            if headers['slowmap']:
+                fq_n.create_dataset('slowmap', (timebins, slowbins, slowbins), chunks=True, dtype=np.float32)
+            
             fq_n.create_dataset('slowbnd', (timebins, 2), chunks=True, dtype=np.float32)
             fq_n.create_dataset('bazbnd', (timebins, 2), chunks=True, dtype=np.float32)
 
@@ -118,6 +121,10 @@ class CC8(object):
             stats_dict["slow_int"]        = float(hdr.attrs['slow_int'])
             stats_dict['nro_slow_bins']   = int(hdr.attrs['nro_slow_bins'])
             stats_dict["cc_thres"]        = float(hdr.attrs['cc_thres'])
+            try:
+                stats_dict["slowmap"] = bool(hdr.attrs['slowmap'])
+            except:
+                stats_dict["slowmap"] = True
 
         self.stats  = CC8stats(stats_dict)
 
@@ -141,7 +148,7 @@ class CC8(object):
     def __read__(self, attr, fq_idx, nt):
         n0, nf = nt
         with h5py.File(self.stats.file, "r") as f:
-            if attr == 'slowmap':
+            if attr == 'slowmap' and self.stats.slowmap:
                 ts = f.get(str(fq_idx))[attr][n0:nf,:]
             else:
                 ts = f.get(str(fq_idx))[attr][n0:nf]
@@ -234,7 +241,7 @@ class CC8(object):
         if not attr:
             attr = []
             for a in ATTR_LIST:
-                if a == "slowmap" and slowmap:
+                if a == "slowmap" and slowmap and self.stats.slowmap:
                     attr.append(a)
                 else:
                     attr.append(a)

@@ -114,7 +114,9 @@ class _CC8Process(object):
         for attr in ("slow", "baz", "maac", "rms"):
             cc8_ans[attr] = vector_nan
         
-        cc8_ans["slowmap"] = matrix_nan
+        if self.cc8stats.slowmap:
+            cc8_ans["slowmap"] = matrix_nan
+        
         cc8_ans["slowbnd"] = matrixbnd_nan
         cc8_ans["bazbnd"] = matrixbnd_nan
         
