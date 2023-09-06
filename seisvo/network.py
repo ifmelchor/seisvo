@@ -508,7 +508,7 @@ class Array(Network):
         return ans
 
 
-    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=3., slow_int=0.05, fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], **kwargs):
+    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=3., slow_int=0.05, fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], slowmap=True, **kwargs):
         
         """ Compute CC8 file
 
@@ -581,6 +581,7 @@ class Array(Network):
             slow_int        = slow_int,
             nro_slow_bins   = nites,
             cc_thres        = cc_thres,
+            slowmap         = slowmap,
             toff_sec        = toff_sec
         )
 
