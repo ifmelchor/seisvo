@@ -77,7 +77,7 @@ class Trace2(Trace):
         return np.array(timelist, dtype=dt.datetime)
 
 
-    def plot_specgram(self, axis, cax=None, show_xticks=False, window_length=None, fq_band=(), per_lap=0.75, show=False, **kwargs):
+    def plot_specgram(self, axis, cax=None, date_list=None, window_length=None, fq_band=(), per_lap=0.75, show=False, **kwargs):
         """
         This code plots the spectrogram of the trace at specific AxisPlot
         cax is the axis to show the colobar
@@ -87,7 +87,7 @@ class Trace2(Trace):
         
         kwargs["axis_bar"] = cax
         spectrogram(data, self.stats.sampling_rate, axis, per_lap=per_lap,
-            window_length=window_length, fq_band=fq_band, date_list=show_xticks, **kwargs)
+            window_length=window_length, fq_band=fq_band, date_list=date_list, **kwargs)
         
         if show:
             plt.show()

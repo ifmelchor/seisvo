@@ -43,7 +43,7 @@ def spectrogram(data, sample_rate, axes, per_lap=0.75, window_length=None, fq_ba
         freq = freq[fnptlo:fnpthi]
         sxx = sxx[fnptlo:fnpthi,:]
 
-    if not date_list:
+    if not isinstance(date_list, np.ndarray):
         date_list = time
         kwargs['is_time'] = False
     else:
