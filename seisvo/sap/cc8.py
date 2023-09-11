@@ -126,13 +126,12 @@ class CC8(object):
             except:
                 stats_dict["slowmap"] = True
 
-        self.stats  = CC8stats(stats_dict)
-
         # compute the true time series
+        self.stats  = CC8stats(stats_dict)
         start       = self.stats.starttime
         advance     = dt.timedelta(seconds=float(self.stats.window*(1-self.stats.overlap)))
         half_delta  = dt.timedelta(seconds=float(self.stats.window/2))
-        self.time_ = [start+half_delta]
+        self.time_  = [start+half_delta]
 
         for n in range(self.stats.nro_time_bins-1):
             start += advance
@@ -148,8 +147,11 @@ class CC8(object):
     def __read__(self, attr, fq_idx, nt):
         n0, nf = nt
         with h5py.File(self.stats.file, "r") as f:
-            if attr == 'slowmap' and self.stats.slowmap:
-                ts = f.get(str(fq_idx))[attr][n0:nf,:]
+            if attr == 'slowmap':
+                if self.stats.slowmap:
+                    ts = f.get(str(fq_idx))[attr][n0:nf,:]
+                else:
+                    ts = None
             else:
                 ts = f.get(str(fq_idx))[attr][n0:nf]
         
@@ -241,8 +243,9 @@ class CC8(object):
         if not attr:
             attr = []
             for a in ATTR_LIST:
-                if a == "slowmap" and slowmap and self.stats.slowmap:
-                    attr.append(a)
+                if a == "slowmap":
+                    if slowmap and self.stats.slowmap:
+                        attr.append(a)
                 else:
                     attr.append(a)
         else:
