@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 
+from itertools import groupby
+from operator import itemgetter
+
 from .cc8utils import _CC8Process, _uncertainty
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF, get_CC8
@@ -287,87 +290,143 @@ class CC8(object):
         return
 
 
-    def detect(self, fq_idx=None, rate_in_hr=1, starttime=None, endtime=None, db=None, fout="./cc8_detect", **nidx_kwargs):
-        """
-        This code define thresholds for detection and counts the nro of detection per hr.
-        For save the results into a database, db shoul be a CC8 database
-        """
+    # def detect(self, fq_idx=None, rate_in_hr=1, starttime=None, endtime=None, db=None, fout="./cc8_detect", **nidx_kwargs):
+    #     """
+    #     This code define thresholds for detection and counts the nro of detection per hr.
+    #     For save the results into a database, db shoul be a CC8 database
+    #     """
 
-        if not fq_idx:
-            fq_idx = self.stats.fqidx[0]
+    #     if not fq_idx:
+    #         fq_idx = self.stats.fqidx[0]
 
-        if not starttime or starttime < self.time_[0]:
-            starttime = self.time_[0]
+    #     if not starttime or starttime < self.time_[0]:
+    #         starttime = self.time_[0]
 
-        if not endtime or endtime > self.time_[-1]:
-            endtime = self.time_[-1]
+    #     if not endtime or endtime > self.time_[-1]:
+    #         endtime = self.time_[-1]
 
-        interval = dt.timedelta(hours=rate_in_hr)
-        steps = np.arange(starttime, endtime, interval, dtype=dt.datetime)
-        bins  = []
-        bincount = []
+    #     interval = dt.timedelta(hours=rate_in_hr)
+    #     steps = np.arange(starttime, endtime, interval, dtype=dt.datetime)
+    #     bins  = []
+    #     bincount = []
 
-        for tinit in steps:
-            tfi   = tinit + interval
-            out   = self.get(starttime=tinit, endtime=tfi, slowmap=False, fq_idx=fq_idx)
-            try:
-                nout = out.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
-                maac = out.get_data("maac", fq_idx=fq_idx, **nidx_kwargs)
-                rms  = out.get_data("rms", fq_idx=fq_idx, **nidx_kwargs)
-                b    = np.where(~np.isnan(nout))[0]
+    #     for tinit in steps:
+    #         tfi   = tinit + interval
+    #         out   = self.get(starttime=tinit, endtime=tfi, slowmap=False, fq_idx=fq_idx)
+    #         try:
+    #             nout = out.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
+    #             maac = out.get_data("maac", fq_idx=fq_idx, **nidx_kwargs)
+    #             rms  = out.get_data("rms", fq_idx=fq_idx, **nidx_kwargs)
+    #             b    = np.where(~np.isnan(nout))[0]
 
-                # if there are two consecutive bins, get the bin with highest maac
-                while True:
-                    bdiff = np.where(np.diff(b)==1)[0]
-                    if bdiff.any():
-                        for i in bdiff:
-                            m0 = maac[b[i]]*rms[b[i]]
-                            m1 = maac[b[i+1]]*rms[b[i+1]]
-                            if m0 > m1:
-                                b[i+1] = -1
-                            else:
-                                b[i] = -1
-                        b = b[b>0]
-                    else:
-                        # save into database
-                        if db != None:
-                            data = out.get_data(["slow", "baz", "maac", "rms", "slowbnd", "bazbnd"], fq_idx=fq_idx, **nidx_kwargs)
-                            slow_u = _uncertainty(data["slow"], data["slowbnd"])
-                            baz_u  = _uncertainty((np.pi/180)*data["baz"], (np.pi/180)*data["bazbnd"])
-                            for i in b:
-                                db._add_row({
-                                    "network":self.stats.id.split(".")[0],
-                                    "station":self.stats.id.split(".")[1],
-                                    "time":out._dout["dtime"][i],
-                                    "slow":data["slow"][i],
-                                    "slow_u":slow_u[i],
-                                    "baz":data["baz"][i],
-                                    "baz_u":baz_u[i],
-                                    "maac":data["maac"][i],
-                                    "rms":data["rms"][i],
-                                    "cc8_file":os.path.basename(self.stats.file),
-                                    "fqidx":fq_idx,
-                                })
-                        break
-            except Exception as e:
-                print(" >>>>  warn...\n ", e)
-                b    = np.array([])
+    #             # if there are two consecutive bins, get the bin with highest maac
+    #             while True:
+    #                 bdiff = np.where(np.diff(b)==1)[0]
+    #                 if bdiff.any():
+    #                     for i in bdiff:
+    #                         m0 = maac[b[i]]*rms[b[i]]
+    #                         m1 = maac[b[i+1]]*rms[b[i+1]]
+    #                         if m0 > m1:
+    #                             b[i+1] = -1
+    #                         else:
+    #                             b[i] = -1
+    #                     b = b[b>0]
+    #                 else:
+    #                     # save into database
+    #                     if db != None:
+    #                         data = out.get_data(["slow", "baz", "maac", "rms", "slowbnd", "bazbnd"], fq_idx=fq_idx, **nidx_kwargs)
+    #                         slow_u = _uncertainty(data["slow"], data["slowbnd"])
+    #                         baz_u  = _uncertainty((np.pi/180)*data["baz"], (np.pi/180)*data["bazbnd"])
+    #                         for i in b:
+    #                             db._add_row({
+    #                                 "network":self.stats.id.split(".")[0],
+    #                                 "station":self.stats.id.split(".")[1],
+    #                                 "time":out._dout["dtime"][i],
+    #                                 "slow":data["slow"][i],
+    #                                 "slow_u":slow_u[i],
+    #                                 "baz":data["baz"][i],
+    #                                 "baz_u":baz_u[i],
+    #                                 "maac":data["maac"][i],
+    #                                 "rms":data["rms"][i],
+    #                                 "cc8_file":os.path.basename(self.stats.file),
+    #                                 "fqidx":fq_idx,
+    #                             })
+    #                     break
+    #         except Exception as e:
+    #             print(" >>>>  warn...\n ", e)
+    #             b    = np.array([])
 
-            # # save bin info
-            print("  >>> " + str(tinit) + f" N={len(b):<7} ", end="\r")
-            bincount.append(len(b))
-            bins.append(b)
+    #         # # save bin info
+    #         print("  >>> " + str(tinit) + f" N={len(b):<7} ", end="\r")
+    #         bincount.append(len(b))
+    #         bins.append(b)
 
-        # save into pickle file
-        a = {"bins":bins, "time":steps}
-        with open(f"{fout}.pkl", 'wb') as handle:
-            pickle.dump(a, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    #     # save into pickle file
+    #     a = {"bins":bins, "time":steps}
+    #     with open(f"{fout}.pkl", 'wb') as handle:
+    #         pickle.dump(a, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
-        # save into png file
-        fig = _detections(np.array(bincount), steps)
-        fig.savefig(f"{fout}.png")
+    #     # save into png file
+    #     fig = _detections(np.array(bincount), steps)
+    #     fig.savefig(f"{fout}.png")
 
-        return bins, steps
+    #     return bins, steps
+
+
+    def get_consecutive(self, n_nearest, fq_idx=None, **nidx_kwargs):
+        """
+        Count consecutive bins and group them in a dictionary 
+        """
+
+        cco  = self.get(fq_idx=fq_idx)
+        maac = cco.get_data('maac')
+        baz  = cco.get_data('baz')
+        data = cco.get_nidx(return_full=False, **nidx_kwargs)
+
+        maxwt   = 0
+        ansdict = {}
+        for k, g in groupby(enumerate(data), lambda ix: ix[0]-ix[1]):
+            ans = list(map(itemgetter(1), g))
+            nd  = len(ans)
+
+            if nd > 1:
+                avg = maac[ans].mean()
+                bbz = baz[ans].std()
+                bi = ans[0]
+                bf = ans[-1]
+            else:
+                bi = bf = ans[0]
+                avg = maac[bi]
+                bbz = 0
+
+            d = 0
+            n = 0
+            for i in range(1,n_nearest):
+                d += maac[bi-i] - avg
+                d += maac[bf+i] - avg
+                n += 2
+            d /= n
+            
+            if nd in ansdict.keys():
+                ansdict[nd]['times'].append(self.time_[ans[0]])
+                ansdict[nd]['bins'].append(ans[0])
+                ansdict[nd]['d'].append(d)
+                ansdict[nd]['baz_std'].append(bbz)
+            else:
+                ansdict[nd] = {'times':[self.time_[ans[0]]], 'bins':[ans[0]], 'd':[d], 'baz_std':[bbz]}
+
+            if nd > maxwt:
+                maxwt = nd
+
+        for nd in list(ansdict.keys()):
+            window = nd*self.stats.window - (nd-1)*(self.stats.window*self.stats.overlap)
+            ansdict[nd]['window']  = window
+            ansdict[nd]['times']   = np.array(ansdict[nd]['times'], dtype=dt.datetime)
+            ansdict[nd]['bins']    = np.array(ansdict[nd]['bins'])
+            ansdict[nd]['d']       = np.array(ansdict[nd]['d'])
+            ansdict[nd]['baz_std'] = np.array(ansdict[nd]['baz_std'])
+
+        return ansdict
 
 
 class CC8out(object):
