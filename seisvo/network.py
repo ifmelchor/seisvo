@@ -12,7 +12,6 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
-from .sap.cc8utils import _uncertainty
 from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times
 from .lte.base import _new_LTE
 from .utils import nCPU
@@ -753,12 +752,10 @@ class Array(Network):
             
             if show_title:    
                 rms    = 10*np.log10(ans["rms"][0])
+                error  = ans["error"][0]
                 maact  = ans["maac"][0]
                 slowt  = ans["slow"][0]
                 bazt   = ans["baz"][0]
-                sd = _uncertainty(ans["slow"], ans["slowbnd"])
-                sb = _uncertainty(ans["baz"]*np.pi/180, ans["bazbnd"]*np.pi/180)
-                error = np.sqrt(sd*sd + sb*sb)[0]
 
                 fig_kwargs["title"] = f' {starttime}  [{window} sec] :: Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]} s/km] \n RMS {rms:.1f} [dB] :: MAAC {maact:.2f} :: SLOW {slowt:.2f} [s/km] :: BAZ {bazt:.1f} :: ERR {error:.1f} \n'
         

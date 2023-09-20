@@ -158,7 +158,9 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
                     axes[n,0].scatter(time, m, facecolor="w", edgecolor="k", alpha=0.2, zorder=1)
 
         if attr in ("slow", "baz"):
-            axes[n,0].errorbar(time, datattr[attr], yerr=datattr[attr+"_u"], capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
+            bound = datattr[attr+"bnd"]
+            yerr = np.abs(bound[:,1]-bound[:,0])/2
+            axes[n,0].errorbar(time, datattr[attr], yerr=yerr, capsize=5, color="k", alpha=0.2, fmt="none", zorder=1)
             x, y = datapdf[attr]
             
             if attr == "slow":

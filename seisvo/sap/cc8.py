@@ -12,17 +12,13 @@ import datetime as dt
 from itertools import groupby
 from operator import itemgetter
 
-from .cc8utils import _CC8Process, _uncertainty
+from .cc8utils import _CC8Process
 from ..stats import CC8stats
 from ..signal import get_Stats, get_PDF, get_CC8
 from ..plotting.array import simple_cc8_plot, simple_slowmap, _detections
 
 # from tqdm import tqdm
-ATTR_LIST = ["rms", "maac", "slow", "baz", "slowmap", "bazbnd", "slowbnd"]
-
-# uncertainty slowness
-def _error(slow_u, baz_u):
-    return np.sqrt( (slow_u*slow_u) + (baz_u*baz_u) )
+ATTR_LIST = ["rms", "maac", "slow", "baz", "error", "slowmap", "bazbnd", "slowbnd"]
 
 
 def check_cc8_attr(attr):
@@ -86,7 +82,7 @@ def _new_CC8(array, cc8file, headers, njobs):
         for fq_n in range(1, len(headers['fq_bands'])+1):
             fq_n = cc8h5.create_group(str(fq_n))
 
-            for attr in ("slow", "baz", "maac", "rms"):
+            for attr in ("slow", "baz", "maac", "rms", "error"):
                 fq_n.create_dataset(attr, (timebins,), chunks=True, dtype=np.float32)
             
             if headers['slowmap']:
@@ -385,11 +381,9 @@ class CC8out(object):
 
         # check attr list
         assert isinstance(attr, (list, tuple, str))
-
-        error_attrs = ["error", "slow_u", "baz_u"]
         
         if isinstance(attr, str):
-            if attr in self.attr_list or attr in error_attrs:
+            if attr in self.attr_list:
                 attr_list = [attr]
             else:
                 print("attribute %s not found" % attr)
@@ -398,7 +392,7 @@ class CC8out(object):
         else:
             attr_list = []
             for at in attr:
-                if at in self.attr_list or at in error_attrs:
+                if at in self.attr_list:
                     attr_list.append(at)
                 else:
                     print("attribute %s not found" % at)
@@ -430,6 +424,7 @@ class CC8out(object):
             fq_idx   = self._fqidx[0]
 
         fq_idx = self.cc8stats.check_idx(fq_idx)[0]
+        error = self._dout["/".join([fq_idx, "error"])]
         maac = self._dout["/".join([fq_idx, "maac"])]
         baz  = self._dout["/".join([fq_idx, "baz"])]
         rms  = 10*np.log10(self._dout["/".join([fq_idx, "rms"])])
@@ -460,12 +455,7 @@ class CC8out(object):
 
         # apply max_error
         if max_err > 0:
-            slow = self._dout["/".join([fq_idx, "slow"])]
-            sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
-            baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
-            bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
-            error = _error(_uncertainty(baz, bbnd), _uncertainty(slow, sbnd))
-            nidx  = np.where(error<max_err, nidx, np.nan)
+            nidx = np.where(error<max_err, nidx, np.nan)
             
         if return_full:
             return nidx
@@ -498,27 +488,8 @@ class CC8out(object):
         data_dict = {}
         for attr in attr_list:
             # get time series
-            
-            if attr == "error":
-                slow = self._dout["/".join([fq_idx, "slow"])]
-                sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
-                baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
-                bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
-                data = _error(_uncertainty(baz, bbnd), _uncertainty(slow, sbnd))
-            
-            elif attr == "slow_u":
-                slow = self._dout["/".join([fq_idx, "slow"])]
-                sbnd = self._dout["/".join([fq_idx, "slowbnd"])]
-                data = slow * _uncertainty(slow, sbnd)
-            
-            elif attr == "baz_u":
-                baz  = (np.pi/180) * self._dout["/".join([fq_idx, "baz"])]
-                bbnd = (np.pi/180) * self._dout["/".join([fq_idx, "bazbnd"])]
-                data = (180/np.pi) * baz * _uncertainty(baz, bbnd)
-            
-            else:
-                key = "/".join([fq_idx, attr])
-                data = np.copy(self._dout[key])
+            key = "/".join([fq_idx, attr])
+            data = np.copy(self._dout[key])
             
             if attr == "slowmap":
                 data_dict[attr] = data
@@ -600,7 +571,7 @@ class CC8out(object):
 
         fq_band = self.cc8stats.fq_bands[int(fq_idx)-1]
 
-        attr_list = ["rms", "maac", "slow", "baz", "slow_u", "baz_u"]
+        attr_list = ["rms", "maac", "slow", "baz", "slowbnd", "bazbnd"]
         datattr   = self.get_data(attr_list, fq_idx=fq_idx, max_err=max_err, maac_th=maac_th, rms_th=rms_th)
         
         datapdf = {

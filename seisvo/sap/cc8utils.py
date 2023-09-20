@@ -9,14 +9,6 @@ from ..signal import get_CC8, get_Stats, get_PDF
 
 # from .plotting import cc8_plot, slowness_map_motion, simple_slowness_plot, plot_slowbaz_tmap
 
-def _uncertainty(x_best, x_bound):
-    # computes the fractional uncertainty of x
-    np.seterr(all="ignore")
-    df = np.abs(x_bound[:,1] - x_bound[:,0]) / 2
-    u  = df / x_best
-    u[~np.isfinite(u)] = np.nan
-    return  u
-
 
 def attr_filt(attr_list, which):
     """
@@ -30,7 +22,7 @@ def attr_filt(attr_list, which):
     filter_list = []
 
     for attr in attr_list:
-        if which == "scalar" and attr in ["slow", "baz", "maac", "rms"]:
+        if which == "scalar" and attr in ["slow", "baz", "maac", "rms", "error"]:
             filter_list.append(attr)
         
         if which == "vector" and attr in ["slowmap"]:
@@ -111,7 +103,7 @@ class _CC8Process(object):
         matrixbnd_nan = np.full([nwin, 2], np.nan)
         cc8_ans = {}
 
-        for attr in ("slow", "baz", "maac", "rms"):
+        for attr in ("slow", "baz", "maac", "rms", "error"):
             cc8_ans[attr] = vector_nan
         
         if self.cc8stats.slowmap:
