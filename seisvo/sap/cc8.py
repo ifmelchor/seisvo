@@ -628,14 +628,15 @@ class CC8out(object):
             "fq_band":fq_band,
         }
 
-        data_dict = self.get_data(["maac", "slow", "baz"], fq_idx=fq_idx)
+        data_dict = self.get_data(["maac", "slow", "baz", "error"], fq_idx=fq_idx)
         maac  = data_dict["maac"]
         slow  = data_dict["slow"]
         baz   = data_dict["baz"]
+        error = data_dict["error"]
         
         if not ntime:
-            ntime = np.argmax(maac)
-            print(f" Best MAAC [{maac[ntime]:.1f}] is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f}")
+            ntime = np.nanargmax(maac)
+            print(f" Best MAAC [{maac[ntime]:.1f}] is at position {ntime} with slow {slow[ntime]:.2f} and baz {baz[ntime]:.1f} and ERROR {error[ntime]:.2f}")
 
         bazt     = baz[ntime]
         slowt    = slow[ntime]
@@ -743,13 +744,15 @@ class CC8out(object):
         baz   = data_dict["baz"][ntime]
 
         arr, exloc = self.cc8stats.get_array()
-        exclude_locs += exloc
 
-        slowarg = {
-            "slomax":self.cc8stats.slow_max,
-            "sloint":self.cc8stats.slow_int,
-            "exclude_locs":exclude_locs
-        }
+        if not slowarg:
+            slowarg = {
+                "slomax":self.cc8stats.slow_max,
+                "sloint":self.cc8stats.slow_int,
+                "fq_band":self.cc8stats.fq_bands[int(fq_idx)-1],
+                "exclude_locs":exloc
+            }
+
         slowarg["slow0"], _ = arr.deltatimes(slow, baz, slowarg=slowarg, tol=tol, return_xy=True)
         
         timet = self._dout["dtime"][ntime]
