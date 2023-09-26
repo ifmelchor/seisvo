@@ -281,7 +281,7 @@ class CC8(object):
         if not starttime:
             starttime = self.time_[0]
 
-        fq_idx   = kwargs.get("fq_idx", self.stats.fqidx[0])
+        fq_idx = kwargs.get("fq_idx", self.stats.fqidx[0])
         widget = load_cc8widget(self, starttime, interval, fq_idx, db, **kwargs)
 
         return
@@ -296,66 +296,96 @@ class CC8(object):
 
         cco  = self.get(fq_idx=fq_idx)
         maac = cco.get_data('maac')
-        rms = cco.get_data('rms')
+        rms  = cco.get_data('rms')
         baz  = cco.get_data('baz')
         slow = cco.get_data('slow')
         nidx = cco.get_nidx(return_full=False, **nidx_kwargs)
 
         maxwt   = 0
-        ansdict = {}
-        with open("output.csv",'w') as f:
-            writer = csv.writer(f)
-            for k, g in groupby(enumerate(nidx), lambda ix: ix[0]-ix[1]):
-                ans = list(map(itemgetter(1), g))
-                nd  = len(ans)
+        
+        # columns
+        ndList        = []
+        starttimeList = []
+        durationList  = []
+        maac_avgList  = []
+        rms_avgList   = []
+        d_maacList    = []
+        d_rmsList     = []
+        slow_avgList  = []
+        slow_stdList  = []
+        baz_avgList   = []
+        baz_stdList   = []
 
-                starttime = self.time_[ans[0]]
-                duration  = nd*self.stats.window - (nd-1)*(self.stats.window*self.stats.overlap)
+        for k, g in groupby(enumerate(nidx), lambda ix: ix[0]-ix[1]):
+            ans = list(map(itemgetter(1), g))
+            nd  = len(ans)
 
-                if nd >= n_min:
-                    if nd > 1:
-                        maac_avg = maac[ans].mean()
-                        rms_avg  = rms[ans].mean()
-                        baz_avg  = baz[ans].mean()
-                        baz_std  = baz[ans].std()
-                        slow_avg = slow[ans].mean()
-                        slow_std = slow[ans].std()
-                        bi = ans[0]
-                        bf = ans[-1]
-                    else:
-                        maac_avg = maac[bi]
-                        rms_avg  = rms[bi]
-                        baz_avg  = baz[bi]
-                        slow_avg = slow[bi]
-                        bi = bf = ans[0]
-                        baz_std = slow_std = np.nan
+            starttime = self.time_[ans[0]]
+            duration  = nd*self.stats.window - (nd-1)*(self.stats.window*self.stats.overlap)
+
+            if nd >= n_min:
+                if nd > 1:
+                    maac_avg = maac[ans].mean()
+                    rms_avg  = rms[ans].mean()
+                    baz_avg  = baz[ans].mean()
+                    baz_std  = baz[ans].std()
+                    slow_avg = slow[ans].mean()
+                    slow_std = slow[ans].std()
+                    bi = ans[0]
+                    bf = ans[-1]
                 else:
-                    continue
+                    maac_avg = maac[bi]
+                    rms_avg  = rms[bi]
+                    baz_avg  = baz[bi]
+                    slow_avg = slow[bi]
+                    bi = bf = ans[0]
+                    baz_std = slow_std = np.nan
+            else:
+                continue
 
-                d_maac = 0
-                d_rms  = 0
-                n = 0
-                for i in range(1, n_nearest):
-                    if bi-i >= 0:
-                        d_maac += maac[bi-i] - maac_avg
-                        d_rms  += rms[bi-i] - rms_avg
-                        n += 2
-                    if bf+i < len(maac):
-                        d_maac += maac[bf+i] - maac_avg
-                        d_rms  += rms[bf+i] - rms_avg
-                        n += 2
-                d_maac = abs(d_maac) / n
-                d_rms  = abs(d_rms) / n
+            d_maac = 0
+            d_rms  = 0
+            n = 0
+            for i in range(1, n_nearest):
+                if bi-i >= 0:
+                    d_maac += maac[bi-i] - maac_avg
+                    d_rms  += rms[bi-i] - rms_avg
+                    n += 2
+                if bf+i < len(maac):
+                    d_maac += maac[bf+i] - maac_avg
+                    d_rms  += rms[bf+i] - rms_avg
+                    n += 2
+            d_maac = abs(d_maac) / n
+            d_rms  = abs(d_rms) / n
 
-                # save into dataframe
-                writer.writerow([
-                    starttime, nd, duration, maac_avg, rms_avg,
-                    d_maac, d_rms,
-                    slow_avg, slow_std, baz_avg, baz_std
-                    ])
+            # save into list
+            ndList.append(nd)
+            starttimeList.append(starttime)
+            durationList.append(duration)
+            maac_avgList.append(maac_avg)
+            rms_avgList.append(rms_avg)
+            d_maacList.append(d_maac)
+            d_rmsList.append(d_rms)
+            slow_avgList.append(slow_avg)
+            slow_stdList.append(slow_std)
+            baz_avgList.append(baz_avg)
+            baz_stdList.append(baz_std)
 
-        cols = ['time', 'n', 'duration', 'maac', 'rms', 'd_maac', 'd_rms', 'slow', 'slow_u', 'baz', 'baz_u']
-        df   = pd.read_csv("output.csv", names=cols)
+        ndList        = pd.Series(ndList)
+        starttimeList = pd.Series(starttimeList)
+        durationList  = pd.Series(durationList)
+        maac_avgList  = pd.Series(maac_avgList)
+        rms_avgList   = pd.Series(rms_avgList)
+        d_maacList    = pd.Series(d_maacList)
+        d_rmsList     = pd.Series(d_rmsList)
+        slow_avgList  = pd.Series(slow_avgList)
+        slow_stdList  = pd.Series(slow_stdList)
+        baz_avgList   = pd.Series(baz_avgList)
+        baz_stdList   = pd.Series(baz_stdList)
+
+        sers = [starttimeList, ndList, durationList, maac_avgList, rms_avgList, d_maacList, d_rmsList, slow_avgList, slow_stdList, baz_avgList, baz_stdList]
+        df   = pd.concat(sers, axis=1)
+        df.columns = ['time', 'n', 'duration', 'maac', 'rms', 'd_maac', 'd_rms', 'slow', 'slow_u', 'baz', 'baz_u']
         return df
 
 

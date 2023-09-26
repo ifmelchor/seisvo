@@ -57,24 +57,23 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
     return dictans
 
 
-def array_delta_times(slowness, bazimuth, slomax, slomint, fs, xUTM, yUTM, pxy0=[0.,0.], return_xy=False):
+def array_delta_times(slow, baz, slomax, sloint, fs, xUTM, yUTM, pxy0=[0.,0.], return_xy=False):
 
     from juliacall import Main as jl
     jl.seval("using SAP")
 
     assert len(xUTM) == len(yUTM)
 
-    fs        = int(fs)
-    etol      = float(etol)
-    slow_max_ = float(slomax)
-    slow_inc_ = float(slomint)
-    slowness  = float(slowness)
-    bazimuth  = float(bazimuth)
-    utm_east  = jl.Array(np.array(xUTM))
-    utm_north = jl.Array(np.array(yUTM))
-    slow0     = jl.Array(np.array(pxy0))
+    fs     = int(fs)
+    slomax = float(slomax)
+    sloint = float(sloint)
+    slow   = float(slow)
+    baz    = float(baz)
+    slow0  = jl.Array(np.array(pxy0))
+    utmEW  = jl.Array(np.array(xUTM))
+    utmNS  = jl.Array(np.array(yUTM))
 
-    deltas, tol  = jl.get_dtimes(slowness, bazimuth, slow_max_, slow_inc_, fs, utm_east, utm_north, slow0=slow0, return_xy=return_xy)
+    deltas, tol  = jl.get_dtimes(slow, baz, slomax, sloint, fs, utmEW, utmNS, slow0, return_xy)
     
     return np.array(deltas), np.array(tol)
 

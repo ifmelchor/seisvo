@@ -687,7 +687,8 @@ class Array(Network):
         """
 
         slowarg   = _slowarg(slowarg)
-        deltas, _ = self.deltatimes(slow, baz, slowarg=slowarg)
+        deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg)
+        print(f" [deltatimes] error = {tol}")
         stream    = self.get_stream(starttime, endtime, prefilt=slowarg["fq_band"], toff_sec=10, exclude_locs=slowarg["exclude_locs"])
 
         # shift stream
