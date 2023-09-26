@@ -57,7 +57,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
     return dictans
 
 
-def array_delta_times(slowness, bazimuth, slomax, slomint, fs, xUTM, yUTM, etol=1e-2, pxy0=[0.,0.], return_xy=False):
+def array_delta_times(slowness, bazimuth, slomax, slomint, fs, xUTM, yUTM, pxy0=[0.,0.], return_xy=False):
 
     from juliacall import Main as jl
     jl.seval("using SAP")
@@ -74,7 +74,7 @@ def array_delta_times(slowness, bazimuth, slomax, slomint, fs, xUTM, yUTM, etol=
     utm_north = jl.Array(np.array(yUTM))
     slow0     = jl.Array(np.array(pxy0))
 
-    deltas, tol  = jl.get_dtimes(slowness, bazimuth, slow_max_, slow_inc_, fs, utm_east, utm_north, etol, slow0=slow0, return_xy=return_xy)
+    deltas, tol  = jl.get_dtimes(slowness, bazimuth, slow_max_, slow_inc_, fs, utm_east, utm_north, slow0=slow0, return_xy=return_xy)
     
     return np.array(deltas), np.array(tol)
 

@@ -334,23 +334,29 @@ class CC8(object):
 
                 d_maac = 0
                 d_rms  = 0
+                n = 0
                 for i in range(1, n_nearest):
-                    d_maac += maac[bi-i] - maac_avg
-                    d_maac += maac[bf+i] - maac_avg
-                    d_rms  += rms[bi-i] - rms_avg
-                    d_rms  += rms[bf+i] - rms_avg
-                d_maac = abs(d_maac) / (2*n_nearest)
-                d_rms  = abs(d_rms) / (2*n_nearest)
+                    if bi-i >= 0:
+                        d_maac += maac[bi-i] - maac_avg
+                        d_rms  += rms[bi-i] - rms_avg
+                        n += 2
+                    if bf+i < len(maac):
+                        d_maac += maac[bf+i] - maac_avg
+                        d_rms  += rms[bf+i] - rms_avg
+                        n += 2
+                d_maac = abs(d_maac) / n
+                d_rms  = abs(d_rms) / n
 
                 # save into dataframe
                 writer.writerow([
-                    starttime, duration, maac_avg, rms_avg,
+                    starttime, nd, duration, maac_avg, rms_avg,
                     d_maac, d_rms,
                     slow_avg, slow_std, baz_avg, baz_std
                     ])
 
-        cols = ['time', 'duration', 'maac', 'rms', 'd_maac', 'd_rms', 'slow', 'slow_u', 'baz', 'baz_u']
-        return pd.read_csv("output.csv", names=cols)
+        cols = ['time', 'n', 'duration', 'maac', 'rms', 'd_maac', 'd_rms', 'slow', 'slow_u', 'baz', 'baz_u']
+        df   = pd.read_csv("output.csv", names=cols)
+        return df
 
 
 class CC8out(object):
@@ -531,7 +537,7 @@ class CC8out(object):
         return stats
 
 
-    def get_pdf(self, attr, fq_idx=None, rms_in_db=True, vmin=None, vmax=None, data=None, **nidx_kwargs):
+    def get_pdf(self, attr, fq_idx=None, rms_in_db=True, vmin=None, vmax=None, data=None, n_min=10, **nidx_kwargs):
         """
         Return the PDF of a scalar attribute
         """
@@ -551,7 +557,7 @@ class CC8out(object):
 
         space = np.linspace(vmin, vmax, 1000)
 
-        if data.shape[0] > 10:
+        if data.shape[0] > n_min:
             pdf = get_PDF(data, space)
         else:
             pdf = np.full((space.shape[0], data.shape[1]), np.nan)

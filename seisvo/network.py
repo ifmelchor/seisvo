@@ -664,7 +664,7 @@ class Array(Network):
             return None
 
 
-    def deltatimes(self, slow, baz, slowarg={}, tol=1e-4, return_xy=False):
+    def deltatimes(self, slow, baz, slowarg={}, return_xy=False):
         """
         compute the waveforms displaced by given a slowness vector (slow, baz)
         """
@@ -672,7 +672,7 @@ class Array(Network):
         slowarg  = _slowarg(slowarg)
         _, utmloc   = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         ans, tol = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
-            self.sample_rate, utmloc["x"], utmloc["y"], etol=tol, pxy0=[0.,0.], return_xy=return_xy)
+            self.sample_rate, utmloc["x"], utmloc["y"], pxy0=[0.,0.], return_xy=return_xy)
 
         if return_xy:
             return ans, tol
@@ -681,13 +681,13 @@ class Array(Network):
             return ans/self.sample_rate, tol
 
 
-    def beamform(self, starttime, endtime, slow, baz, slowarg={}, taper=False, tol=1e-4, plot=True, **fig_kwargs):
+    def beamform(self, starttime, endtime, slow, baz, slowarg={}, taper=False, plot=True, **fig_kwargs):
         """
         Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
         """
 
         slowarg   = _slowarg(slowarg)
-        deltas, _ = self.deltatimes(slow, baz, slowarg=slowarg, tol=tol)
+        deltas, _ = self.deltatimes(slow, baz, slowarg=slowarg)
         stream    = self.get_stream(starttime, endtime, prefilt=slowarg["fq_band"], toff_sec=10, exclude_locs=slowarg["exclude_locs"])
 
         # shift stream
