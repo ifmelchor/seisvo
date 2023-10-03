@@ -218,7 +218,7 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     axis  = kwargs.get("axis", None)
     vlim  = kwargs.get("vlim", [])
     bar_axis  = kwargs.get("bar_axis", None)
-    bar_label = kwargs.get("bar_label", "CC")
+    bar_label = kwargs.get("bar_label", "C")
     adjust_vlim   = kwargs.get("adjust_vlim", False)
     interpolation = kwargs.get("interpolation", "gaussian")
 
@@ -258,7 +258,7 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     # slox == sloy
     slov0x = np.linspace(0,slox[maxpos[0]],100)
     slov0y = np.linspace(0,slox[maxpos[1]],100)
-    axis.plot(slov0x, slov0y, ls="--", color="k", alpha=0.7, zorder=2)
+    axis.plot(slov0x, slov0y, ls="--", lw=0.8, color="k", alpha=0.7, zorder=2)
     axis.scatter(slox[maxpos[0]],slox[maxpos[1]], marker="o", color="r", ec="k", zorder=3)
     axis.scatter(0, 0, marker="o", color="k", ec="k", zorder=3)
 
@@ -267,12 +267,17 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
         maacth = slomap.max()*(1-cc_th)
         x1, x2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
         y1, y2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
-        axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", fmt="none", zorder=2)
+        axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", lw=0.8, fmt="none", zorder=2)
 
     axis.set_title(title)
     axis.set_xlabel("x [s/km]")
     axis.set_ylabel("y [s/km]")
-    axis.grid(ls="--", color="k", alpha=0.3, zorder=3)
+    axis.xaxis.set_minor_locator(mtick.MultipleLocator(sloint))
+    axis.yaxis.set_minor_locator(mtick.MultipleLocator(sloint))
+    axis.xaxis.set_major_locator(mtick.MultipleLocator(0.5))
+    axis.yaxis.set_major_locator(mtick.MultipleLocator(0.5))
+    axis.grid(which="major", ls="-", lw=0.8, color="k", alpha=0.3, zorder=3)
+    axis.grid(which="minor", ls=":", lw=0.5, color="k", alpha=0.3, zorder=3)
 
     fig.colorbar(im, cax=bar_axis, orientation='vertical', ticks=ticks, label=bar_label)
 

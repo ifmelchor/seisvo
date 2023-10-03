@@ -679,7 +679,7 @@ class CC8out(object):
         half_w   = dt.timedelta(seconds=float(self.cc8stats.window/2))
         dtoff    = dt.timedelta(seconds=off_sec)
         start    = self._dout["dtime"][ntime] - half_w - dtoff
-        end      = start + half_w + half_w + dtoff
+        end      = self._dout["dtime"][ntime] + half_w + dtoff
         duration = (end - start).total_seconds()
         startw   = duration/2 - self.cc8stats.window/2
         endw     = startw + self.cc8stats.window
@@ -763,7 +763,7 @@ class CC8out(object):
         return pdfmap, (sloint, slomax)
     
 
-    def compute_smap(self, ntime, fq_idx=None, slowarg={}, tol=1e-4, show_title=True, **fig_kwargs):
+    def compute_smap(self, ntime, fq_idx=None, slowarg={}, show_title=True, **fig_kwargs):
         """
         This function computes the smap for a specific window (ntime), 
         the center of the point (slownes, baz) is taken from the maac
@@ -786,10 +786,10 @@ class CC8out(object):
                 "slomax":self.cc8stats.slow_max,
                 "sloint":self.cc8stats.slow_int,
                 "fq_band":self.cc8stats.fq_bands[int(fq_idx)-1],
-                "exclude_locs":exloc
+                "exclude_locs":exloc,
+                "slow0":[0,0]
             }
-
-        slowarg["slow0"], _ = arr.deltatimes(slow, baz, slowarg=slowarg, tol=tol, return_xy=True)
+            # slowarg["slow0"], _ = arr.deltatimes(slow, baz, slowarg=slowarg, tol=tol, return_xy=True)
         
         timet = self._dout["dtime"][ntime]
         fig = arr.slowmap(timet, self.cc8stats.window, slowarg=slowarg, plot=True, show_title=show_title, **fig_kwargs) 
