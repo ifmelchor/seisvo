@@ -79,7 +79,7 @@ def get_axes_dict(lteout, attr_list, chan_list, fig):
     
     row = count_rows(lteout, chan_list, attr_list)
 
-    axes = fig.subplots(row, col, gridspec_kw=grid)
+    axes = fig.subplots(row, col, gridspec_kw=grid, sharex='col')
     
     if isinstance(axes, np.ndarray):
         axes = axes.reshape(row, col)
@@ -97,9 +97,10 @@ def get_axes_dict(lteout, attr_list, chan_list, fig):
                     axes_dict[key] = (axes[n,0], axes[n,1])
                 
                 else:
-                    axes[n,1].axes.get_xaxis().set_visible(False)
-                    axes[n,1].axes.get_yaxis().set_visible(False)
-                    axes[n,1].set_frame_on(False)
+                    if col == 2:
+                        axes[n,1].axes.get_xaxis().set_visible(False)
+                        axes[n,1].axes.get_yaxis().set_visible(False)
+                        axes[n,1].set_frame_on(False)
                     axes_dict[key] = (axes[n,0],)
                 
                 n += 1
@@ -121,7 +122,7 @@ def get_axes_dict(lteout, attr_list, chan_list, fig):
 def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=False, **kwargs):
 
     if not fig:
-        fig = plt.figure()
+        fig = plt.figure(figsize=(18,10))
     
     axes = get_axes_dict(lteout, attr_list, chan_list, fig)
             
@@ -165,6 +166,7 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=
                     ax[0].set_ylim(vmin, vmax)
                     ax[0].set_xlim(time[0], time[-1])
                     ax[0].set_ylabel(default_labels.get(attr, attr))
+                    ax[0].set_yscale("log")
                 
                 else:
                     cmap, vlim = get_vector_bar(attr, **kwargs)
@@ -172,8 +174,15 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=
                         v_max=vlim[1], v_min=vlim[0], cmap=cmap,\
                         bar_label=default_labels.get(attr, attr))
 
+                    if kwargs.get("fq_lim", None):
+                        fql = kwargs.get("fq_lim")
+                    else:
+                        fql = (freq[0], freq[-1])
+
                     ax[0].set_ylim(freq[0], freq[-1])
                     ax[0].set_ylabel("Freq")
+                    ax[0].set_yscale("log")
+                    ax[0].grid(which="both", ls="--", lw=0.5, alpha=0.3)
                 
                 ax[0].xaxis.set_major_locator(time_format[0][0])
                 ax[0].xaxis.set_minor_locator(time_format[1][0])
@@ -199,6 +208,7 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=
             plot_gram(freq, data.T, time, ax[0], axis_bar=ax[1], v_max=vlim[1],\
                 v_min=vlim[0], cmap=cmap, bar_label=default_labels.get(attr, attr))
             ax[0].set_ylim(freq[0], freq[-1])
+            
 
             ax[0].xaxis.set_major_locator(time_format[0][0])
             ax[0].xaxis.set_minor_locator(time_format[1][0])

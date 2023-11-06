@@ -741,7 +741,7 @@ class LTEout(object):
         return pdf, space.reshape(-1,), self._dout["freq"]
 
 
-    def plot(self, chan=None, attr=["specgram", "rsam", "lf", "hf"], **plot_kw):
+    def plot(self, chan=None, attr=["specgram", "rsam", "lf", "hf"], plot=True, **plot_kw):
         
         if not chan:
             chan_list = [self.chan_list[0]]
@@ -750,7 +750,7 @@ class LTEout(object):
         
         attr_list = self.check_attr(attr)
         
-        fig, _ = LTESTAplot(self, chan_list, attr_list, plot=True, **plot_kw)
+        fig, _ = LTESTAplot(self, chan_list, attr_list, plot=plot, **plot_kw)
 
         return fig
 

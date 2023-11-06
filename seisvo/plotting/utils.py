@@ -19,7 +19,7 @@ def get_time_format(datetime, day_interval):
 
         elif day_interval <= 10:
             major_locator = mdates.DayLocator(interval=1)
-            major_formatt = mdates.DateFormatter('%d %b %H:%M')
+            major_formatt = mdates.DateFormatter('%d %b\n%H:%M')
             minor_locator = mdates.HourLocator(byhour=[6, 12, 18, 24])
             minor_formatt = mtick.NullFormatter()
 
@@ -31,7 +31,7 @@ def get_time_format(datetime, day_interval):
 
         else:
             major_locator = mdates.WeekdayLocator(interval=2)
-            major_formatt = mdates.DateFormatter('%d-%m')
+            major_formatt = mdates.DateFormatter('%d-%m\n%H:%M')
             minor_locator = mdates.DayLocator(interval=7)
             minor_formatt = mtick.NullFormatter()
     

@@ -654,7 +654,7 @@ class Array(Network):
 
         if isinstance(freq, np.ndarray):
             if plot:
-                fig = traces_psd(psd_dict, freq, title=f"{starttime} -- {endtime}", show=show)
+                fig = traces_psd(psd_dict, freq, db_scale=True, title=f"{starttime} -- {endtime}", show=show)
                 return fig
 
             else:
