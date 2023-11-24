@@ -133,13 +133,13 @@ def plot_gram(y, array, x, axis, **kwargs):
         x2 = x[1]
         xFI = x[-1]
 
-    halfbin_x = (x2 - x1) / 2.0
-    halfbin_y = (y[1] - y[0]) / 2.0
+    dx2 = 0#(x2 - x1) / 2.0
+    dy2 = 0#(y[1] - y[0]) / 2.0
     extent = (
-        x1 + halfbin_x,
-        xFI - halfbin_x,
-        y[0] + halfbin_y,
-        y[-1] - halfbin_y
+        x1 + dx2,
+        xFI - dx2,
+        y[0] + dy2,
+        y[-1] - dy2
     )
 
     norm = kwargs.get('norm', None)
@@ -156,7 +156,7 @@ def plot_gram(y, array, x, axis, **kwargs):
 
     interpolation = kwargs.get('interpolation', 'spline36')
     cmap = kwargs.get('cmap', 'Spectral_r')
-    im = axis.imshow(np.flipud(array), cmap=cmap, norm=norm, interpolation=interpolation, extent=extent, aspect="auto")
+    im = axis.imshow(np.flipud(array), cmap=cmap, norm=norm, interpolation=interpolation, extent=extent)#, aspect="auto")
     axis.axis('tight')
     axis.grid(which="major", color="k", ls="-", alpha=0.4, zorder=4)
     axis.grid(which="minor", color="k", ls="--", alpha=0.4, zorder=4)

@@ -674,6 +674,8 @@ class Array(Network):
         ans, tol = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
             self.sample_rate, utmloc["x"], utmloc["y"], pxy0=[0.,0.], return_xy=return_xy)
 
+        print(f" [deltatimes] error = {tol}")
+
         if return_xy:
             return ans, tol
         
@@ -681,14 +683,16 @@ class Array(Network):
             return ans/self.sample_rate, tol
 
 
-    def beamform(self, starttime, endtime, slow, baz, slowarg={}, taper=False, plot=True, **fig_kwargs):
+    def beamform(self, starttime, endtime, slow, baz, slowarg={}, return_full=False, taper=False, plot=True, **fig_kwargs):
         """
         Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
         """
 
         slowarg   = _slowarg(slowarg)
-        deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg)
-        print(f" [deltatimes] error = {tol}")
+        # deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg)
+        # print(f" [deltatimes] error = {tol}")
+        window    = (endtime-starttime).total_seconds()
+        full, deltas = self.slowmap(starttime, window, slowarg=slowarg, return_dt=True, plot=False)
         stream    = self.get_stream(starttime, endtime, prefilt=slowarg["fq_band"], toff_sec=10, exclude_locs=slowarg["exclude_locs"])
 
         # shift stream
@@ -712,6 +716,9 @@ class Array(Network):
         duration = (endtime - starttime).total_seconds()
         time     = np.linspace(0, duration, len(data_sh))
 
+        if return_full:
+            return full, suma
+
         if plot:
             fig = beamform_wvfm(wvfm_dict, suma, time, **fig_kwargs)
             return fig
@@ -719,9 +726,11 @@ class Array(Network):
             return wvfm_dict, suma, time
 
 
-    def slowmap(self, starttime, window, slowarg={}, plot=True, show_title=True, **fig_kwargs):
+    def slowmap(self, starttime, window, slowarg={}, return_dt=False, plot=True, show_title=True, **fig_kwargs):
         """
         Compute the slowness map
+
+        return_dt should be True/False or "xy"
         """
 
         slowarg = _slowarg(slowarg)
@@ -735,7 +744,7 @@ class Array(Network):
         nadv     = 0
         
         # get data
-        stream = self.get_stream(starttime, endtime, toff_sec=10,\
+        stream = self.get_stream(starttime, endtime, toff_sec=toff_sec,\
             exclude_locs=slowarg["exclude_locs"], sample_rate=self.sample_rate, avoid_exception=True)
         data   = stream.to_array(detrend=True)
 
@@ -747,6 +756,17 @@ class Array(Network):
             slowarg["fq_band"], slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=nwin, \
             nadv=nadv, cc_thres=slowarg["cc_thres"], toff=toff_sec, slow0=slowarg["slow0"])
 
+        if return_dt:
+            slow = ans["slow"][0]
+            baz  = ans["baz"][0]
+
+            if return_dt == "xy":
+                deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg, return_xy=True)
+            else:
+                deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg, return_xy=False)
+            
+            return ans, deltas
+        
         if plot:
             if not fig_kwargs:
                 fig_kwargs = {}
@@ -764,7 +784,6 @@ class Array(Network):
 
             fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], **fig_kwargs)
             return fig, ans
-
         else:
             return ans
 
