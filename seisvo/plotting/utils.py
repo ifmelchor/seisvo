@@ -24,7 +24,7 @@ def get_time_format(datetime, day_interval):
             minor_formatt = mtick.NullFormatter()
 
         elif 45 >= day_interval > 10 :
-            major_locator = mdates.DayLocator(interval=7)
+            major_locator = mdates.DayLocator(interval=3)
             major_formatt = mdates.DateFormatter('%d')
             minor_locator = mdates.DayLocator(interval=1)
             minor_formatt = mtick.NullFormatter()

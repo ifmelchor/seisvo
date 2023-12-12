@@ -717,6 +717,7 @@ class Array(Network):
         time     = np.linspace(0, duration, len(data_sh))
 
         if return_full:
+            full["wvfm"] = wvfm_dict
             return full, suma
 
         if plot:

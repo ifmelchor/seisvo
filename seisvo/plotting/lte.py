@@ -179,7 +179,7 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=
                     else:
                         fql = (freq[0], freq[-1])
 
-                    ax[0].set_ylim(freq[0], freq[-1])
+                    ax[0].set_ylim(fql)
                     ax[0].set_ylabel("Freq")
                     ax[0].set_yscale("log")
                     ax[0].grid(which="both", ls="--", lw=0.5, alpha=0.3)
