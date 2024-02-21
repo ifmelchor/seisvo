@@ -12,7 +12,7 @@ import obspy.signal.invsim as osi
 from obspy import Stream, Trace, read, UTCDateTime
 from obspy.signal.util import _npts2nfft
 from obspy.signal import filter as osf
-from .signal import get_PSD
+from .signal import get_PSD, get_TimePolar
 from .plotting.signal import spectrogram
 
 
@@ -77,18 +77,33 @@ class Trace2(Trace):
         return np.array(timelist, dtype=dt.datetime)
 
 
-    def plot_specgram(self, axis, cax=None, date_list=None, window_length=None, fq_band=(), per_lap=0.75, show=False, **kwargs):
+    def plot_specgram(self, axis, date_list=None, window_length=None, fq_band=(), per_lap=0.75, show=False, **kw_plotgram):
         """
         This code plots the spectrogram of the trace at specific AxisPlot
         cax is the axis to show the colobar
         """
 
         data = self.get_data(detrend=True)
-        
-        kwargs["axis_bar"] = cax
         spectrogram(data, self.stats.sampling_rate, axis, per_lap=per_lap,
-            window_length=window_length, fq_band=fq_band, date_list=date_list, **kwargs)
+            window_length=window_length, fq_band=fq_band, date_list=date_list, **kw_plotgram)
         
+        if show:
+            plt.show()
+
+        return
+    
+
+    def plot_trace(self, axis, fq_band=(), show=False):
+        data = self.get_data(fq_band=fq_band)
+        time = self.get_time()
+
+        axis.plot(time, data, color="k", lw=0.8)
+        axis.set_xlim(time[0], time[-1])
+        
+        axis.annotate(f'{self.id}', xy=(0.05,0.9), xycoords='axes fraction', color="k", fontfamily="monospace", stretch='condensed')
+        axis.grid(axis='both', which='major', color='k', ls='--', alpha=0.4)
+        axis.grid(axis='both', which='minor', color='k', ls='--', alpha=0.2)
+
         if show:
             plt.show()
 
@@ -103,11 +118,10 @@ class Trace2(Trace):
         assert isinstance(fq_band, (list, tuple, np.ndarray))
 
         sample_rate = self.stats.sampling_rate
-        new_trace = self.copy()
-        data = self.data - self.data.mean()
-
-        zerophase = kwargs.get("zerophase", True)
-        corners = kwargs.get("corners", 2)
+        new_trace   = self.copy()
+        data        = self.data - self.data.mean()
+        zerophase   = kwargs.get("zerophase", True)
+        corners     = kwargs.get("corners", 2)
 
         taper = kwargs.get("taper", False)
         if taper:
@@ -115,7 +129,9 @@ class Trace2(Trace):
             data = data * osi.cosine_taper(len(data), p=taper_p)
 
         if fq_band[0] and fq_band[1]:
-            data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, corners=corners, zerophase=zerophase)
+            # data = osf.bandpass(data, freqmin=fq_band[0], freqmax=fq_band[1], df=sample_rate, corners=corners, zerophase=zerophase)
+            b, a = scipy.signal.butter(corners, fq_band, fs=sample_rate, btype='band')
+            data = scipy.signal.filtfilt(b, a, data)
 
         if fq_band[0] and not fq_band[1]:
             data = osf.highpass(data, freq=fq_band[0], df=sample_rate, zerophase=zerophase)
@@ -213,6 +229,13 @@ class Stream2(Stream):
 
     def __getitem__(self, item):
         return Trace2(self.traces[item])
+
+
+    def get_stations_id(self):
+        station_id = []
+        for tr in self:
+            station_id.append('.'.join(tr.id.split('.')[:-1]))
+        return list(set(station_id))
 
 
     def select2(self, **kwargs):
@@ -316,3 +339,16 @@ class Stream2(Stream):
             return mdata, info
         else:
             return mdata
+
+
+    def time_polar(self, window, olap=0.9, **trace_kwargs):
+
+        data = self.to_array(sort="ZNE", **trace_kwargs)
+        fs   = trace_kwargs.get("sample_rate", self[0].stats.sampling_rate)
+
+        if data.shape[0] == 3:
+            ans = get_TimePolar(data, fs, window, olap)
+        else:
+            ans = None
+            
+        return ans

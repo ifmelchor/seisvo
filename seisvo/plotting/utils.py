@@ -158,8 +158,8 @@ def plot_gram(y, array, x, axis, **kwargs):
     cmap = kwargs.get('cmap', 'Spectral_r')
     im = axis.imshow(np.flipud(array), cmap=cmap, norm=norm, interpolation=interpolation, extent=extent)#, aspect="auto")
     axis.axis('tight')
-    axis.grid(which="major", color="k", ls="-", alpha=0.4, zorder=4)
-    axis.grid(which="minor", color="k", ls="--", alpha=0.4, zorder=4)
+    axis.grid(which="major", color="k", ls="-", alpha=0.3, zorder=4)
+    axis.grid(which="minor", color="k", ls="--", alpha=0.3, zorder=4)
     
     if is_time:
         axis.xaxis_date()

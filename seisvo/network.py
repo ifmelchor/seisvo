@@ -697,8 +697,8 @@ class Array(Network):
 
         # shift stream
         wvfm_dict = {}
+        of_npts  = int(10*self.sample_rate)
         for delta, tr in zip(deltas, stream):
-            of_npts  = int(10*self.sample_rate)
             d_npts   = int(delta*self.sample_rate)
             data     = tr.get_data()
             data_sh  = data[of_npts+d_npts:-of_npts+d_npts]

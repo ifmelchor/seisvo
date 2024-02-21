@@ -8,6 +8,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import datetime as dt
+import time as pytime
 
 from itertools import groupby
 from operator import itemgetter
@@ -796,3 +797,286 @@ class CC8out(object):
     
         return fig
 
+
+class CC8detect(object):
+    def __init__(self, cc8, pkfile=None):
+        self.cc8 = cc8
+        if pkfile:
+            self._load(pkfile)
+    
+    def _fit(self, pkfile='df.pkl', **fit_kwargs):
+        dout = {}
+        dout["n_nearest"] = fit_kwargs.get("n_nearest", 5)
+        dout["n_min"]     = fit_kwargs.get("n_min", 3)
+        dout["fq_idx"]    = fit_kwargs.get("fq_idx", 1)
+        dout["maac_th"]   = fit_kwargs.get("maac_th", 0.7)
+        dout["max_err"]   = fit_kwargs.get("max_err", 0.02)
+        dout["df"] = self.cc8.auto_detect(
+            dout["n_nearest"], n_min=dout["n_min"], 
+            fq_idx=dout["fq_idx"], maac_th=dout["maac_th"], 
+            max_err=dout["max_err"])
+
+        # write pickle
+        with open(pkfile, 'wb') as handle:
+            pickle.dump(dout, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        pytime.sleep(1)
+        self._load(pkfile)
+    
+
+    def _load(self, pkfile):
+        with open(pkfile, 'rb') as f:
+            data = pickle.load(f)
+
+        self.n_nearest = data["n_nearest"]
+        self.n_min     = data["n_min"]
+        self.fq_idx    = data["fq_idx"]
+        self.maac_th   = data["maac_th"]
+        self.max_err   = data["max_err"]
+        self.df_       = data["df"]
+        self.times_    = self.df_.time.dt.to_pydatetime()
+    
+
+    def filter(self, df=None, **kwargs):
+        d_maac_min   = kwargs.get("d_maac_min", None)
+        d_maac_max   = kwargs.get("d_maac_max", None)
+        d_rms_min    = kwargs.get("d_rms_min", None)
+        d_rms_max    = kwargs.get("d_rms_max", None)
+        baz_std_max  = kwargs.get("baz_std_max", None)
+        baz_std_min  = kwargs.get("baz_std_min", None)
+        slow_std_max = kwargs.get("slow_std_max", None)
+        slow_std_min = kwargs.get("slow_std_min", None)
+        time_range   = kwargs.get("time_range", [])
+        dur_range    = kwargs.get("dur_range", [])
+        baz_range    = kwargs.get("baz_range", [])
+        slo_range    = kwargs.get("slow_range", [])
+
+        if not isinstance(df, pd.DataFrame):
+            df = self.df_
+
+        cond = df.maac > 0.0
+
+        if d_maac_min:
+            dm = df.d_maac
+            cond &= dm > d_maac_min
+
+        if d_maac_max:
+            dm = df.d_maac
+            cond &= dm < d_maac_max
+
+        if d_rms_min:
+            dr = df.d_rms
+            cond &= dr > d_rms_min
+
+        if d_rms_max:
+            dr = df.d_rms
+            cond &= dr < d_rms_max
+
+        if baz_std_max:
+            baz_std = df.baz_u
+            cond &= baz_std < baz_std_max
+
+        if baz_std_min:        
+            baz_std = df.baz_u
+            cond &= baz_std > baz_std_min
+
+        if slow_std_max:
+            slow_std = df.slow_u
+            cond &= slow_std < slow_std_max
+
+        if slow_std_min:
+            slow_std = df.slow_u
+            cond &= slow_std > slow_std_min
+
+        if time_range:
+            ti, tf = time_range
+            cond &= pd.Series(np.where((self.times_>=ti) & (self.times_<=tf), True, False))
+
+        if dur_range:
+            d1, d2 = dur_range
+            dur = df.duration
+            cond &= (dur >= d1) & (dur <= d2)
+
+        if baz_range:
+            baz1, baz2 = baz_range
+            baz = df.baz
+            cond &= (baz >= baz1) & (baz <= baz2)
+
+        if slo_range:
+            slo1, slo2 = slo_range
+            slo = df.slow
+            cond &= (slo >= slo1) & (slo <= slo2)
+
+        return df[cond]
+
+
+    def beamform(self, n, **bm_kwargs):
+
+        row  = self.df_.iloc[n]
+        time = self.times_[n]
+
+        ans = self._beamform(self.cc8, time, row.duration, self.fq_idx, **bm_kwargs)
+        
+        return ans
+    
+
+    def to_bmm(self, off_sec=1, taper=False, fout='events-1.pkl', **filt_kwargs):
+        
+        """
+        Save data into pickle file
+        """
+
+        df   = self.filter(**filt_kwargs)
+        idx  = df.index.to_list()
+        nidx = len(idx)
+
+        max_duration = int(np.ceil(df.duration.max())) + 1
+
+        if isinstance(off_sec, (list,tuple)):
+            osL = off_sec[0]
+            osR = off_sec[1]
+            ofs = osL + osR
+        else:
+            ofs = 2*off_sec
+        
+        size = int(max_duration + ofs) * self.cc8.stats.sample_rate
+        bmm_dict = {
+            "time" : df.time.dt.to_pydatetime(),
+            "dur"  : df['duration'].to_numpy(),
+            "eid"  : np.array(idx),
+            "bmm"  : np.zeros((nidx, size)),
+            "baz"  : np.zeros(nidx),
+            "bazu" : np.zeros((nidx, 2)),
+            "slow" : np.zeros(nidx),
+            "slowu": np.zeros((nidx, 2)),
+            "maac" : np.zeros(nidx),
+            "error": np.zeros(nidx),
+            "rms"  : np.zeros(nidx)
+        }
+
+        for k, n in enumerate(idx):
+            full, bm = self.beamform(n, off_sec=off_sec, sloint=0.01, taper=taper, return_full=True)
+
+            bmm_dict["baz"][k]   = full["baz"][0] 
+            bmm_dict["slow"][k]  = full["slow"][0]
+            bmm_dict["maac"][k]  = full["maac"][0]
+            bmm_dict["error"][k] = full["error"][0]
+            bmm_dict["rms"][k]   = full["rms"][0]
+            bmm_dict["bazu"][k,:]  = full["bazbnd"][0]
+            bmm_dict["slowu"][k,:] = full["slowbnd"][0]
+
+            off = (size - len(bm)) / 2
+
+            if off.is_integer():
+                off = int(off)
+                bmm_dict["bmm"][k,off:-off] = bm
+            else:
+                off = int(off)
+                bmm_dict["bmm"][k,off+1:-off] = bm
+
+            print(f" .... {k} [{int(100 * (k/nidx))}%]", end="\r")
+
+        with open(fout, 'wb') as handle:
+            pickle.dump(bmm_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        return
+    
+
+    def get_ratio(self, interval_in_hr=1, return_best=False, **filt_kwargs):
+        df    = self.filter(**filt_kwargs)
+        dft   = df.time.dt.to_pydatetime() # convert to datetime
+        
+        # create interval range
+        start = self.cc8.stats.starttime
+        end   = self.cc8.stats.endtime
+        delta = dt.timedelta(hours=interval_in_hr)
+        time  = np.arange(start, end, delta, dtype=dt.datetime)
+
+        if return_best:
+            best = {}
+            n = 1
+        else:
+            count = []
+
+        for t1 in time:
+            t2  = t1 + delta
+            idx = np.where((dft>=t1) & (dft<=t2))[0]
+            nt = len(idx)
+
+            if return_best:
+                if nt >= 1:
+                    i0 = min(idx)
+                    i1 = i0 + nt
+                    sdf = df.iloc[i0:i1]
+
+                    # get clear+stable
+                    sdf = self.filter(df=sdf, d_maac_min=0.1, d_rms_min=1.2, baz_std_max=2.0, slow_std_max=0.05)
+                    
+                    # get best d_rms
+                    sdf = sdf[sdf["d_rms"]==sdf["d_rms"].max()]
+
+                    if len(sdf) >= 1:
+                        best[n] = {
+                            "time":sdf.time.dt.to_pydatetime()[0],
+                            "duration":sdf.duration.to_numpy()[0],
+                            "n":sdf.n.to_numpy()[0],
+                            "baz":sdf.baz.to_numpy()[0],
+                            "baz_u":sdf.baz_u.to_numpy()[0],
+                            "slow":sdf.slow.to_numpy()[0],
+                            "slow_u":sdf.slow_u.to_numpy()[0]
+
+                        }
+
+                        n += 1
+            else:
+                count.append(nt)
+
+        if return_best:
+            return best
+
+        else:
+            count = np.array(count, dtype=np.float32)
+            count[count==0] = np.nan
+
+            return time, count
+    
+
+    @staticmethod
+    def _beamform(cc8, time, duration, fq_idx, off_sec=0.75, sloint=0.01, taper=False, plot=True, return_full=True, return_st=False, fq_band=None):
+
+        ar, exclude_locs = cc8.stats.get_array()
+        winTime   = dt.timedelta(seconds=cc8.stats.window/2)
+        time -= winTime
+
+        if isinstance(off_sec, (list, tuple)):
+            offDeltaL = dt.timedelta(seconds=off_sec[0])
+            nptL = int(off_sec[0]*100)
+            offDeltaR = dt.timedelta(seconds=off_sec[1])
+            nptR = int(off_sec[1]*100)
+        else:
+            offDeltaL = offDeltaR = dt.timedelta(seconds=off_sec)
+            nptL = nptR = int(off_sec*100)
+        
+        starttime = time - offDeltaL
+        endtime   = time + dt.timedelta(seconds=duration) + offDeltaR
+
+        if not fq_band:
+            fq_band = cc8.stats.fq_bands[fq_idx-1]
+
+        slowarg = {
+                "slomax":cc8.stats.slow_max, 
+                "sloint":sloint,
+                "fq_band":fq_band,
+                "exclude_locs":exclude_locs
+            }
+
+        full, bm = ar.beamform(starttime, endtime, 0, 0, slowarg=slowarg, taper=taper, plot=plot, return_full=True)
+
+        # compute the SNR
+        signal = np.abs(bm[nptL:-nptR]).mean()
+        noiseL = np.abs(bm[:nptL]).mean()
+        noiseR = np.abs(bm[-nptR:]).mean()
+        snr = 2*signal/(noiseR+noiseL)
+        full["snr"] = snr
+
+        return full, bm

@@ -265,3 +265,33 @@ def get_LTE(data, fs, chan_list, fq_band, **lte_dict):
 
     return lte_ans
 
+
+def get_TimePolar(data, fs, lwin, olap, x0=0):
+    """
+    Compute the polarization analysis in the time domain.
+    Requires julia packatge LTE.jl
+
+    for apply moving average, use lwin and olap:
+        >> lwin in samples
+        >> olap between 0 and 1 is the percent of overlap
+    
+    """
+
+    from juliacall import Main as jl
+    jl.seval("using LTE")
+
+    ans = jl.time_polar(jl.Array(data), lwin, olap)
+    rl  = np.array(ans[0])
+    baz = np.array(ans[1])
+    inc = np.array(ans[2])                
+    
+    # apply 180 ambiguity
+    baz = np.where(baz>180,baz-180,baz)
+
+    # times
+    N = len(rl)
+    time  = np.array([n*lwin - (n-1)*lwin*olap for n in range(1,N+1)])
+    time += (x0-(lwin/2))
+
+    return time/fs, rl, baz, inc
+

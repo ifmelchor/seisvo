@@ -49,7 +49,7 @@ class StationStats(_Stats):
             'sample_rate'
         ]
         return self._pretty_str(priorized_keys)
-
+        
 
     def check_channel(self, channel=None):
         """

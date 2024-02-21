@@ -5,6 +5,7 @@ from pynotifier import Notification, NotificationClient
 from pynotifier.backends import platform
 
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
+from matplotlib.backends.backend_qt5agg import FigureCanvas, NavigationToolbar2QT
 from matplotlib.widgets import AxesWidget
 import matplotlib.dates as mdates
 
@@ -17,6 +18,28 @@ def notify(title, message, duration=2):
     c.register_backend(platform.Backend())
     n = Notification(title=title, message=message, duration=duration)
     c.notify_all(n)
+
+
+class SimplePlotWidget(QtWidgets.QWidget):
+    def __init__(self, fig, parent=None):
+        super(SimplePlotWidget, self).__init__(parent)
+        self.canvas = FigureCanvas(fig)
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
+
+
+class SimplePlotDialog(QtWidgets.QDialog):
+  def __init__(self, fig, parent=None):
+    super(SimplePlotDialog, self).__init__(parent)
+    self.setWindowTitle("Plot Figure")
+    self.plot_widget = SimplePlotWidget(fig, parent)
+    layout = QtWidgets.QVBoxLayout()
+    layout.addWidget(self.plot_widget)
+    self.setLayout(layout)
+    self.plot_widget.canvas.draw()
 
 
 class DateDialog(QtWidgets.QDialog):
@@ -53,7 +76,6 @@ class DateDialog(QtWidgets.QDialog):
         result = dialog.exec_()
         date = dialog.dateTime()
         return (date.toPyDateTime(), result==QtWidgets.QDialog.Accepted)
-
 
 
 class Cursor(AxesWidget):
@@ -137,7 +159,6 @@ class Cursor(AxesWidget):
         return False
 
 
-
 class Navigate(object):
     def __init__(self, axes, canvas, im_axis=None, base_scale=2, active_cursor=True, **lineprops):
         # lineprops --> color='red', linewidth=0.5, alpha=0.5
@@ -155,19 +176,15 @@ class Navigate(object):
             for ax in axes:
                 cursor = Cursor(ax, useblit=True, **lineprops)
                 self.cursors.append(cursor)
-        
-        self.x0 = None
-        self.x1 = None
-        self.press    = None
-        self.xpress   = None
+            
+        self.clicked = None
+        self.xtick = None
+
         self.cur_xlim = None
         self.new_xlim = None
         self.max_xlim = axes[0].get_xlim()
 
         self.ticks = dict(left=[None, []], right=[None, []]) # tick data and list of axvline
-        self.old_tick = None
-        # self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
-        # self.canvas.setFocus()
         self.canvas.mpl_connect('scroll_event', self.onZoom)
         self.canvas.mpl_connect('motion_notify_event', self.onMotion)
         self.canvas.mpl_connect('button_press_event', self.onClkPress)
@@ -181,6 +198,8 @@ class Navigate(object):
         if self.imshow_axes:
             for imax in self.imshow_axes:
                 imax.set_xlim(self.max_xlim)
+        
+        self.canvas.draw()
 
 
     def reset_ticks(self):
@@ -211,27 +230,27 @@ class Navigate(object):
     def onZoom(self, event):
         if event.inaxes not in self.ax: 
             return
-        else:
-            cur_xlim = event.inaxes.get_xlim()
-            xdata = event.xdata # get event x location
-
-            if event.button == 'down':
-                # deal with zoom in
-                scale_factor = 1 / self.base_scale
-            
-            elif event.button == 'up':
-                # deal with zoom out
-                scale_factor = self.base_scale
-            
-            else:
-                return
         
-            new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
-            relx = (cur_xlim[1] - xdata)/(cur_xlim[1] - cur_xlim[0])
-            new_lim = [xdata - new_width * (1-relx), xdata + new_width * (relx)]
+        cur_xlim = event.inaxes.get_xlim()
+        xdata = event.xdata # get event x location
 
-            self.set_xlim(new_lim)
-            self.canvas.draw()
+        if event.button == 'down':
+            # deal with zoom in
+            scale_factor = 1 / self.base_scale
+        
+        elif event.button == 'up':
+            # deal with zoom out
+            scale_factor = self.base_scale
+        
+        else:
+            return
+    
+        new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
+        relx = (cur_xlim[1] - xdata)/(cur_xlim[1] - cur_xlim[0])
+        new_lim = [xdata - new_width * (1-relx), xdata + new_width * (relx)]
+
+        self.set_xlim(new_lim)
+        self.canvas.draw()
 
 
     def onClkPress(self, event):
@@ -241,53 +260,53 @@ class Navigate(object):
         if event.dblclick:
             self.reset()
             return
+        
+        # save click info
+        self.clicked = event.button
+        self.xtick   = event.xdata
 
-        if event.button == 1:
-            if self.ticks['left'][0]:
-                self.old_tick = self.ticks['left'][0]
-                [line.remove() for line in self.ticks['left'][1]]
-            else:
-                self.old_tick = None
-
-            self.ticks['left'][0] = event.xdata
-            self.ticks['left'][1] = []
-            for ax in self.ax:
-                self.ticks['left'][1].append(ax.axvline(event.xdata, color='k', alpha=0.7, ls='--', lw=1))
-
-            self.cur_xlim = event.inaxes.get_xlim()
-            self.new_xlim = ()
-
-            # this is for release
-            self.press = self.x0, event.xdata
-            self.x0, self.xpress = self.press
-
-        if event.button == 3:
-            #right click
-            if self.ticks['right'][0]:
-                [line.remove() for line in self.ticks['right'][1]]
-
-            self.ticks['right'][0] = event.xdata
-            self.ticks['right'][1] = []
-            for ax in self.ax:
-                self.ticks['right'][1].append(ax.axvline(event.xdata, color='g', alpha=0.7, ls='--', lw=1))
+        # get current xlim
+        self.cur_xlim = event.inaxes.get_xlim()
+        self.new_xlim = ()
 
 
     def onClkRelease(self, event):
         if event.inaxes not in self.ax: 
             return
-        
-        if self.new_xlim != ():
-            # motion was True, remove new_tick
-            self.ticks['left'][0] = None
-            [line.remove() for line in self.ticks['left'][1]]
 
-            if self.old_tick:
-                self.ticks['left'][0] = self.old_tick
+        if event.xdata == self.xtick:
+            # draw left/right ticks
+            
+            if self.clicked == 1:
+                # remove old tick
+                if self.ticks['left'][0]:
+                    [line.remove() for line in self.ticks['left'][1]]
+                
+                self.ticks['left'][0] = self.xtick
                 self.ticks['left'][1] = []
-                for ax in self.ax:
-                    self.ticks['left'][1].append(ax.axvline(self.old_tick, color='k', alpha=0.7, ls='--', lw=1))
 
-        self.press = None
+                tick_artist = []
+                for ax in self.ax:
+                    tick_artist.append(ax.axvline(event.xdata, color='r', alpha=1, ls='-', lw=1))
+
+                self.ticks['left'][1] = tick_artist
+            
+            if self.clicked == 3:
+                if self.ticks['right'][0]:
+                    [line.remove() for line in self.ticks['right'][1]]
+                
+                self.ticks['right'][0] = self.xtick
+
+                tick_artist = []
+                for ax in self.ax:
+                    tick_artist.append(ax.axvline(event.xdata, color='g', alpha=1, ls='-', lw=1))
+
+                self.ticks['right'][1] = tick_artist
+        
+        else:
+            # draw from onMotion
+            self.set_xlim(self.new_xlim)
+        
         self.canvas.draw()
 
 
@@ -295,19 +314,11 @@ class Navigate(object):
         if event.inaxes not in self.ax: 
             return
 
-        if self.press is None:
-            return
-
-        dx = event.xdata - self.xpress
-
-        # if dx == 0:
-            # remove left click
-            # self.ticks['left'][0] = None
-            # self.ticks['left'][1].remove()
-            
-        self.new_xlim = self.cur_xlim - dx
-        self.set_xlim(self.new_xlim)
-
+        if self.clicked == 1:
+            # compute new xlim
+            dx = event.xdata - self.xtick
+            self.new_xlim = self.cur_xlim - dx
+            # draw in onClkRelease
 
 
 class Picker(object):

@@ -2,7 +2,7 @@
 # coding=utf-8
 
 from .utils import SSteps, get_freq
-from .ltejl import get_LTE, get_PSD, get_Polar, get_CSW, get_Peaks
+from .ltejl import get_LTE, get_PSD, get_Polar, get_CSW, get_Peaks, get_TimePolar
 from .sapjl import array_response, get_CC8, array_delta_times
 from .statistics import get_Stats, azimuth_mean, get_PDF
 

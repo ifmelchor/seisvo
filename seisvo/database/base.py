@@ -185,6 +185,8 @@ class SDE(_DataBase):
 
         super().__init__(sql_path, 'SDE', new=create)
         self.__set_attr__()
+        
+        print("\n")
         print(self)
 
 
@@ -244,6 +246,8 @@ class SDE(_DataBase):
             id = self._add_row(event_to_save)
         
         self.last_eid += 1
+
+        return eid
     
 
     def get_event_list(self, label=None, time_interval=(), nro_station=None):
