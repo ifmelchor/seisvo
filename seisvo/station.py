@@ -479,12 +479,3 @@ class Station(object):
         fig = particle_motion(zcomp, tcomp, rcomp, show=show, baz=baz)
 
         return fig
-
-
-
-
-
-
-
-
-    

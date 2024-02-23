@@ -4,7 +4,6 @@ from scipy import signal as ss
 import numpy as np
 import datetime as dt
 import sqlalchemy as sql
-from ..network import Array
 from ..sap import CC8
 from ..signal import get_PSD
 
@@ -74,7 +73,8 @@ def get_sderow(SQLbase):
 
 
         def get_network(self):
-            return Network(self.network)
+            import seisvo as sv
+            return sv.Network(self.network)
 
 
         def get_station(self):
@@ -189,7 +189,8 @@ def get_ccerow(SQLbase):
 
 
         def get_array(self):
-            return Array(self.network, self.station)
+            import seisvo as sv
+            return sv.Array(self.network, self.station)
 
 
         def slowmap(self, slomax=None, sloint=None, path_to_cc8file="./", exclude_locs=[], fq_band=[], tol=1e-4, **fig_kwargs):

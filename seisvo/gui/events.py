@@ -134,7 +134,7 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"], focus=None
     return axes, phases, axes_dict
 
 
-def _rowIter(object):
+class _rowIter(object):
     def __init__(self, event, station_id=None):
         self.event  = event
         self.nrows  =len(event.rows_)
@@ -146,6 +146,7 @@ def _rowIter(object):
                 if row.get_station_id() == station_id:
                     self.n = n
                     break
+
 
     def eid(self):
         return self.event.id
@@ -191,16 +192,16 @@ def _rowIter(object):
         self.event = event
 
 
-def _eventIter(object):
-    def __init__(self, sde, eid=None):
+class _eventIter(object):
+    def __init__(self, sde, eid):
         self.sde  = sde
         self.elst = sde.get_event_list()
-        self.neid = len(event_list)
+        self.neid = len(self.elst)
         
         # by default take the first event
         self.n    = 0
-        if eid and eid in event_list:
-            self.n = event_list.index(eid)
+        if eid and eid in self.elst:
+            self.n = self.elst.index(eid)
 
 
     def get_elst_str(self):
@@ -208,8 +209,8 @@ def _eventIter(object):
 
 
     def update(self):
-        self.elst = sde.get_event_list()
-        self.neid = len(event_list)
+        self.elst = self.sde.get_event_list()
+        self.neid = len(self.elst)
         if self.n >= self.neid:
             self.n = self.neid - 1
 
@@ -262,7 +263,7 @@ class EventCanvas(FigureCanvas):
         
 
     def reload_event(self):
-        event = self.parent.sde[self.event.id]
+        event = self.parent.sde[self.rowIter.event.id]
         self.rowIter.update(event)
 
 
@@ -278,7 +279,7 @@ class EventCanvas(FigureCanvas):
             self.axes_, phase_, self.axes_dict = _plot_row(row, fig=self.fig, fq_band=default_fqband[self.fb], focus=self.focus["ticks"])
 
             # load picker
-            self.picker_ = Picker(self.axes_, phase_, self.event.sde, row.id, self, phase_colors=phase_colors)
+            self.picker_ = Picker(self.axes_, phase_, self.parent.sde, row.id, self, phase_colors=phase_colors)
 
             # load navigation
             self.nav_ = Navigate(self.axes_, self, color='red', linewidth=0.5, alpha=0.5)
@@ -456,18 +457,19 @@ class EventCanvas(FigureCanvas):
 
 
 class EventWidget(QtWidgets.QWidget):
-    def __init__(self, sde, event_id, station_id):
+    def __init__(self, sde, event_id, station_id, block=False):
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
         self.canvas = None
+        self.sde    = sde
         self.setFocus() 
         # by default the focus is on the Widget, 
         # to change the Focus of the Canvas, press key ``I''
-        self.eventIter = _eventIter(sde, eid=event_id)
+        self.eventIter = _eventIter(sde, event_id)
         self.load_canvas(station_id)
         
 
-    def load_canvas(self):
+    def load_canvas(self, station_id=None):
         # load event
         event = self.eventIter.event()
         
@@ -539,7 +541,6 @@ class EventWidget(QtWidgets.QWidget):
 
 
     def keyPressEvent(self, event):
-
         if event.key() in [QtCore.Qt.Key_Right, QtCore.Qt.Key_Left]:
             self.change_event(event.key())
             self.load_canvas()
@@ -558,10 +559,6 @@ class EventWidget(QtWidgets.QWidget):
             if ok:
                 self.eventIter.to_eid(int(eid))
                 self.load_canvas()
-
-
-        # if event.key() == QtCore.Qt.Key_Delete:
-        #     print("DELETE event")
         
 
         if event.key() == QtCore.Qt.Key_I:
@@ -610,4 +607,12 @@ class EventWidget(QtWidgets.QWidget):
             print("     +     :: info evento+fases")
             print("")
         
-        
+
+class EventDialog(QtWidgets.QDialog):
+    def __init__(self, sde, event_id, station_id, parent=None):
+        super(EventDialog, self).__init__(parent)
+        self.setWindowTitle("Event Phase Picker")
+        self.widget = EventWidget(sde, event_id, station_id)
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.widget)
+        self.setLayout(layout)

@@ -16,6 +16,7 @@ from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD,
 from .lte.base import _new_LTE
 from .utils import nCPU
 from .plotting.array import location_map, traces_psd, simple_slowmap, beamform_wvfm, plot_slowmap
+from .gui import load_stationwidget
 
 default_slowarg = {
     "slomax":4.0, 
@@ -362,6 +363,16 @@ class Network(object):
         
         lte = _new_LTE(self, file_name_full, ltebase, njobs)
         return lte
+
+
+    def gui(self, starttime, sta_code, loc='', interval=60, olap=0.1, sde_db=None, fq_band=[0.5,10], spec_v=[10,45], **sta_kwargs):
+        sta = self.get_sta(sta_code, loc=loc)
+
+        if sta.stats.starttime <= starttime <= sta.stats.endtime:
+            sta_w = load_stationwidget(self, sta, starttime, interval=interval, olap=olap, sde_db=sde_db, fq_band=fq_band, spec_v=spec_v, **sta_kwargs)
+
+        else:
+            print(" starttime not available! ")
 
 
 class Array(Network):
