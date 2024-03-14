@@ -2,9 +2,12 @@
 # coding=utf-8
 
 import pyqtgraph
+import os
+import datetime as dt
 import numpy as np
 import matplotlib.ticker as mtick
 import matplotlib.dates as mdates
+from obspy.signal.invsim import estimate_magnitude
 from seisvo.plotting import get_colors
 from matplotlib.figure import Figure, SubplotParams
 from matplotlib.backends.backend_qt5agg import FigureCanvas
@@ -46,9 +49,9 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"], focus=None
         return_fig = False
 
     default_sort = "ZNE"
-    components = ''.join([tr.stats.channel[-1] for tr in stream])
+    components = ''.join([tr.stats.channel[-1] for tr in stream if tr.stats.channel[-1] in ("Z", "N", "E")])
     diff = len(default_sort) - len(components)
-    axes = fig.subplots(len(stream), 1)
+    axes = fig.subplots(len(components), 1)
 
     if len(stream) == 1:
         axes = [axes]
@@ -57,29 +60,30 @@ def _plot_row(row, fig=None, off_sec=0, fq_band=default_fqband["f1"], focus=None
     time = stream[0].get_time()
     for axn, trace in enumerate(stream):
         comp = trace.stats.channel[-1]
-        n = default_sort.index(comp)-diff
-        if n < 0:
-            n = 0
+        if comp in ("Z", "N", "E"):
+            n = default_sort.index(comp)-diff
+            if n < 0:
+                n = 0
 
-        if focus:
-            y = trace.get_data(detrend=True, norm=False, fq_band=fq_band)
-            yfocus = trace.get_data(starttime=focus[0], endtime=focus[1], detrend=True, fq_band=fq_band)
-            max_value = np.abs(yfocus).max()
-            y /= max_value
+            if focus:
+                y = trace.get_data(detrend=True, norm=False, fq_band=fq_band)
+                yfocus = trace.get_data(starttime=focus[0], endtime=focus[1], detrend=True, fq_band=fq_band)
+                max_value = np.abs(yfocus).max()
+                y /= max_value
 
-        else:
-            y = trace.get_data(detrend=True, norm=False, fq_band=fq_band)
-            max_value = np.abs(y).max()
-            y /= max_value
+            else:
+                y = trace.get_data(detrend=True, norm=False, fq_band=fq_band)
+                max_value = np.abs(y).max()
+                y /= max_value
 
-        axes_dict[trace.stats.channel] = axes[n]
-        axes[n].plot(time, y, color=comp_colors[comp])
-        axes[n].annotate(f"max count {max_value:.1f}", xy=(0,0.9), xycoords='axes fraction', color="k")
-        axes[n].set_xlim(time[0], time[-1])
-        axes[n].set_ylim(-1.1, 1.1)
-        axes[n].yaxis.set_major_formatter(mtick.NullFormatter())
-        axes[n].set_ylabel(trace.stats.channel)
-        axes[n].grid(axis='x',which='major',ls='--',color='k',alpha=0.2)
+            axes_dict[trace.stats.channel] = axes[n]
+            axes[n].plot(time, y, color=comp_colors[comp])
+            axes[n].annotate(f"max count {max_value:.1f}", xy=(0,0.9), xycoords='axes fraction', color="k")
+            axes[n].set_xlim(time[0], time[-1])
+            axes[n].set_ylim(-1.1, 1.1)
+            axes[n].yaxis.set_major_formatter(mtick.NullFormatter())
+            axes[n].set_ylabel(trace.stats.channel)
+            axes[n].grid(axis='x',which='major',ls='--',color='k',alpha=0.2)
         # axes[n].annotate(txt, xy=(0,1.1), xycoords='axes fraction', color='k')
 
     axes[0].set_title(row.get_station_id())
@@ -241,7 +245,7 @@ class _eventIter(object):
 
     def __str__(self):
         return self.event().__str__()
-
+    
 
 class EventCanvas(FigureCanvas):
     def __init__(self, event, station_id, fb="f1", parent=None):
@@ -339,18 +343,23 @@ class EventCanvas(FigureCanvas):
                 print(f"\n  [info]  >>>  new freq. band  set to  {default_fqband[self.fb]}")
                 self.fb = event.key
                 self.plot()
+            return
 
 
         if event.key =='escape':
             print("\n  <<< [Info]  EXIT of the Insert/Picker mode ")
-            self.parent.setWindowTitle(f"Evento ID :: {self.rowIter.eid}")
+            event = self.rowIter.event
+            self.parent.setWindowTitle(f"Event {event.id} ({event.label})")
             self.parent.setCursor(QtCore.Qt.ArrowCursor)
             self.parent.setFocus()
+            return
         
 
         if event.key in ("up", "down"):
+            event = self.rowIter.event
             self.change_row(event.key)
             self.plot()
+            return
 
         
         if event.key == "o":
@@ -374,6 +383,8 @@ class EventCanvas(FigureCanvas):
                 }
                 print("\n  <<< [Info]  exit FOCUS mode ")
                 self.plot()
+            
+            return
 
 
         if event.key =='delete':
@@ -386,49 +397,49 @@ class EventCanvas(FigureCanvas):
             if change:
                 self.picker_.save()
                 self.draw()
+            return
         
 
         if event.key == "tab":
-            current = self.rowIter.station_id
-            sid , ok = QtWidgets.QInputDialog.getItem(
-                None, 'Cambiar de StationID', 'Selecciona:', 
-                self.rowIter.stations(), 
-                self.rowIter.stations().index(current), 
-                editable=False)
+            curr     = self.rowIter.station_id()
+            sid , ok = QtWidgets.QInputDialog.getItem(self, 'Cambiar de StationID', 'Selecciona:', self.rowIter.stations(), 
+                self.rowIter.stations().index(curr), editable=False)
             
-            if ok and sid != current:
+            if ok and sid != curr:
                 self.change_row(sid)
                 self.plot()
+            return
 
 
         if event.key == "+":
-            self.parent.print_event_phases()
+            self.rowIter.event.info()
+            return
 
 
         if event.key == "a":
             if self.ticks['right'] and self.ticks['left']:
                 p2p_amp, p2p_delta  = self.get_p2p(self.ticks['chan'], self.ticks['left'], self.ticks['right'])
-                print(f" Peak to peak [info]\n    Amplitude: {p2p_amp:.2f} [counts]\n    Time  :{p2p_delta:.2f} [sec]")
-                self.parent.eventIter.sde.update_row(
-                    self.rowIter.rowid,
-                    {"value_1":p2p_amp, "value_2":p2p_delta, "string_1":self.ticks['chan']}
-                    )
+                # print(f" Peak to peak [info]\n    Amplitude: {p2p_amp:.2f} [counts]\n    Time  :{p2p_delta:.2f} [sec]")
+                self.parent.eventIter.sde._update_row(self.rowIter.rowid(), {"value_1":p2p_amp, "value_2":p2p_delta, "string_1":self.ticks['chan']})
+                self.rowIter.event.info()
+            return
         
 
-        if event.key == " ":
+        if event.key == "h":
             print("\n ------ INFO -----")
-            print(" <-- / --> :: cambiar estación")
-            print("    tab    :: elige estación")
-            print("  f1---f5  :: cambia filtro")
-            print("     a     :: guarda peak2peak en cuentas")
-            print("    supr   :: elimina picks")
-            print(" p/1/2/3/4 :: pica fase P")
-            print("     P     :: elimina fase P")
-            print(" s/6/7/8/9 :: pica fase S")
-            print("     S     :: elimina fase S")
-            print("    f/F    :: pica/elimina fase F")
-            print("    esc    :: salir del modo PICKER")
+            print(" <-- / --> :: change station")
+            print("    tab    :: select station")
+            print("  f1---f5  :: change bandpass filter")
+            print("     a     :: save peak2peak")
+            print("    supr   :: clean all picked phases")
+            print(" p/1/2/3/4 :: pick P phase")
+            print("     P     :: clean P phase")
+            print(" s/6/7/8/9 :: pick P phase")
+            print("     S     :: clean P phase")
+            print("    f/F    :: pick/clean F phase")
+            print("    esc    :: exit PICKER mode")
             print("")
+            return
 
 
     def get_p2p(self, channel, time1, time2):
@@ -457,10 +468,11 @@ class EventCanvas(FigureCanvas):
 
 
 class EventWidget(QtWidgets.QWidget):
-    def __init__(self, sde, event_id, station_id, block=False):
+    def __init__(self, sde, event_id, station_id, parent=False):
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
         self.canvas = None
+        self.parent = parent
         self.sde    = sde
         self.setFocus() 
         # by default the focus is on the Widget, 
@@ -490,10 +502,22 @@ class EventWidget(QtWidgets.QWidget):
         print(self.eventIter) 
         
         # init canvas
-        self.setWindowTitle(f"Evento ID :: {event.id}")
+        self.setWindowTitle(f"Event {event.id} ({event.label})")
         self.canvas = EventCanvas(event, station_id, parent=self)
         self.layout.addWidget(self.canvas)
         self.setLayout(self.layout)
+    
+
+    def update(self, station_id=None, eid=None):
+        self.eventIter.update()
+
+        if eid:
+            self.eventIter.to_eid(eid)
+        
+        if not station_id:
+            station_id = self.canvas.rowIter.station_id()
+
+        self.load_canvas(station_id=station_id)
 
 
     def change_event(self, event_key):
@@ -504,52 +528,34 @@ class EventWidget(QtWidgets.QWidget):
             self.eventIter.prev()
 
 
-    def print_event_phases(self):
-        print(f" --  PHASE EVENT info  -- ")
-        print("   STA   |   P   |   S   |   P-S   ")
-        
-        for row in self.eventIter.event():
-            text = f"{row.station:^9}"
-
-            if row.time_P:
-                p_t = (row.time_P - row.starttime).total_seconds()
-                text += f" {p_t:^7.2f}"
-            else:
-                p_t = None
-                text += f" {'-':^7}"
-
-            if row.time_S:
-                s_t = (row.time_S - row.starttime).total_seconds()
-                text += f" {s_t:^7.2f}"
-            else:
-                s_t = None
-                text += f" {'-':^7}"
-
-            if p_t and s_t:
-                slp = s_t - p_t
-                text += f" {slp:^7.2f}"
-            else:
-                slp = None
-                text += f" {'-':^7}"
-
-            if row.value_1:
-                text += f" {row.value_1:^7.1f} [counts] {row.value_2:^7.1f} [sec]"
-            else:
-                text += f" {'-':^7}"
-
-            print(text)
-
-
     def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_H:
+            print("\n ------ INFO -----")
+            print("  <--/-->  :: change event")
+            print("    ^/v    :: change station")
+            print("    tab    :: select event")
+            print("    supr   :: delete event")
+            print("     t     :: move StationGUI to current event time")
+            print("     i     :: entry PICKER mode")
+            print("     r     :: relabel event")
+            print("     w     :: write to hypo71 format")
+            # print("     m     :: compute local magnitude")
+            print("     +     :: print full info")
+            print("")
+            return
+
+
         if event.key() in [QtCore.Qt.Key_Right, QtCore.Qt.Key_Left]:
             self.change_event(event.key())
             self.load_canvas()
+            return
 
 
         if event.key() in [QtCore.Qt.Key_Up, QtCore.Qt.Key_Down]:
             action = ["up", "down"][[QtCore.Qt.Key_Up, QtCore.Qt.Key_Down].index(event.key())]
             self.canvas.change_row(action)
             self.canvas.plot()
+            return
 
 
         if event.key() == QtCore.Qt.Key_Tab:
@@ -559,27 +565,17 @@ class EventWidget(QtWidgets.QWidget):
             if ok:
                 self.eventIter.to_eid(int(eid))
                 self.load_canvas()
+            return
         
 
         if event.key() == QtCore.Qt.Key_I:
+            event = self.eventIter.event()
             print("\n  >>> [Info]  ENTRY on Insert/Picker mode ")
-            self.setWindowTitle(f"[P]  Evento ID :: {self.event.id}")
+            self.setWindowTitle(f"[PICKER MODE] Event {event.id} ({event.label})")
+            # self.setWindowTitle(f"[P]  Evento ID [{self.event.label}] {self.event.id}")
             self.setCursor(QtCore.Qt.CrossCursor)
             self.canvas.setFocus()
-
-        
-        # if event.key() == QtCore.Qt.Key_W:
-        #     print("Create new Event")
-        #     # if self.canvas.ticks['right'] and self.canvas.ticks['left']:
-        #     #     rtick = self.canvas.ticks["right"]
-        #     #     ltick = self.canvas.ticks["left"]
-        #     #     end = max([rtick, ltick])
-        #     #     start = min([rtick, ltick])
-        #     #     # ask for label?
-        #     #     # save into database
-        #     #     self.sde.add_event()
-        #         # reload events
-        #         # notify 
+            return
 
            
         if event.key() == QtCore.Qt.Key_R:
@@ -589,30 +585,68 @@ class EventWidget(QtWidgets.QWidget):
                 text=event.label)
             if ok:
                 event.relabel(text.upper())
+            return
         
 
         if event.key() == QtCore.Qt.Key_Plus:
-            self.print_event()
-            self.print_event_phases()
-
-
-        if event.key() == QtCore.Qt.Key_Space:
-            print("\n ------ INFO -----")
-            print(" <-- / --> :: cambiar evento")
-            print("    tab    :: elige evento")
-            print("    supr   :: elimina evento")
-            print("     i     :: entra en modo PICKER")
-            print("    ins    :: clonar evento")
-            print("     r     :: re-etiqueta evento")
-            print("     +     :: info evento+fases")
-            print("")
+            self.eventIter.event().info()
+            return
         
 
-class EventDialog(QtWidgets.QDialog):
-    def __init__(self, sde, event_id, station_id, parent=None):
-        super(EventDialog, self).__init__(parent)
-        self.setWindowTitle("Event Phase Picker")
-        self.widget = EventWidget(sde, event_id, station_id)
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(self.widget)
-        self.setLayout(layout)
+        if event.key() == QtCore.Qt.Key_W:
+            event = self.eventIter.event()
+            # create file output
+            out  = f"location/{event.id}/phase.in"
+
+            if not os.path.isdir(f"./location/{event.id}"):
+                os.makedirs("./phase")
+
+            fout = open(out, 'w')
+            try:
+                event.to_hypo71(phsfile=fout, show=False)
+                fout.close()
+                print(f" OK :: file {out} created!")
+            
+            except Exception as e:
+                fout.close()
+                print(e) 
+                print(" FAIL :: error found")
+            return
+
+
+        if self.parent:
+            if event.key() == QtCore.Qt.Key_Delete:
+                ans = self.eventIter.event().id
+                with pyqtgraph.BusyCursor():
+                    self.parent._delete_event(ans)
+                return
+
+            if event.key() == QtCore.Qt.Key_R:
+                event = self.eventIter.event()
+                label, ok = QtWidgets.QInputDialog.getText(self, "Relabel event","Label: ", text=event.label)
+                label = label.upper()
+                if ok and label != event.label:
+                    with pyqtgraph.BusyCursor():
+                        self.parent._relabel_event(event.id, label)
+                return
+            
+            if event.key() == QtCore.Qt.Key_T:
+                event = self.eventIter.event()
+                interval = self.parent.parent.interval.total_seconds()
+                new_time = event.starttime - dt.timedelta(seconds=interval/2)
+                with pyqtgraph.BusyCursor():
+                    self.parent.parent.plot(new_time)
+                return
+            
+            # if event.key() == QtCore.Qt.Key_M:
+                # print("compute local magnitude")
+                # estimate_magnitude(resp, p2p, T, distancia_Hipo)
+                # return
+
+
+    def closeEvent(self, event):
+        if self.parent:
+            self.parent.eGUI = None
+        event.accept()
+
+

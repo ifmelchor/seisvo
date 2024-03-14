@@ -4,11 +4,43 @@
 import os
 import numpy as np
 import datetime as dt
-# from scipy.stats import gaussian_kde
-# from seisvo import seisvo_paths
+from ..utils import sum2dict, prt2dict
+import subprocess as sp
 
-# import seisvo.file.lte as sfl
-# from seisvo.file.air import AiR
+class EventLoc(object):
+    def __init__(self, event, outpath=None):
+        self.event = event
+
+        if outpath:
+            self.outpath = outpath
+        else:    
+            self.outpath = self.event.rows_[0].string_2
+        
+        self.__load__()
+
+
+    def __load__(self):
+        self.sum = None
+        self.prt = None
+        self.kml = None
+
+        if os.path.isfile(self.outpath+"/out.sum"):
+            self.sum = sum2dict(self.outpath+"/out.sum")
+        
+        if os.path.isfile(self.outpath+"/out.prt"):
+            self.prt = prt2dict(self.outpath+"/out.prt")
+        
+        if os.path.isfile(self.outpath+"/out.kml"):
+            self.kml = self.outpath+"/out.kml"
+
+
+    def show(self):
+        if self.kml:
+            try:
+                sp.run(['gpxsee', self.kml])
+            except:
+                print(" install gpxsee software to show location")
+                return
 
 
 class Event(object):
@@ -36,6 +68,46 @@ class Event(object):
         return self.rows_[i]
 
 
+    def info(self):
+        full_text = f"\n --------------------  PHASE EVENT info  -------------------- \n"
+        full_text += "   STA   |   P   |   S   |  P-S  |   P2P   | AMP [s] |  COMP  \n"
+        full_text += f" ------------------------------------------------------------ \n"
+        
+        for row in self:
+            text = f"{row.station:^9}"
+
+            if row.time_P:
+                p_t = (row.time_P - row.starttime).total_seconds()
+                text += f" {p_t:^7.2f}"
+            else:
+                p_t = None
+                text += f" {'-':^7}"
+
+            if row.time_S:
+                s_t = (row.time_S - row.starttime).total_seconds()
+                text += f" {s_t:^7.2f}"
+            else:
+                s_t = None
+                text += f" {'-':^7}"
+
+            if p_t and s_t:
+                slp = s_t - p_t
+                text += f" {slp:^7.2f}"
+            else:
+                slp = None
+                text += f" {'-':^7}"
+
+            if row.value_1:
+                text += f" {row.value_1:^10.1f} {row.value_2:^10.1f} {row.string_1:^6}\n"
+            else:
+                text += f" {'-':^10} {'-':^10} {'-':^6}\n"
+            
+            full_text += text
+
+        print(full_text)
+        return
+
+
     def __load__(self):
         self.rows_     = self.sde.get_event(self.id)
         self.label     = self.rows_[0].label
@@ -44,6 +116,7 @@ class Event(object):
         self.endtime   = self.rows_[0].get_endtime()
         self.stations  = [row.get_station_id() for row in self.rows_]
         self.nro_phase = self.get_phases(count_f=False, nro_phases=True)
+        self.loc       = EventLoc(self)
 
 
     def get_stream(self, toff_sec=0, **kwargs):
@@ -78,12 +151,21 @@ class Event(object):
 
         Parameters
         ----------
-        out_dir : [str]
-            Output directory. If output is None, return a string
-
+        phsfile : [str or file (io.TextIOWrapper)]
         """
 
-        lines = []
+        if isinstance(phsfile, str):
+            phsdir = os.path.dirname(phsfile)
+            if not os.path.isdir(phsdir):
+                os.makedirs(phsdir)
+            
+            phsfile = open(phsfile, "w")
+            toclose = True
+        else:
+            toclose = False
+
+        # write lines
+        lines = ""
         for staid in self.stations:
             row  = self.get_row(staid)
             if row.time_P or row.time_S:
@@ -130,32 +212,35 @@ class Event(object):
                     line += '         '
                 
                 # write peak to peak amplitude in mm
-                if row.value_1:
-                    line += f'   {float(row.value_1):2.1f}[:-1] '
-                else:
-                    line += '      '
-                
                 # write period of the max amplitude in sec
-                if row.value_2:
-                    line += f' {float(row.max_period):.2f}[1:]'
-                else:
-                    line += '    '
+                line += '      '
+                line += '    '
                 line += '                    '
                 
                 # write duration
                 if row.time_F and row.time_P:
                     flp = (row.time_F - row.time_P).total_seconds()
-                    line += f'{flp:5.0f}'
+                    line += f'{flp:5.0f}\n'
+                else:
+                    line += "\n"
                 
                 if show:
                     print(line)
                 
-                if phsfile:
-                    phsfile.write(line+"\n")
-                
-                lines.append(line)
+                lines += line
         
-        return lines
+        # save into file
+        if phsfile:
+            phsfile.write(lines)
+
+            if toclose:
+                phsfile.close()
+                return True
+            else:
+                return True
+
+        else:
+            return lines
 
 
     def get_phases(self, count_f=True, nro_phases=False):
@@ -184,6 +269,29 @@ class Event(object):
 
         return phase
 
+
+    def locate(self, hyp, outpath, command_list=None):
+        if self.nro_phase > 3:
+            outpath = os.path.join(outpath, str(self.id))
+
+            if not os.path.isdir(outpath):
+                os.makedirs(outpath)
+            
+            phs = f"{outpath}/phase.in"
+            self.to_hypo71(phsfile=phs, show=False)
+            hyp.load_phsfile(phs)
+
+            # run hypoellipse
+            conf = f"{outpath}/hyp.conf"
+            out  = f"{outpath}/out"
+            ok = hyp.run(str(self.id), conf, out, command_list=None)
+            
+            if ok:
+                self.sde.add_locpath(self.id, outpath)
+                self.loc = EventLoc(self, outpath=outpath)
+                return True
+
+        return False
 
 
 # class Episode(object):

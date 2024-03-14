@@ -395,7 +395,7 @@ class Picker(object):
             'weight_S':self.phase["S"]['weight'],
             'time_F':self.phase["F"]['time']
         }
-        self.db.update_row(self.row_id, idict)
+        self.db._update_row(self.row_id, idict)
 
 
     def on_key(self, event):

@@ -12,6 +12,7 @@ from obspy import UTCDateTime
 from obspy.core.util.attribdict import AttribDict
 from obspy.core.inventory.response import Response
 from .obspyext import read2
+from .utils import dd2ddm
 
 class _Stats(AttribDict):
     def __init__(self, header):
@@ -274,6 +275,24 @@ class StationStats(_Stats):
         file_list = [self.__read_file__(chan, date=i) for i in date_list]
 
         return file_list
+
+
+    def get_hyp71(self):
+        if 'lat' not in self.keys_ or 'lon' not in self.keys_:
+            print(" lat/lon not defined in network JSON file")
+            return None
+        
+        if not self.lat or not self.lon:
+            print(" lat/lon not defined in network JSON file")
+            return None
+        
+        text = f"  {self.code[:4]:4}"
+        text += dd2ddm(self.lat, "lat")
+        text += " "
+        text += dd2ddm(self.lon, "lon")
+        text += f"{self.elev:4.0f}"
+
+        return text
 
 
 class NetworkStats(_Stats):

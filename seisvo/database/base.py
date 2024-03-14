@@ -341,6 +341,14 @@ class SDE(_DataBase):
         event = self.get_event(eid)
         for row in event:
             self._update_row(row.id, dict(label=new_label))
+    
+
+    def add_locpath(self, eid, outpath):
+        assert self.is_eid(eid)
+        assert isinstance(outpath, str)
+        event = self.get_event(eid)
+        for row in event:
+            self._update_row(row.id, dict(string_2=outpath))
 
 
     def plot_gui(self, event_id=None, station_id=None, init_app=True, **kwargs):

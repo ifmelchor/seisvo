@@ -365,14 +365,31 @@ class Network(object):
         return lte
 
 
-    def gui(self, starttime, sta_code, loc='', interval=60, olap=0.1, sde_db=None, fq_band=[0.5,10], spec_v=[10,45], **sta_kwargs):
+    def gui(self, starttime, sta_code, loc='', interval=60, olap=0.1, sde_db=None, hyp=None, fq_band=[0.5,10], spec_v=[10,45], **sta_kwargs):
         sta = self.get_sta(sta_code, loc=loc)
 
         if sta.stats.starttime <= starttime <= sta.stats.endtime:
-            sta_w = load_stationwidget(self, sta, starttime, interval=interval, olap=olap, sde_db=sde_db, fq_band=fq_band, spec_v=spec_v, **sta_kwargs)
+            sta_w = load_stationwidget(self, sta, starttime, interval=interval, olap=olap, sde_db=sde_db, hyp=hyp, fq_band=fq_band, spec_v=spec_v, **sta_kwargs)
 
         else:
             print(" starttime not available! ")
+
+
+    def write_h71(self, fout=None):
+        text = ""
+        for sta in self:
+            txt = sta.stats.get_hyp71()
+            if txt:
+                text += txt + "\n"
+
+        if not fout:
+            fout = self.stats.code + ".sta"
+
+        out = open(fout, "w")
+        out.write(text)
+        out.close()
+
+        return fout
 
 
 class Array(Network):

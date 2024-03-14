@@ -5,6 +5,7 @@
 from obspy import UTCDateTime
 from obspy.imaging.waveform import WaveformPlotting
 import datetime as dt
+import os
 import numpy as np
 import matplotlib.gridspec as plg
 import matplotlib.dates as mdates
@@ -14,8 +15,9 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.qt_compat import QtCore, QtWidgets
 from .utils import Navigate, DateDialog, SimplePlotDialog
-from .events import EventDialog
+from .events import EventWidget
 from ..database import SDE
+from ..utils import HILoc
 
 EVENTS_KEYS = {
     "1":"VT",
@@ -252,6 +254,9 @@ class EventDrawer(object):
 
     def update(self):
         self.eventList = self.parent.parent.db.get_event_list(time_interval=(self.parent.parent.starttime, self.parent.endtime))
+        for eid in self.eventList:
+            if self.eventDict.get(eid, None):
+                self.eventDict[eid]["event"] = self.parent.parent.db[eid]
 
 
     def draw(self):
@@ -335,7 +340,7 @@ class EventDrawer(object):
 
 
 class StationMainWidget(QtWidgets.QWidget):
-    def __init__(self, network, station, starttime, interval, olap, sde_db, spec_v, spec_wlen=None, **sta_kwargs):
+    def __init__(self, network, station, starttime, interval, olap, sde_db, hyp, spec_v, spec_wlen=None, **sta_kwargs):
 
         QtWidgets.QWidget.__init__(self)
         self.layout = QtWidgets.QVBoxLayout()
@@ -347,12 +352,15 @@ class StationMainWidget(QtWidgets.QWidget):
         self.lasttime   = station.stats.endtime
 
         # load database
+        self.db    = None
+        self.is_db = False
+        self.hyp   = None
+
         if isinstance(sde_db, str):
             self.db    = SDE(sde_db)
             self.is_db = True
-        else:
-            self.db    = None
-            self.is_db = False
+            if isinstance(hyp, HILoc):
+                self.hyp = hyp
 
         self.olap_pct  = olap
         self.starttime = starttime
@@ -438,6 +446,11 @@ class StationMainWidget(QtWidgets.QWidget):
                 self.canvas.DayPlotWidget.close()
             except:
                 pass
+
+            try:
+                self.canvas.eGUI.close()
+            except:
+                pass
         
             event.accept()
         else:
@@ -452,6 +465,7 @@ class StationMainCanvas(FigureCanvas):
         # init event drawer object
         if self.parent.is_db:
             self.eDraw = EventDrawer(self)
+            self.eGUI  = None
 
         self.fig = Figure(figsize=(12,9))
         FigureCanvas.__init__(self, self.fig)
@@ -552,51 +566,88 @@ class StationMainCanvas(FigureCanvas):
             self.parent.plot(new_time)
 
 
+    def _delete_event(self, eid):
+        self.parent.db.remove_event(eid)
+        self.eDraw.remove_event(eid)
+        
+        if self.DayPlotWidget:
+            self.DayPlotWidget.update(self.parent)
+        
+        if self.eGUI:
+            if len(self.parent.db) > 1:
+                self.eGUI.update()
+            else:
+                self.eGUI.close()
+                self.eGUI = None
+
+
+    def _relabel_event(self, eid, label):
+        self.parent.db.relabel_event(eid, label)
+        self.eDraw.relabel_event(eid)
+        
+        if self.DayPlotWidget:
+            self.DayPlotWidget.update(self.parent)
+        
+        if self.eGUI:
+            self.eGUI.update()
+
+
     def on_key(self, event):
         if event.key == "h":
             print("   key   --   info   ")
             print(" --------  ----------")
+            print(" NAVIGATE ")
             print("   ->    --  advance interval")
             print("   <-    --  retroces interval")
             print("  ^(up)  --  advance day")
             print(" v(down) --  retroces day")
             print("   tab   --  select day")
             print("backspace--  select station")
+            print("\n TOOLS ")
             print("    i    --  print info")
-            print("    s    --  save event into database. Ask label")
-            print("    l    --  relabel saved event")
-            print("    1    --  save VT into database")
-            print("    2    --  save LP into database")
-            print("    3    --  save RG into database")
-            print("    4    --  save TR into database")
-            print("    5    --  save VLP into database")
-            print("    w    --  init EventWidget GUI")
-            print("   del   --  remove saved event")
             print("    d    --  interact with DayPlot GUI")
             print("    z    --  plot network Z component")
             print("    p    --  plot polar GUI")
             print("    f    --  change bandpass filter")
             print("    v    --  change specgram params")
+            print("\n EVENTS ")
+            print("    s    --  save event into database. Ask label")
+            print("    1    --  save VT into database")
+            print("    2    --  save LP into database")
+            print("    3    --  save RG into database")
+            print("    4    --  save TR into database")
+            print("    5    --  save VLP into database")
+            print("    r    --  relabel saved event")
+            print("    +    --  print phase info")
+            print("    e    --  init EventWidget GUI")
+            print("   l/L   --  locate event / clean location")
+            print("   del   --  remove saved event")
+            return
 
 
         if event.key == 'i':
             self.print_info()
+            return
 
 
         if event.key == 'right':
             self.parent.on_key(QtCore.Qt.Key_Right)
+            return
 
 
         if event.key == 'left':
             self.parent.on_key(QtCore.Qt.Key_Left)
+            return
 
 
         if event.key == 'up':
             self.parent.on_key(QtCore.Qt.Key_Up)
+            return
 
 
         if event.key == 'down':
             self.parent.on_key(QtCore.Qt.Key_Down)
+            return
 
 
         if event.key == "d":
@@ -605,6 +656,7 @@ class StationMainCanvas(FigureCanvas):
                 self.DayPlotWidget.show()
             else:
                 self.DayPlotWidget.update(self.parent)
+            return
 
 
         if event.key == "z":
@@ -616,6 +668,7 @@ class StationMainCanvas(FigureCanvas):
                 fig = _net_ztrace(self.parent.network, start, end, fq_band=fq_band)
                 figdialog = SimplePlotDialog(fig)
                 figdialog.exec_()
+            return
 
 
         if event.key == "p":
@@ -635,8 +688,7 @@ class StationMainCanvas(FigureCanvas):
                         figdialog.exec_()
                     except:
                         print(" warn :: error by computing polarization")
-                else:
-                    return
+            return
 
 
         if event.key == "f":
@@ -659,7 +711,7 @@ class StationMainCanvas(FigureCanvas):
                         self.plot()
                 except:
                     print("\n warn :: Frequency range could not be changed!")
-                    return
+            return
 
 
         if event.key == "v":
@@ -682,19 +734,18 @@ class StationMainCanvas(FigureCanvas):
                         self.plot()
                 except:
                     print("\n warn :: Specgram parameters could not be changed!")
-                    return
+            return
 
 
         if event.key == "tab":
             self.goto_time(self)
+            return
 
         # EVENT DATABASE #
-
-        if event.key in ('s', '1', '2', '3', '4', '5') and not self.parent.is_db:
+        if event.key in ('s', '1', '2', '3', '4', '5', "delete", "r", "l", "L", "e", "+") and not self.parent.is_db:
             print(" warn :: No SDE database found!")
 
-
-        if self.parent.is_db:
+        else:
             if event.key in ('s', '1', '2', '3', '4', '5'):
                 tLeft, tRight = self.get_time_ticks()
                 if tLeft and tRight:
@@ -724,32 +775,58 @@ class StationMainCanvas(FigureCanvas):
 
                     if self.DayPlotWidget:
                         self.DayPlotWidget.update(self.parent)
+                    
+                    if self.eGUI:
+                        self.eGUI.update()
+                return
+
 
             if event.inaxes == self.axes[0]:
                 xtime = mdates.num2date(event.xdata).replace(tzinfo=None)
                 ans = self.eDraw.get_eid(xtime)
                 if ans:
                     if event.key == "delete":
-                        self.parent.db.remove_event(ans)
-                        self.eDraw.remove_event(ans)
-                        if self.DayPlotWidget:
-                            self.DayPlotWidget.update(self.parent)
+                        self._delete_event(ans)
+                        return
 
-                    if event.key == "l":
+                    if event.key == "r":
                         event = self.eDraw.eventDict[ans]["event"]
                         label, ok = QtWidgets.QInputDialog.getText(self, "Relabel event","Label: ", text=event.label)
                         if ok and label != event.label:
-                            label = label.upper()
-                            self.parent.db.relabel_event(ans, label)
-                            self.eDraw.relabel_event(ans)
-                            if self.DayPlotWidget:
-                                self.DayPlotWidget.update(self.parent)
-
-                    if event.key == "w":
+                            self._relabel_event(ans, label.upper())
+                        return
+                            
+                    if event.key == "e":
                         ans        = self.eDraw.get_eid(xtime)
                         station_id = self.parent.station.stats.id
-                        ew = EventDialog(self.parent.db, ans, station_id)
-                        ew.exec_()
+                        if self.eGUI:
+                            self.eGUI.update(station_id, ans)
+                        else:
+                            self.eGUI = EventWidget(self.parent.db, ans, station_id, parent=self)
+                            self.eGUI.show()
+                        return
+
+                    if event.key == "+":
+                        event = self.eDraw.eventDict[ans]["event"]
+                        event.info()
+                        return
+
+                    if event.key in ("l", "L") and self.parent.hyp:
+                        # locate event in nro phases is 4
+                        evnt = self.eDraw.eventDict[ans]["event"]
+
+                        if event.key == "L":
+                            return
+                            # clean location
+                            # remove string_2
+                            # remove folder and files in ./loc
+
+                        else:
+                            ok = evnt.locate(self.parent.hyp, './loc')
+                            if ok:
+                                evnt.loc.show() # show KML file
+                                self.eDraw.update()
+
 
 
 class DayPlotWidget(QtWidgets.QWidget):

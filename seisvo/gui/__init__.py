@@ -63,12 +63,12 @@ def load_cceWidget(cce, eid_list, path_to_cc8file="./"):
     return CCE_widget
 
 
-def load_stationwidget(network, station, starttime, interval=60, olap=0.1, sde_db=None, spec_v=[10,45], init_app=True, **sta_kwargs):
+def load_stationwidget(network, station, starttime, interval=60, olap=0.1, sde_db=None, hyp=None, spec_v=[10,45], init_app=True, **sta_kwargs):
 
     if init_app:
         app = QtWidgets.QApplication([])
     
-    widget = StationMainWidget(network, station, starttime, interval, olap, sde_db, spec_v, **sta_kwargs)
+    widget = StationMainWidget(network, station, starttime, interval, olap, sde_db, hyp, spec_v, **sta_kwargs)
     widget.show()
 
     if init_app:
