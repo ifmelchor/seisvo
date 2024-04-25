@@ -91,6 +91,11 @@ class Station(object):
 
         factor = self.stats.get_factor()
 
+        if not factor:
+            resp = self.stats.get_response()
+            if resp:
+                factor = resp.instrument_sensitivity.value
+
         if not isinstance(stream, Stream2):
             stream = Stream2(stream)
 
@@ -109,7 +114,7 @@ class Station(object):
         Get stream from station object
         :param starttime: datetime
         :param endtime: datetime
-        :param chan: list or string e.j.:'SHZ' or 'HHN'. optional
+        :param channel: list or string e.j.:'SHZ' or 'HHN'. optional
         :param kwargs: remove_sensitivity, remove_response, prefilt, fill_values
         :return: stream2 object
         """
@@ -164,17 +169,15 @@ class Station(object):
             rm_sens = kwargs.get('rm_sens', False)
             prefilt = kwargs.get('prefilt', [])
 
-            if rm_resp and rm_sens:
+            if rm_resp:
                 rrkwargs = kwargs.get('rrkwargs', {})
-                stream = self.remove_response(stream, **rrkwargs)
+                stream   = self.remove_response(stream, **rrkwargs)
+                rm_sens  = False
             
-            elif rm_sens:
-                disp = kwargs.get('disp', False)
+            if rm_sens:
+                disp   = kwargs.get('disp', False)
                 stream = self.remove_factor(stream, disp=disp)
             
-            else:
-                pass
-        
             if prefilt:
                 stream = stream.filter2(fq_band=prefilt)
             

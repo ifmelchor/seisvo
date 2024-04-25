@@ -351,7 +351,7 @@ class SDE(_DataBase):
             self._update_row(row.id, dict(string_2=outpath))
 
 
-    def plot_gui(self, event_id=None, station_id=None, init_app=True, **kwargs):
+    def gui(self, event_id=None, station_id=None, init_app=True, **kwargs):
         eid_list = self.get_event_list(**kwargs)
 
         if event_id:

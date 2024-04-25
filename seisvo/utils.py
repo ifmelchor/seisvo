@@ -16,7 +16,7 @@ import simplekml
 
 nCPU = mp.cpu_count()
 
-COMMAND_LIST = ["LET", "H71", "LST", "KPR", "TOP", "REP", "ZTR", "POS", "MIN", "JUN", "DIS", "RMS", "WET", "ERF"]
+COMMAND_LIST = ["LET", "H71", "LST", "KPR", "TOP", "REP", "ZTR", "POS", "MIN", "JUN", "DIS", "RMS", "WET", "ERF", "STA", "PHS"]
 
 def distance_in_degree(coord1, coord2):
     # Convert latitude and longitude to
@@ -149,7 +149,7 @@ def prt2dict(prtfile):
                 }
 
             sta_code = x[0]
-            epi_dist = x[1]
+            epi_dist = float(x[1])
             res      = float(ln[61:66])
             res2     = None
             wave     = x[4]
@@ -185,34 +185,36 @@ def sum2dict(sumfile):
     xtime = ''.join(xtime)
     xtime = dt.datetime.strptime(xtime, "%Y%m%d%H%M%S.%f")
 
-    # lat and lon
-    latdeg, laymin = x[3].split("S")
-    latdeg, laymin = float(latdeg)*-1, float(laymin)
-    lat = latdeg - laymin/60
+    # lat
+    latdeg = float(line[0][19:22]) #deg
+    sign   = line[0][22]    #sign
+    if sign == "S":
+        sign = -1
+    else:
+        sign = 1
+    latmin = float(line[0][23:29])/60 #minute decimal
+    lat = sign*(latdeg + latmin)
 
-    try:
-        londeg, lonmin = float(x[4][:-1])*-1, float(x[5])
-        next_x = 6
-    except:
-        londeg, lonmin = x[4].split("W")
-        londeg, lonmin = float(latdeg)*-1, float(laymin)
-        next_x = 5
-
-    lon = londeg - lonmin/60
+    #lon
+    londeg = float(line[0][29:32]) #deg
+    sign = line[0][32]    #sign
+    if sign =="W":
+        sign = -1
+    else:
+        sign = 1
+    lonmin = float(line[0][33:39])/60 #minute decimal
+    lon = sign*(londeg + lonmin)
 
     # depth
-    depth = float(x[next_x])
-    next_x += 3
+    depth = float(line[0][39:45])
 
-    # azimuthal gap
-    az_gap = int(x[next_x])
-    next_x += 2
+    # azimuth gap
+    az_gap = float(line[0][56:59])
 
-    # error
-    rms = float(x[next_x])
-    horizontal_error = float(x[next_x+1])
-    vertical_error   = float(x[next_x+2])
-    quality_code     = str(x[next_x+3])
+    rms = float(line[0][65:69])
+    horizontal_error = float(line[0][70:74])
+    vertical_error   = float(line[0][75:79])
+    quality_code     = line[0][80]
 
     hypdict = {
         "origin_time":xtime,
@@ -335,47 +337,37 @@ class HILoc(object):
         return ok
 
 
-    def _get_lines(self, command_list=None):
-
-        if command_list:
-            ok = self._check_commands(command_list)
-        else:
-            command_list = COMMAND_LIST
-            ok = True
-
-        command_list += ["STA", "PHS"] # add station and phase file lines
+    def _get_lines(self):
         lines = "* Hypoinverse startup file [SEISVO]\n* automatic input"
 
-        if ok:
-            # lines += "\n200 T 2000 0" # check phase file
-            for com in command_list:
-                com_val = getattr(self, com.lower())
-                line    = f"\n{com} "
-                
-                if isinstance(com_val, (list, tuple)):
-                    for cv in com_val:
-                        if isinstance(cv, (str, int)):
-                            line += f"{cv} "                        
-                        else:
-                            line += f"{cv:.2f} "
-
-                if isinstance(com_val, (str, int)):
-
-                    if com in ("PHS", "STA"):
-                        line += f"'{com_val}' "
-                    else:
-                        line += f"{com_val} "
-                    
-                if isinstance(com_val, float):
-                    line += f"{com_val:.2f} "
-                
-                lines += line
+        for com in COMMAND_LIST:
+            com_val = getattr(self, com.lower())
+            line    = f"\n{com} "
             
-            lines += "\nFIL " # check phase file
+            if isinstance(com_val, (list, tuple)):
+                for cv in com_val:
+                    if isinstance(cv, (str, int)):
+                        line += f"{cv} "                        
+                    else:
+                        line += f"{cv:.2f} "
 
-            # add models
-            for n, mod in enumerate(self.mod):
-                lines += f"\nCRE {n+1} '{mod}' {self.mod_ref:.1f} T"
+            if isinstance(com_val, (str, int)):
+
+                if com in ("PHS", "STA"):
+                    line += f"'{com_val}' "
+                else:
+                    line += f"{com_val} "
+                
+            if isinstance(com_val, float):
+                line += f"{com_val:.2f} "
+            
+            lines += line
+        
+        lines += "\nFIL " # check phase file
+
+        # add models
+        for n, mod in enumerate(self.mod):
+            lines += f"\nCRE {n+1} '{mod}' {self.mod_ref:.1f} T"
         
         return lines
 
@@ -397,7 +389,7 @@ class HILoc(object):
             self.phs = None
 
 
-    def _write(self, hypfile, outfile, command_list=None):
+    def _write(self, hypfile, outfile):
         if not self._check_input():
             print(" error with input files")
             return False
@@ -414,7 +406,7 @@ class HILoc(object):
 
         # init config lines
         try:
-            lines = self._get_lines(command_list=command_list)
+            lines = self._get_lines()
         except:
             return False
 
@@ -434,8 +426,8 @@ class HILoc(object):
         return True
     
 
-    def run(self, idname, hypfile, outfile, command_list=None):
-        ok = self._write(hypfile, outfile, command_list=command_list)
+    def run(self, idname, hypfile, outfile):
+        ok = self._write(hypfile, outfile)
         if ok:
             # execute hypoinverse
             p = sp.Popen(['hyp1.40'], stdin=sp.PIPE)

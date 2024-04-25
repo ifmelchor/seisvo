@@ -101,7 +101,7 @@ def _day_plot(fig, station, starttime, endtime, events, fq_band=(), **kwargs):
     return fig.axes[0]
 
 
-def _net_ztrace(network, starttime, endtime, fq_band=()):
+def _net_ztrace(network, starttime, endtime, fq_band=(), phase_dict={}):
     
     fig  = Figure(figsize=(9,4))
     axis = fig.add_subplot(1, 1, 1)
@@ -826,7 +826,6 @@ class StationMainCanvas(FigureCanvas):
                             if ok:
                                 evnt.loc.show() # show KML file
                                 self.eDraw.update()
-
 
 
 class DayPlotWidget(QtWidgets.QWidget):

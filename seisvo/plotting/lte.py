@@ -166,7 +166,7 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=
                     ax[0].set_ylim(vmin, vmax)
                     ax[0].set_xlim(time[0], time[-1])
                     ax[0].set_ylabel(default_labels.get(attr, attr))
-                    ax[0].set_yscale("log")
+                    # ax[0].set_yscale("log")
                 
                 else:
                     cmap, vlim = get_vector_bar(attr, **kwargs)
@@ -207,9 +207,8 @@ def LTESTAplot(lteout, chan_list, attr_list, fig=None, return_stats=False, plot=
             cmap, vlim = get_vector_bar(attr, **kwargs)
             plot_gram(freq, data.T, time, ax[0], axis_bar=ax[1], v_max=vlim[1],\
                 v_min=vlim[0], cmap=cmap, bar_label=default_labels.get(attr, attr))
-            ax[0].set_ylim(freq[0], freq[-1])
             
-
+            ax[0].set_ylim(freq[0], freq[-1])
             ax[0].xaxis.set_major_locator(time_format[0][0])
             ax[0].xaxis.set_minor_locator(time_format[1][0])
             ax[0].xaxis.set_minor_formatter(mtick.NullFormatter())

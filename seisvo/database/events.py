@@ -5,7 +5,9 @@ import os
 import numpy as np
 import datetime as dt
 from ..utils import sum2dict, prt2dict
+from obspy.signal.invsim import estimate_magnitude
 import subprocess as sp
+
 
 class EventLoc(object):
     def __init__(self, event, outpath=None):
@@ -17,21 +19,177 @@ class EventLoc(object):
             self.outpath = self.event.rows_[0].string_2
         
         self.__load__()
-
+        
 
     def __load__(self):
         self.sum = None
         self.prt = None
         self.kml = None
+        self.times = None
 
-        if os.path.isfile(self.outpath+"/out.sum"):
-            self.sum = sum2dict(self.outpath+"/out.sum")
+        if self.outpath:
+            if os.path.isfile(self.outpath+"/out.sum"):
+                self.sum = sum2dict(self.outpath+"/out.sum")
+            
+            if os.path.isfile(self.outpath+"/out.prt"):
+                self.prt = prt2dict(self.outpath+"/out.prt")
+                self.times = self.__times__()
+            
+            if os.path.isfile(self.outpath+"/out.kml"):
+                self.kml = self.outpath+"/out.kml"
         
-        if os.path.isfile(self.outpath+"/out.prt"):
-            self.prt = prt2dict(self.outpath+"/out.prt")
+
+    def __str__(self):
+        if self.sum:
+            text_info = f" Event ID: {self.event.id}\n"
+            text_info += f"    Oirigin time   : {self.sum['origin_time'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+            text_info += f"    Lat / Lon      : {self.sum['lat']:.2f} / {self.sum['lon']:.2f}\n"
+            text_info += f"    Depth          : {self.sum['depth']:.1f}\n"
+            
+            lmag = self.get_magnitude(return_avg=True)
+            if lmag:
+                text_info += f"    Local Mag.     : {lmag:.1f}\n"
+            else:
+                text_info += f"    Local Mag.     : -- \n"
+            
+            text_info += f"    RMS            : {self.sum['rms']:.1f}\n"
+            text_info += f"    AZ GAP         : {self.sum['az_gap']:.0f}º\n"
+            text_info += f"    H / V error    : {self.sum['h_error']:.1f} / {self.sum['v_error']:.1f} km\n"
+            text_info += f"    Quality        : {self.sum['quality']}\n"
+
+            return text_info
+
+
+    def __times__(self):
+        """
+        Return theoretical times according to velocity model used in the location
+        """
+        phases = self.event.get_phases()
+        out    = {}
+        if phases:
+            for sta, info in phases.items():
+                sta_code = sta.split(".")[1]
+                ans = self.prt.get(sta_code, None)
+                out[sta] = {}
+                if ans:
+                    for wave, time in info.items():
+                        if wave in ("P", "S"):
+                            out[sta][wave] = time + dt.timedelta(seconds=ans[f"res{wave}"])
         
-        if os.path.isfile(self.outpath+"/out.kml"):
-            self.kml = self.outpath+"/out.kml"
+        return out
+        
+    
+    def get_time(self, sta_code, wave):
+        """
+            Return theoretical time according to velocity model used in the location
+        """
+
+        assert wave in ("P", "S")
+        
+        if self.prt:
+            phases = self.event.get_phases()
+            if phases:
+                for sta, info in phases.items():
+                    stac = sta.split(".")[1]
+                    if stac == sta_code:
+                        ans = self.prt.get(sta_code, None)
+                        if ans:
+                            delay = ans.get(f"res{wave}", None)
+                            time = info.get(wave, None) 
+                            if delay and time:
+                                return time + dt.timedelta(seconds=delay)
+        
+        return None
+
+
+    def get_delay(self, sta_code, wave="both"):
+        assert wave in ("both", "P", "S")
+
+        if self.prt:
+            ans = self.prt.get(sta_code, None)
+            if ans:
+                if wave == "both":
+                    pdelay = ans.get("resP", None)
+                    sdelay = ans.get("resS", None)
+                    delay  = (pdelay, sdelay)
+                
+                else:
+                    delay = ans.get(f"res{wave}", None)
+            
+                return delay
+        
+        return None
+    
+
+    def print_delay(self):
+        text = ""
+        if self.prt:
+            phases = self.event.get_phases()
+            text += f"\n {'STA':>4}  ::  {' P ':^5}   {' S ':^5}"
+            text += f"\n ------------------------ "
+            for sta, info in phases.items():
+                sta_code = sta.split(".")[1]
+                delay = self.get_delay(sta_code)
+                if delay:
+                    if delay[0] and delay[1]:
+                        text += f"\n {sta_code:>4}  ::  {delay[0]:5.2f}   {delay[1]:5.2f}"
+                    elif delay[0]:
+                        text += f"\n {sta_code:>4}  ::  {delay[0]:5.2f}   {'---':^5}"
+                    else:
+                        text += f"\n {sta_code:>4}  ::  {'---':^5}   {delay[1]:5.2f}"
+
+            text += f"\n"
+        print(text)
+
+
+    def get_epicentral(self, sta_code):
+        if self.prt:
+            for row in self.event.rows_:
+                sta = row.station
+                ans = self.prt.get(sta_code, None)
+                if ans:
+                    return ans["epi"]
+        
+        return None
+    
+
+    def get_hypocentral(self, sta_code):
+        if self.prt and self.sum:
+            epi = self.get_epicentral(sta_code)
+            if epi:
+                depth = self.sum["depth"]
+                hypo = np.sqrt(depth*depth + epi*epi)
+                return hypo
+        
+        return None
+        
+
+    def get_magnitude(self, return_avg=False):
+        if self.prt:
+            out    = {}
+            avg    = 0
+            n      = 0
+            for row in self.event.rows_:
+                hypo  = self.get_hypocentral(row.station)
+                p2p = row.value_1  # peak_to_peak
+                T   = row.value_2  # periodo
+                if all((hypo, p2p, T)):
+                    sta  = row.get_station()
+                    staid = row.get_station_id()
+                    resp = sta.stats.get_response()
+                    if resp:
+                        lmag = estimate_magnitude(resp, p2p, T, hypo)
+                        out[staid] = lmag
+                        avg += lmag
+                        n += 1
+            
+            if return_avg:
+                if avg > 0:
+                    return avg / n
+            else:
+                return out
+        
+        return None
 
 
     def show(self):
@@ -270,7 +428,7 @@ class Event(object):
         return phase
 
 
-    def locate(self, hyp, outpath, command_list=None):
+    def locate(self, hyp, outpath):
         if self.nro_phase > 3:
             outpath = os.path.join(outpath, str(self.id))
 
@@ -284,7 +442,7 @@ class Event(object):
             # run hypoellipse
             conf = f"{outpath}/hyp.conf"
             out  = f"{outpath}/out"
-            ok = hyp.run(str(self.id), conf, out, command_list=None)
+            ok = hyp.run(str(self.id), conf, out)
             
             if ok:
                 self.sde.add_locpath(self.id, outpath)

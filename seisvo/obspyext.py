@@ -159,41 +159,31 @@ class Trace2(Trace):
         new_trace = self.copy()
         data = new_trace.data.astype(np.float64)
         npts = len(data)
+                      
+        # time domain pre-processing
+        data -= data.mean()
+        if taper:
+            data = data * osi.cosine_taper(npts, taper_fraction, sactaper=True, halfcosine=False)
+    
+        # Transform data to Frequency domain
+        nfft = _npts2nfft(npts)
+        data = np.fft.rfft(data, n=nfft)
+        freq_response, freqs = response.get_evalresp_response(self.stats.delta, nfft, output)
 
-        resp = response.load()
-        if resp:                
-            # time domain pre-processing
-            data -= data.mean()
-            if taper:
-                data = data * osi.cosine_taper(npts, taper_fraction, 
-                        sactaper=True, halfcosine=False)
+        if pre_filt:
+            freq_domain_taper = osi.cosine_sac_taper(freqs, flimit=pre_filt)
+            data *= freq_domain_taper
         
-            # Transform data to Frequency domain
-            nfft = _npts2nfft(npts)
-            data = np.fft.rfft(data, n=nfft)
-            freq_response, freqs = resp.get_evalresp_response(self.stats.delta, nfft, output)
-
-            if pre_filt:
-                freq_domain_taper = osi.cosine_sac_taper(freqs, flimit=pre_filt)
-                data *= freq_domain_taper
-            
-            if water_level is None:
-                freq_response[0] = 0.0
-                freq_response[1:] = 1.0 / freq_response[1:]
-            else:
-                osi.invert_spectrum(freq_response, water_level)
-
-            data = data * freq_response
-            data[-1] = abs(data[-1]) + 0.0j
-            data = np.fft.irfft(data)
-            new_trace.data = data[0:npts]
-
+        if water_level is None:
+            freq_response[0] = 0.0
+            freq_response[1:] = 1.0 / freq_response[1:]
         else:
-            if response.factor:
-                new_trace.data = data*response.factor
+            osi.invert_spectrum(freq_response, water_level)
 
-            else:
-                print(' [remove_response] No resp info loadded.')
+        data = data * freq_response
+        data[-1] = abs(data[-1]) + 0.0j
+        data = np.fft.irfft(data)
+        new_trace.data = data[0:npts]
 
         return new_trace
 
@@ -216,6 +206,12 @@ class Trace2(Trace):
         
         return tr
 
+
+    def psd(self, fq_band=()):
+        data = self.get_data(demean=True)
+        fs = self.stats.sampling_rate
+        ans = get_PSD(data, fs, fq_band=fq_band, NW=3.5, pad=1.0, full_return=False)
+        return ans
 
 class Stream2(Stream):
     def __init__(self, *args, **kwargs):
