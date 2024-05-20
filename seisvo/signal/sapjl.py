@@ -22,7 +22,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         data = jl.Array(np.array(data))
         xutm = jl.Array(np.array(xutm))
         yutm = jl.Array(np.array(yutm))
-        fq_band = jl.Array(np.array(fq_band))
+        fq_band = jl.Array(np.array(fq_band, dtype=float))
         # slow_max = jl.Array(np.array([slow_max]))
         # slow_inc = jl.Array(np.array([slow_inc]))
         slow_max = float(slow_max)

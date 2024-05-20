@@ -386,7 +386,7 @@ class CC8nidxCanvas(FigureCanvas):
 
             ax1  = self.fig.add_subplot(gs[0, 0])
             ax1b = self.fig.add_subplot(gs[0, 1])
-            # ax2  = self.fig.add_subplot(gs[0, 3])
+            ax2  = self.fig.add_subplot(gs[0, 3])
             # ax2b = self.fig.add_subplot(gs[0, 4])
             ax3  = self.fig.add_subplot(gs[2, :])
             ax4  = self.fig.add_subplot(gs[3, :])
@@ -397,7 +397,8 @@ class CC8nidxCanvas(FigureCanvas):
                 "ax4":ax4
             }
 
-            self.parent.cc8out.plot_smap(nidx, axis=ax1, bar_axis=ax1b, fig=self.fig)
+            if self.parent.cc8out.cc8stats.slowmap:
+                self.parent.cc8out.plot_smap(nidx, axis=ax1, bar_axis=ax1b, fig=self.fig)
 
             try:
                 # self.parent.cc8canvas.ccout.plot_detailed_smap(nidx, fq_idx=self.parent.cc8canvas.parent.fq_idx, show_title=False, slomax=self.parent.cc8canvas.parent.r_slomax, sloint=self.parent.cc8canvas.parent.r_sloint, axis=ax2, bar_axis=ax2b, fig=self.fig)
@@ -407,9 +408,10 @@ class CC8nidxCanvas(FigureCanvas):
                 # ax2.set_ylabel("")
 
                 if self.filter:
-                    fqband = [1, 5]
+                    fqband = [1., 5.]
                 else:
                     fqband = [] 
+                
                 self.parent.cc8out.plot_beamform(ntime=nidx, fq_band=fqband, off_sec=2, axes=[ax3, ax4], fig=self.fig, show_title=False)
                 self.nav = Navigate([ax3, ax4], self, color='red', linewidth=0.5, alpha=0.5)
             except Exception as e:
