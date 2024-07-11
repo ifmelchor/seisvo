@@ -178,10 +178,11 @@ def plot_gram(y, array, x, axis, **kwargs):
         axis.set_xlabel(x_label)
 
     axis_bar = kwargs.get('axis_bar', None)
+    orientation = kwargs.get('orientation', 'vertical')
     if axis_bar:
         axis_bar_label = kwargs.get('bar_label', None)
         fig = axis.get_figure()
-        cbar = fig.colorbar(im, cax=axis_bar, orientation='vertical')
+        cbar = fig.colorbar(im, cax=axis_bar, orientation=orientation)
         cbar.locator = mtick.MaxNLocator(nbins=4)
         cbar.update_ticks()
         cbar.set_label(axis_bar_label)

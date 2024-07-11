@@ -55,6 +55,7 @@ def _new_CC8(array, cc8file, headers, njobs):
         hdr.attrs['slow_max']      = headers['slow_max']
         hdr.attrs['slow_int']      = headers['slow_int']
         hdr.attrs['cc_thres']      = headers['cc_thres']
+        hdr.attrs['toff_sec']      = headers['toff_sec']
         hdr.attrs['slowmap']       = headers['slowmap']
 
         # print info
@@ -128,17 +129,18 @@ class CC8(object):
                 stats_dict["slowmap"] = True
 
         # compute the true time series
+        # i.e., the times point to the middle of the window
         self.stats  = CC8stats(stats_dict)
-        start       = self.stats.starttime
         advance     = dt.timedelta(seconds=float(self.stats.window*(1-self.stats.overlap)))
         half_delta  = dt.timedelta(seconds=float(self.stats.window/2))
-        self.time_  = [start+half_delta]
-
+        t0 = self.stats.starttime + half_delta
+        timelist  = [t0]
+        
         for n in range(self.stats.nro_time_bins-1):
-            start += advance
-            self.time_.append(start + half_delta)
+            t0 += advance
+            timelist.append(t0)
 
-        self.time_ = np.array(self.time_, dtype=dt.datetime)
+        self.time_ = np.array(timelist, dtype=dt.datetime)
 
 
     def __str__(self):
@@ -214,11 +216,10 @@ class CC8(object):
 
 
     def get_time(self, starttime, endtime):
-
-        n0 = np.argmin(np.abs(np.array(self.time_) - starttime))
-        nf = np.argmin(np.abs(np.array(self.time_) - endtime)) + 1
-        
-        return self.time_[n0:nf], (n0, nf)
+        real_time = np.array(self.time_)
+        n0 = np.argmin(np.abs(real_time - starttime))
+        nf = np.argmin(np.abs(real_time - endtime)) + 1
+        return real_time[n0:nf], (n0, nf)
 
 
     def get(self, starttime=None, endtime=None, interval=None, attr=None, slowmap=True, fq_idx=None):
@@ -267,7 +268,6 @@ class CC8(object):
                 if ts[ts>0].any():
                     dout[attr_key] = ts
         
-
         return CC8out(self.stats, dout)
 
 
@@ -462,12 +462,16 @@ class CC8out(object):
 
         fq_idx = self.cc8stats.check_idx(fq_idx)[0]
         error = self._dout["/".join([fq_idx, "error"])]
-        maac = self._dout["/".join([fq_idx, "maac"])]
-        baz  = self._dout["/".join([fq_idx, "baz"])]
-        rms  = 10*np.log10(self._dout["/".join([fq_idx, "rms"])])
+        maac  = self._dout["/".join([fq_idx, "maac"])]
+        baz   = self._dout["/".join([fq_idx, "baz"])]
+        slow   = self._dout["/".join([fq_idx, "slow"])]
+        rms   = self._dout["/".join([fq_idx, "rms"])]
 
         # init nidx
-        nidx = np.arange(len(maac))
+        nidx = np.arange(len(maac), dtype=np.int32)
+
+        # slow max range
+        nidx = np.where(slow<self.cc8stats.slow_max, nidx, np.nan)
 
         # apply maac threshold
         if maac_rv:
@@ -481,6 +485,8 @@ class CC8out(object):
             nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
 
         # apply rms threshold
+        nidx = np.where(rms>0, nidx, np.nan)
+        rms  = 10 * np.log10(rms)
         if rms_int:
             rmsmin, rmsmax = rms_int
             nidx = np.where(((rms<=rmsmax) & (rms>=rmsmin)), nidx, np.nan)
@@ -496,9 +502,8 @@ class CC8out(object):
             
         if return_full:
             return nidx
-        
         else:
-            return nidx[np.isfinite(nidx)].astype(dtype=np.int32)
+            return nidx[~np.isnan(nidx)].astype(dtype=np.int32)
 
 
     def get_data(self, attr, fq_idx=None, rms_in_db=True, **nidx_kwargs):
@@ -512,15 +517,11 @@ class CC8out(object):
 
         attr_list = self.check_attr(attr)
         fq_idx    = self.cc8stats.check_idx(fq_idx)[0]
-        nidx      = self.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
-
-        if "slowbnd" in attr_list:
-            slokey = "/".join([fq_idx, "slow"])
-            slow   = self._dout[slokey]
         
-        if "bazbnd" in attr_list:
-            bazkey   = "/".join([fq_idx, "baz"])
-            baz      = self._dout[bazkey]
+        # always return full array
+        nidx_kwargs["return_full"] = True
+        nidx  = self.get_nidx(fq_idx=fq_idx, **nidx_kwargs)
+        nidx  = np.isnan(nidx)
 
         data_dict = {}
         for attr in attr_list:
@@ -528,27 +529,21 @@ class CC8out(object):
             key = "/".join([fq_idx, attr])
             data = np.copy(self._dout[key])
             
-            if attr == "slowmap":
+            if attr not in ("slowmap", "slowbnd", "bazbnd"):
+                data = np.where(nidx, np.nan, data)
                 data_dict[attr] = data
-                continue
+            
+            else:
+                if attr == "slowmap":
+                    print(" slowmap not implemented yet")
+                    continue
 
-            if attr == "slow":
-                data[data>self.cc8stats.slow_max] = np.nan
-
-            if attr == "rms":
-                data[data<=0] = np.nan
-                data = 10 * np.log10(data)
-
-            if isinstance(nidx, np.ndarray):
-                for n, idx_nan in enumerate(np.isnan(nidx)):
+                for n, idx_nan in enumerate(nidx):
                     if idx_nan:
-                        if attr in ("slowbnd", "bazbnd"):
-                            data[n,:] = [np.nan, np.nan]
-                        else:
-                            data[n] = np.nan
+                        data[n,:] = [np.nan, np.nan]
 
-            data_dict[attr] = data
-        
+                data_dict[attr] = data
+
         if len(attr_list) > 1:
             return data_dict
         
@@ -766,19 +761,13 @@ class CC8out(object):
 
     def compute_smap(self, ntime, fq_idx=None, slowarg={}, show_title=True, **fig_kwargs):
         """
-        This function computes the smap for a specific window (ntime), 
-        the center of the point (slownes, baz) is taken from the maac
+        This function computes the smap for a specific window (ntime)
         """
 
         if not fq_idx:
             fq_idx = self._fqidx[0]
         else:
             assert fq_idx in self._fqidx
-
-        data_dict = self.get_data(["maac", "slow", "baz"], fq_idx=fq_idx)
-        maac  = data_dict["maac"][ntime]
-        slow  = data_dict["slow"][ntime]
-        baz   = data_dict["baz"][ntime]
 
         arr, exloc = self.cc8stats.get_array()
 
@@ -788,11 +777,13 @@ class CC8out(object):
                 "sloint":self.cc8stats.slow_int,
                 "fq_band":self.cc8stats.fq_bands[int(fq_idx)-1],
                 "exclude_locs":exloc,
+                "cc_thres":self.cc8stats.cc_thres,
                 "slow0":[0,0]
             }
-            # slowarg["slow0"], _ = arr.deltatimes(slow, baz, slowarg=slowarg, tol=tol, return_xy=True)
         
-        timet = self._dout["dtime"][ntime]
+        timet  = self._dout["dtime"][ntime]
+        timet -= dt.timedelta(seconds=self.cc8stats.window/2)
+
         fig = arr.slowmap(timet, self.cc8stats.window, slowarg=slowarg, plot=True, show_title=show_title, **fig_kwargs) 
     
         return fig

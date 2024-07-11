@@ -23,7 +23,7 @@ default_slowarg = {
     "sloint":0.1, 
     "fq_band":[1., 3.], 
     "slow0":[0.,0.], 
-    "cc_thres":0.05, 
+    "cc_thres":0.75, 
     "exclude_locs":[]
 }
 
@@ -504,7 +504,7 @@ class Array(Network):
             return stream
 
 
-    def get_cc8(self, starttime, endtime, window, overlap, slowarg={}, toff_sec=10):
+    def get_cc8(self, starttime, endtime, window, overlap, slowarg={}, toff_sec=5):
         """
         compute CC8 algorithm
         window in seconds (float) and overlap between 0 an 1.
@@ -583,7 +583,7 @@ class Array(Network):
         # load parameters
         sample_rate = self.sample_rate
         njobs       = kwargs.get('njobs', 1)
-        toff_sec    = kwargs.get('toff_sec', 3)
+        toff_sec    = kwargs.get('toff_sec', 5)
         fileout     = kwargs.get("fileout", None)
         
         # compute slowness invervals
@@ -765,7 +765,7 @@ class Array(Network):
         slowarg = _slowarg(slowarg)
 
         # init some parameters
-        toff_sec = 10
+        toff_sec = 5
         nite     = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
         endtime  = starttime + dt.timedelta(seconds=window)
         lwin     = int(window * self.sample_rate)
@@ -807,7 +807,7 @@ class Array(Network):
                 slowt  = ans["slow"][0]
                 bazt   = ans["baz"][0]
 
-                fig_kwargs["title"] = f' {starttime}  [{window} sec] :: Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]} s/km] \n RMS {rms:.1f} [dB] :: MAAC {maact:.2f} :: SLOW {slowt:.2f} [s/km] :: BAZ {bazt:.1f} :: ERR {error:.1f} \n'
+                fig_kwargs["title"] = f' {starttime}  [{window} sec] :: Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]} s/km] \n RMS {rms:.1f} [dB] :: MAAC {maact:.2f} :: SLOW {slowt:.2f} [s/km] :: BAZ {bazt:.1f} :: ERR {error:.1f} %\n'
         
             slomap   = ans["slowmap"][0,:,:]
 

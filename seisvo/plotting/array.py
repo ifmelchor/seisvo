@@ -229,13 +229,14 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     else:
         show = False
     
-    halfbin = sloint / 2.0
-    extent = (
-        -slomax + halfbin,
-         slomax - halfbin,
-        -slomax + halfbin,
-         slomax - halfbin
-    )
+    # halfbin = sloint / 2.0
+    # extent = (
+    #     -slomax + halfbin,
+    #      slomax - halfbin,
+    #     -slomax + halfbin,
+    #      slomax - halfbin
+    # )
+    extent = (-slomax, slomax, -slomax, slomax)
 
     ticks = None
 
@@ -254,7 +255,8 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
         extent=extent, aspect='auto', vmin=vmin, vmax=vmax, zorder=1)
     
     maxpos = np.where(slomap==slomap.max())
-    slox = np.linspace(slomax - halfbin, -slomax + halfbin, slomap.shape[0])
+    # slox = np.linspace(slomax - halfbin, -slomax + halfbin, slomap.shape[0])
+    slox = np.linspace(slomax, -slomax, slomap.shape[0])
     # slox == sloy
     slov0x = np.linspace(0,slox[maxpos[0]],100)
     slov0y = np.linspace(0,slox[maxpos[1]],100)
@@ -265,9 +267,22 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     # plot error bars
     if cc_th > 0:
         maacth = slomap.max()*(1-cc_th)
-        x1, x2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
-        y1, y2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
-        axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", lw=0.8, fmt="none", zorder=2)
+        y1, y2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
+        x1, x2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
+        # axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", lw=0.8, fmt="none", zorder=2)
+        # plot points of the bounds
+        axis.scatter(slox[maxpos[0]], slox[y1], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+        axis.scatter(slox[maxpos[0]], slox[y2], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+        axis.scatter(slox[x1], slox[maxpos[1]], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+        axis.scatter(slox[x2], slox[maxpos[1]], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+        # plot error cross
+        slov1x = np.linspace(slox[x1],slox[x2],100)
+        slov1y = 100*[slox[maxpos[1]]]
+        axis.plot(slov1x, slov1y, ls="--", lw=0.8, color="k", alpha=0.25, zorder=2)
+        slov2x = 100*[slox[maxpos[0]]]
+        slov2y = np.linspace(slox[y1],slox[y2],100)
+        axis.plot(slov2x, slov2y, ls="--", lw=0.8, color="k", alpha=0.25, zorder=2)
+
 
     axis.set_title(title)
     axis.set_xlabel("x [s/km]")
