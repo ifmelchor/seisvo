@@ -18,8 +18,10 @@ seisvo/database/lde.py
 seisvo/database/rows.py
 seisvo/gui/__init__.py
 seisvo/gui/cc8.py
+seisvo/gui/cce.py
 seisvo/gui/events.py
 seisvo/gui/lte.py
+seisvo/gui/station.py
 seisvo/gui/utils.py
 seisvo/lte/__init__.py
 seisvo/lte/base.py

@@ -149,6 +149,10 @@ def prt2dict(prtfile):
                 }
 
             sta_code = x[0]
+            
+            if x[1] == "UNWEIGHTED":
+                break
+            
             epi_dist = float(x[1])
             res      = float(ln[61:66])
             res2     = None

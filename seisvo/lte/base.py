@@ -457,10 +457,10 @@ class StationLTE(_LTE):
         dout["dtime"], (n0,nf) = self.get_time(starttime, endtime)
 
         if any([attr in STA_VECTOR_PARAMS for attr in attr_list]):
-            if self.stats.subwindow:
+            if self.stats.subwindow > 0:
                 lwin = self.stats.subwindow*self.stats.sample_rate
             else:
-                lwin = self.stats.window*60*self.stats.sample_rate
+                lwin = self.stats.window*self.stats.sample_rate
 
             dout["freq"] = get_freq(lwin, self.stats.sample_rate, fq_band=self.stats.fq_band, pad=self.stats.pad)[0]
 

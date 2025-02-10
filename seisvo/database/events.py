@@ -74,7 +74,8 @@ class EventLoc(object):
                 if ans:
                     for wave, time in info.items():
                         if wave in ("P", "S"):
-                            out[sta][wave] = time + dt.timedelta(seconds=ans[f"res{wave}"])
+                            if ans[f"res{wave}"]:
+                                out[sta][wave] = time + dt.timedelta(seconds=ans[f"res{wave}"])
         
         return out
         

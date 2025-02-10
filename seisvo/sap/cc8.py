@@ -528,7 +528,10 @@ class CC8out(object):
             # get time series
             key = "/".join([fq_idx, attr])
             data = np.copy(self._dout[key])
-            
+
+            if attr == "rms" and rms_in_db:
+                data = 10*np.log10(data)
+
             if attr not in ("slowmap", "slowbnd", "bazbnd"):
                 data = np.where(nidx, np.nan, data)
                 data_dict[attr] = data
