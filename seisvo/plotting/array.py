@@ -211,7 +211,7 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
         return fig
 
 
-def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
+def simple_slowmap(slomap, sloint, slomax, slow0, cc_th=0.05, show=True, **kwargs):
     cmap  = kwargs.get("cmap", "Spectral_r")
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
@@ -236,7 +236,7 @@ def simple_slowmap(slomap, sloint, slomax, cc_th=0.05, show=True, **kwargs):
     #     -slomax + halfbin,
     #      slomax - halfbin
     # )
-    extent = (-slomax, slomax, -slomax, slomax)
+    extent = (-abs(slow0[0])-slomax, abs(slow0[0])+slomax, -abs(slow0[0])-slomax, abs(slow0[0])+slomax)
 
     ticks = None
 

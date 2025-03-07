@@ -22,7 +22,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
         data = jl.Array(np.array(data))
         xutm = jl.Array(np.array(xutm))
         yutm = jl.Array(np.array(yutm))
-        fq_band = jl.Array(np.array(fq_band, dtype=float))
+        fq_band = jl.Vector(np.array(fq_band, dtype=float))
         # slow_max = jl.Array(np.array([slow_max]))
         # slow_inc = jl.Array(np.array([slow_inc]))
         slow_max = float(slow_max)
@@ -57,7 +57,7 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
     return dictans
 
 
-def array_delta_times(slow, baz, slomax, sloint, fs, xUTM, yUTM, pxy0=[0.,0.], return_xy=False):
+def array_delta_times(slow, baz, slomax, sloint, fs, xUTM, yUTM, slow0=[0.,0.]):
 
     from juliacall import Main as jl
     jl.seval("using SAP")
@@ -69,13 +69,29 @@ def array_delta_times(slow, baz, slomax, sloint, fs, xUTM, yUTM, pxy0=[0.,0.], r
     sloint = float(sloint)
     slow   = float(slow)
     baz    = float(baz)
-    slow0  = jl.Array(np.array(pxy0))
+    slow0  = jl.Array(np.array(slow0))
     utmEW  = jl.Array(np.array(xUTM))
     utmNS  = jl.Array(np.array(yUTM))
 
-    deltas, tol  = jl.get_dtimes(slow, baz, slomax, sloint, fs, utmEW, utmNS, slow0, return_xy)
+    _, deltas  = jl.get_dtimes(slow, baz, slow0, slomax, sloint, fs, utmEW, utmNS)
     
-    return np.array(deltas), np.array(tol)
+    return np.array(deltas)
+
+
+def slowness_vector(slow, baz, slomax, sloint, slow0=[0.,0.]):
+    
+    from juliacall import Main as jl
+    jl.seval("using SAP")
+
+    slomax = float(slomax)
+    sloint = float(sloint)
+    slow   = float(slow)
+    baz    = float(baz)
+    slow0  = jl.Array(np.array(slow0))
+
+    pxy, pij = jl.p2r(slow, baz, slow0, slomax, sloint)
+
+    return np.array(pxy), np.array(pij)
 
 
 def array_response(xUTM, yUTM, slow_max, slow_inc, fq_band=(1.,10.), fq_int=0.1):

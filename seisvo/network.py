@@ -12,7 +12,7 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
-from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times
+from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times, slowness_vector
 from .lte.base import _new_LTE
 from .utils import nCPU
 from .plotting.array import location_map, traces_psd, simple_slowmap, beamform_wvfm, plot_slowmap
@@ -20,7 +20,7 @@ from .gui import load_stationwidget
 
 default_slowarg = {
     "slomax":4.0, 
-    "sloint":0.1, 
+    "sloint":0.1,
     "fq_band":[1., 3.], 
     "slow0":[0.,0.], 
     "cc_thres":0.75, 
@@ -692,35 +692,36 @@ class Array(Network):
             return None
 
 
-    def deltatimes(self, slow, baz, slowarg={}, return_xy=False):
+    def slowness_vector(self, slow, baz, slowarg={}, return_dtimes=True):
         """
-        compute the waveforms displaced by given a slowness vector (slow, baz)
+        Give information about slowness vector. 
+        return_dtimes :: also give delta times for each stations of the array
         """
 
         slowarg  = _slowarg(slowarg)
-        _, utmloc   = self.get_utm(exclude_locs=slowarg["exclude_locs"])
-        ans, tol = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
-            self.sample_rate, utmloc["x"], utmloc["y"], pxy0=[0.,0.], return_xy=return_xy)
 
-        print(f" [deltatimes] error = {tol}")
+        pxy, pij = slowness_vector(slow, baz, slowarg["slomax"], slowarg["sloint"], slow0=slowarg["slow0"])
 
-        if return_xy:
-            return ans, tol
+        if return_dtimes:
+            _, utmloc   = self.get_utm(exclude_locs=slowarg["exclude_locs"])
+            times = array_delta_times(slow, baz, slowarg["slomax"], slowarg["sloint"],\
+            self.sample_rate, utmloc["x"], utmloc["y"], slow0=slowarg["slow0"])
+
+            return (pxy, pij), times
         
         else:
-            return ans/self.sample_rate, tol
+            return (pxy, pij)
 
 
-    def beamform(self, starttime, endtime, slow, baz, slowarg={}, return_full=False, taper=False, plot=True, **fig_kwargs):
+    def beamform(self, starttime, endtime, slow, baz, slowarg={}, taper=False, plot=True, **fig_kwargs):
         """
         Return a waveform shifted between starttime and endtime for a specific slowness and back-azimuth
         """
 
         slowarg   = _slowarg(slowarg)
-        # deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg)
-        # print(f" [deltatimes] error = {tol}")
+        _, deltas =  self.slowness_vector(slow, baz, slowarg=slowarg)
         window    = (endtime-starttime).total_seconds()
-        full, deltas = self.slowmap(starttime, window, slowarg=slowarg, return_dt=True, plot=False)
+        #full, deltas = self.slowmap(starttime, window, slowarg=slowarg, return_dt=True, plot=False)
         stream    = self.get_stream(starttime, endtime, prefilt=slowarg["fq_band"], toff_sec=10, exclude_locs=slowarg["exclude_locs"])
 
         # shift stream
@@ -744,9 +745,9 @@ class Array(Network):
         duration = (endtime - starttime).total_seconds()
         time     = np.linspace(0, duration, len(data_sh))
 
-        if return_full:
-            full["wvfm"] = wvfm_dict
-            return full, suma
+        # if return_full:
+        #     full["wvfm"] = wvfm_dict
+        #     return full, suma
 
         if plot:
             fig = beamform_wvfm(wvfm_dict, suma, time, **fig_kwargs)
@@ -755,7 +756,7 @@ class Array(Network):
             return wvfm_dict, suma, time
 
 
-    def slowmap(self, starttime, window, slowarg={}, return_dt=False, plot=True, show_title=True, **fig_kwargs):
+    def slowmap(self, starttime, window, slowarg={}, plot=True, show_title=True, **fig_kwargs):
         """
         Compute the slowness map
 
@@ -765,8 +766,8 @@ class Array(Network):
         slowarg = _slowarg(slowarg)
 
         # init some parameters
-        toff_sec = 5
-        nite     = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
+        toff_sec = 10
+        # nite     = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
         endtime  = starttime + dt.timedelta(seconds=window)
         lwin     = int(window * self.sample_rate)
         nwin     = 1
@@ -784,17 +785,6 @@ class Array(Network):
         ans    = get_CC8(data, self.sample_rate, np.array(utmloc["x"]), np.array(utmloc["y"]),\
             slowarg["fq_band"], slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=nwin, \
             nadv=nadv, cc_thres=slowarg["cc_thres"], toff=toff_sec, slow0=slowarg["slow0"])
-
-        if return_dt:
-            slow = ans["slow"][0]
-            baz  = ans["baz"][0]
-
-            if return_dt == "xy":
-                deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg, return_xy=True)
-            else:
-                deltas, tol = self.deltatimes(slow, baz, slowarg=slowarg, return_xy=False)
-            
-            return ans, deltas
         
         if plot:
             if not fig_kwargs:
@@ -811,7 +801,7 @@ class Array(Network):
         
             slomap   = ans["slowmap"][0,:,:]
 
-            fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], **fig_kwargs)
+            fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], slowarg["slow0"], **fig_kwargs)
             return fig, ans
         else:
             return ans

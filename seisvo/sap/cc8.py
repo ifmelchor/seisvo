@@ -15,7 +15,7 @@ from operator import itemgetter
 
 from .cc8utils import _CC8Process
 from ..stats import CC8stats
-from ..signal import get_Stats, get_PDF, get_CC8
+from ..signal import get_Stats, get_PDF, slowness_vector
 from ..plotting.array import simple_cc8_plot, simple_slowmap, _detections
 
 # from tqdm import tqdm
@@ -413,6 +413,10 @@ class CC8out(object):
         txt_to_return +=  f'\n'
         return txt_to_return
 
+    @property
+    def time(self):
+        return self._dout["dtime"]
+
 
     def check_attr(self, attr):
 
@@ -790,6 +794,43 @@ class CC8out(object):
         fig = arr.slowmap(timet, self.cc8stats.window, slowarg=slowarg, plot=True, show_title=show_title, **fig_kwargs) 
     
         return fig
+
+
+    def slowness_vector(self, slow, baz, slow0=[0.,0.]):
+        """
+        Give information about slowness vector. 
+        return_dtimes :: also give delta times for each stations of the array
+        """
+
+        pxy, pij = slowness_vector(slow, baz, self.cc8stats.slow_max, self.cc8stats.slow_int, slow0=slow0)
+
+        return (pxy, pij)
+
+
+    # def recompute_cc8(self, slomax, sloint, fq_idx=None, **nidx_kwargs):
+        
+    #     # este codigo tiene que seleccionar los periodos de tiempo en donde se cumplan las condiciones de nidx_kwargs, y en cada uno de los tiempos, recalcular el vector lentitud aparente utilizando un slomax y sloint adecuado.
+
+    #     if not fq_idx:
+    #         fq_idx = self._fqidx[0]
+    #     else:
+    #         assert fq_idx in self._fqidx
+
+    #     arr, exloc = self.cc8stats.get_array()
+
+    #     data = self.get_data(["slow", "baz"], fq_idx=fq_idx, **nidx_kwargs)
+        
+    #     slowarg0 = {
+    #         "slomax":slomax,
+    #         "sloint":sloint,
+    #         "fq_band":self.cc8stats.fq_bands[int(fq_idx)-1],
+    #         "exclude_locs":exloc,
+    #         "cc_thres":self.cc8stats.cc_thres
+    #     }
+#      for each nidx to recompute
+#      search slow0
+#      fill slowarg --> slowarg["slow0"] = [0,0]
+
 
 
 class CC8detect(object):
