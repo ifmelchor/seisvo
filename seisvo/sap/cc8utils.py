@@ -49,10 +49,10 @@ class _CC8Process(object):
         cc8_ans = jl_zlcc(data, self.cc8stats.sample_rate, self.headers["utm"]["x"], 
                           self.headers["utm"]["y"], self.cc8stats.fq_bands[fqidx-1], 
                           self.cc8stats.slow_max, self.cc8stats.slow_int, 
-                          self.headers["lwin"], nwin, self.headers["nadv"], 
-                          self.cc8stats.ccerr_thr, self.headers["toff_sec"], 
-                          self.cc8stats.slow2, self.headers["maac_thr"],
-                          self.headers["slow_max2"], self.headers["slow_int2"]
+                          lwin=self.headers["lwin"], nwin=nwin, nadv=self.headers["nadv"], 
+                          ccerr_thr=self.cc8stats.ccerr_thr, toff=self.headers["toff_sec"], 
+                          slow2=self.cc8stats.slow2, maac_thr=self.headers["maac_thr"],
+                          slow_max2=self.headers["slow_max2"], slow_int2=self.headers["slow_int2"]
                           )
         
         tp = time.time() - t0 # processing time
