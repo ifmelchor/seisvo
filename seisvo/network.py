@@ -12,31 +12,40 @@ from .stats import NetworkStats
 from .obspyext import Stream2
 from .station import Station
 from .sap import _new_CC8
-from .signal import SSteps, get_freq, array_response, get_CSW, get_CC8, get_PSD, array_delta_times, slowness_vector
+from .signal import SSteps, get_freq, array_response, get_CSW, jl_zlcc, get_PSD, array_delta_times, slowness_vector
 from .lte.base import _new_LTE
 from .utils import nCPU
 from .plotting.array import location_map, traces_psd, simple_slowmap, beamform_wvfm, plot_slowmap
 from .gui import load_stationwidget
 
 default_slowarg = {
-    "slomax":4.0, 
+    "slomax":3.0, 
     "sloint":0.1,
     "fq_band":[1., 3.], 
     "slow0":[0.,0.], 
-    "cc_thres":0.75, 
+    "ccerr_thr":0.9,
+    "slow2":True,
+    "maac_thr":0.6,
+    "slomax2":0.5,
+    "sloint2":0.02, 
     "exclude_locs":[]
 }
 
-def _slowarg(slowarg):
+
+def _slowarg(**slowarg):
+    
     if slowarg:
-        slowarg0 = default_slowarg
+        slowarg0 = default_slowarg.copy()
+        
         for key in list(slowarg0.keys()):
             if key in list(slowarg.keys()):
                 slowarg0[key] = slowarg[key]
+        
         slowarg = slowarg0
+    
     else:
-        slowarg = default_slowarg
-
+        slowarg = default_slowarg.copy()
+    
     return slowarg
 
 
@@ -463,7 +472,7 @@ class Array(Network):
         return a
 
     
-    def response(self, slomax, sloint, fq_band=(1.,10.), fq_int=0.1, exclude_locs=[], plot=True):
+    def response(self, slomax, sloint, fq_band=(1.,10.), fq_int=0.01, ccerr=0.9, exclude_locs=[], plot=True):
         """
         Return array response dictionary
         """
@@ -478,7 +487,8 @@ class Array(Network):
         power = ans["power"]
         
         if plot:
-            simple_slowmap(power/power.max(), slomax, sloint, title=fq_band)
+            slow0 = (0.,0.)
+            simple_slowmap(power, sloint, slomax, slow0, figsize=(4.8,4), ccerr=ccerr, cmap="gist_earth_r", bar_label="ARF", title=fq_band)
         
         return ans
 
@@ -504,14 +514,13 @@ class Array(Network):
             return stream
 
 
-    def get_cc8(self, starttime, endtime, window, overlap, slowarg={}, toff_sec=5):
+    def zlcc(self, starttime, endtime, window, overlap, toff_sec=5, **slowarg):
         """
-        compute CC8 algorithm
+        compute zlcc algorithm and return dictionary
         window in seconds (float) and overlap between 0 an 1.
         """
 
-        slowarg = _slowarg(slowarg)
-        nite    = 1 + 2*int(slowarg["slomax"]/slowarg["sloint"])
+        slowarg = _slowarg(**slowarg)
 
         # locations and positions
         _, utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
@@ -528,16 +537,21 @@ class Array(Network):
         lwin = int(ss.window * self.sample_rate)
 
         # wrapper into julia
-        ans = get_CC8(data, self.sample_rate, utmloc["x"], utmloc["y"], slowarg["fq_band"], 
-            slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=ssdict["nwin"], 
-            nadv=ssdict["wadv"], toff=toff_sec, cc_thres=slowarg["cc_thres"])
+        ans = jl_zlcc(
+            data, self.sample_rate, utmloc["x"], utmloc["y"], 
+            slowarg["fq_band"], slowarg["slomax"], slowarg["sloint"], 
+            lwin=lwin, nwin=ssdict["nwin"], nadv=ssdict["wadv"], toff=toff_sec, 
+            ccerr_thr=slowarg["ccerr_thr"], slow2=slowarg["slow2"], 
+            maac_thr=slowarg["maac_thr"], slow_max2=slowarg["slomax2"], 
+            slow_int2=slowarg["sloint2"]
+            )
         
         return ans
 
 
-    def cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=3., slow_int=0.05, fq_bands=[(1.,3.)], cc_thres=0.05, exclude_locs=[], slowmap=True, **kwargs):
+    def zlcc_cc8(self, starttime, endtime, window, overlap, interval=30, slow_max=3., slow_int=0.1, fq_bands=[(1.,5.)], exclude_locs=[], slow2=True, slowmap=True, **kwargs):
         
-        """ Compute CC8 file
+        """ Compute ZLCC and save into a .cc8 file
 
         Parameters
         ----------
@@ -565,9 +579,6 @@ class Array(Network):
         
         fq_bands : list of tuples
             frequency bands (in Hz) to analyze, by default [(1.,5.)]
-        
-        cc_thres : float
-            therhold level to keep computing slowness, by default 0.75
 
         Returns
         -------
@@ -583,33 +594,37 @@ class Array(Network):
         # load parameters
         sample_rate = self.sample_rate
         njobs       = kwargs.get('njobs', 1)
+        ccerr_thr   = kwargs.get('ccerr_thr', 0.9)
+        maac_thr    = kwargs.get('maac_thr', 0.6)
+        slow_max2   = kwargs.get('slow_max2', 0.5)
+        slow_int2   = kwargs.get('slow_int2', 0.02)
         toff_sec    = kwargs.get('toff_sec', 5)
         fileout     = kwargs.get("fileout", None)
-        
-        # compute slowness invervals
-        nites = 1 + 2*int(slow_max/slow_int)
         
         # define locations and positions
         locs, utmloc = self.get_utm(exclude_locs=exclude_locs)
         
         # define the header of the cc8 file
         cc8base = dict(
-            id              = '.'.join([self.stats.code, self.sta_code]),
-            locs            = locs,
-            utm             = utmloc,
-            starttime       = starttime.strftime('%Y-%m-%d %H:%M:%S.%f'),
-            endtime         = endtime.strftime('%Y-%m-%d %H:%M:%S.%f'),
-            interval        = interval,
-            window          = window,
-            overlap         = overlap,
-            sample_rate     = sample_rate,
-            fq_bands        = fq_bands,
-            slow_max        = slow_max,
-            slow_int        = slow_int,
-            nro_slow_bins   = nites,
-            cc_thres        = cc_thres,
-            slowmap         = slowmap,
-            toff_sec        = toff_sec
+            id          = '.'.join([self.stats.code, self.sta_code]),
+            locs        = locs,
+            utm         = utmloc,
+            starttime   = starttime.strftime('%Y-%m-%d %H:%M:%S.%f'),
+            endtime     = endtime.strftime('%Y-%m-%d %H:%M:%S.%f'),
+            interval    = interval,
+            window      = window,
+            overlap     = overlap,
+            sample_rate = sample_rate,
+            fq_bands    = fq_bands,
+            slow_max    = slow_max,
+            slow_int    = slow_int,
+            ccerr_thr   = ccerr_thr,
+            slowmap     = slowmap,
+            slow2       = slow2,
+            maac_thr    = maac_thr,
+            slow_max2   = slow_max2,
+            slow_int2   = slow_int2,
+            toff_sec    = toff_sec
         )
 
         # compute the steps and save info
@@ -763,7 +778,7 @@ class Array(Network):
         return_dt should be True/False or "xy"
         """
 
-        slowarg = _slowarg(slowarg)
+        slowarg = _slowarg(**slowarg)
 
         # init some parameters
         toff_sec = 10
@@ -782,9 +797,15 @@ class Array(Network):
         _, utmloc = self.get_utm(exclude_locs=slowarg["exclude_locs"])
         
         # compute CC8 algorithm
-        ans    = get_CC8(data, self.sample_rate, np.array(utmloc["x"]), np.array(utmloc["y"]),\
-            slowarg["fq_band"], slowarg["slomax"], slowarg["sloint"], lwin=lwin, nwin=nwin, \
-            nadv=nadv, cc_thres=slowarg["cc_thres"], toff=toff_sec, slow0=slowarg["slow0"])
+        # wrapper into julia
+        ans = jl_zlcc(
+            data, self.sample_rate, np.array(utmloc["x"]), np.array(utmloc["y"]), 
+            slowarg["fq_band"], slowarg["slomax"], slowarg["sloint"], 
+            lwin=lwin, nwin=nwin, nadv=nadv, toff=toff_sec, 
+            ccerr_thr=slowarg["ccerr_thr"], slow2=slowarg["slow2"], 
+            maac_thr=slowarg["maac_thr"], slow_max2=slowarg["slomax2"], 
+            slow_int2=slowarg["sloint2"], slow0=slowarg["slow0"]
+            )
         
         if plot:
             if not fig_kwargs:
@@ -796,12 +817,16 @@ class Array(Network):
                 maact  = ans["maac"][0]
                 slowt  = ans["slow"][0]
                 bazt   = ans["baz"][0]
+                deltaslo = np.diff(ans["slowbnd"][0])[0]
+                deltabaz = np.diff(ans["bazbnd"][0])[0]
+                if deltabaz > 180:
+                    deltabaz-=360
 
-                fig_kwargs["title"] = f' {starttime}  [{window} sec] :: Fq {slowarg["fq_band"]} :: Slomax/Sloint [{slowarg["slomax"]}/{slowarg["sloint"]} s/km] \n RMS {rms:.1f} [dB] :: MAAC {maact:.2f} :: SLOW {slowt:.2f} [s/km] :: BAZ {bazt:.1f} :: ERR {error:.1f} %\n'
+                fig_kwargs["title"] = f' {starttime}  [{window} sec] :: Fq {slowarg["fq_band"]} \n RMS {rms:.1f} [dB] :: MAAC {maact:.2f} :: Q⁻¹ {error:.1f}% \n SLOW {slowt:.2f} ± {deltaslo/2:.2f} [s/km] :: BAZ {bazt:.1f} ± {abs(deltabaz/2):.1f} [º]\n'
         
             slomap   = ans["slowmap"][0,:,:]
 
-            fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], slowarg["slow0"], **fig_kwargs)
+            fig = simple_slowmap(slomap, slowarg["sloint"], slowarg["slomax"], slowarg["slow0"], ccerr=slowarg["ccerr_thr"], **fig_kwargs)
             return fig, ans
         else:
             return ans

@@ -19,7 +19,7 @@ from ..signal import get_Stats, get_PDF, slowness_vector
 from ..plotting.array import simple_cc8_plot, simple_slowmap, _detections
 
 # from tqdm import tqdm
-ATTR_LIST = ["rms", "maac", "slow", "baz", "error", "slowmap", "bazbnd", "slowbnd"]
+ATTR_LIST = ["rms", "maac", "slow", "baz", "error", "slowmap", "slow2", "baz2", "bazbnd", "slowbnd"]
 
 
 def check_cc8_attr(attr):
@@ -48,13 +48,16 @@ def _new_CC8(array, cc8file, headers, njobs):
         hdr.attrs['window']        = headers['window']
         hdr.attrs['overlap']       = headers['overlap']
         hdr.attrs['nro_time_bins'] = headers['nro_time_bins']
-        hdr.attrs['nro_slow_bins'] = headers['nro_slow_bins']
         hdr.attrs['last_time_bin'] = [-1]*len(headers['fq_bands'])
         hdr.attrs['sample_rate']   = headers['sample_rate']
         hdr.attrs['fq_bands']      = headers['fq_bands']
         hdr.attrs['slow_max']      = headers['slow_max']
         hdr.attrs['slow_int']      = headers['slow_int']
-        hdr.attrs['cc_thres']      = headers['cc_thres']
+        hdr.attrs['slow2']         = headers['slow2']
+        hdr.attrs['maac_thr']      = headers['maac_thr']
+        hdr.attrs['slow_max2']     = headers['slow_max2']
+        hdr.attrs['slow_int2']     = headers['slow_int2']
+        hdr.attrs['ccerr_thr']     = headers['ccerr_thr']
         hdr.attrs['toff_sec']      = headers['toff_sec']
         hdr.attrs['slowmap']       = headers['slowmap']
 
@@ -70,7 +73,7 @@ def _new_CC8(array, cc8file, headers, njobs):
         
         for info_key in ['id', 'locs', 'starttime', 'endtime', 'window',\
             'overlap', 'nro_time_bins', 'sample_rate', 'fq_bands',\
-            'slow_max', 'slow_int', 'cc_thres']:
+            'slow_max', 'slow_int', 'ccerr_thr', 'slow2', 'slow_max2', 'slow_int2']:
             if info_key == "window":
                 print(f'   {info_key} [sec]:  {headers[info_key]}')
             else:
@@ -79,7 +82,7 @@ def _new_CC8(array, cc8file, headers, njobs):
 
         # add datasets
         timebins = headers['nro_time_bins']
-        slowbins = headers['nro_slow_bins']
+        slowbins = 1 + 2*int(headers['slow_max']/headers['slow_int'])
 
         for fq_n in range(1, len(headers['fq_bands'])+1):
             fq_n = cc8h5.create_group(str(fq_n))
@@ -89,6 +92,10 @@ def _new_CC8(array, cc8file, headers, njobs):
             
             if headers['slowmap']:
                 fq_n.create_dataset('slowmap', (timebins, slowbins, slowbins), chunks=True, dtype=np.float32)
+
+            if headers['slow2']:
+                fq_n.create_dataset("slow2", (timebins,), chunks=True, dtype=np.float32)
+                fq_n.create_dataset("baz2", (timebins,), chunks=True, dtype=np.float32)
             
             fq_n.create_dataset('slowbnd', (timebins, 2), chunks=True, dtype=np.float32)
             fq_n.create_dataset('bazbnd', (timebins, 2), chunks=True, dtype=np.float32)
@@ -121,12 +128,21 @@ class CC8(object):
             stats_dict["fq_bands"]        = [(float(fqb[0]), float(fqb[1])) for fqb in hdr.attrs['fq_bands']]
             stats_dict["slow_max"]        = float(hdr.attrs['slow_max'])
             stats_dict["slow_int"]        = float(hdr.attrs['slow_int'])
-            stats_dict['nro_slow_bins']   = int(hdr.attrs['nro_slow_bins'])
-            stats_dict["cc_thres"]        = float(hdr.attrs['cc_thres'])
+            
             try:
-                stats_dict["slowmap"] = bool(hdr.attrs['slowmap'])
+                stats_dict["slowmap"]   = bool(hdr.attrs['slowmap'])
+                stats_dict["ccerr_thr"] = float(hdr.attrs['ccerr_thr'])
+                stats_dict["slow2"]     = bool(hdr.attrs['slow2'])
+
+                if stats_dict["slow2"]:
+                    stats_dict["maac_thr"]  = float(hdr.attrs['maac_thr'])
+                    stats_dict["slow_max2"] = float(hdr.attrs['slow_max2'])
+                    stats_dict["slow_int2"] = float(hdr.attrs['slow_int2'])
+            
             except:
-                stats_dict["slowmap"] = True
+                stats_dict["ccerr_thr"] = float(hdr.attrs['cc_thres'])
+                stats_dict["slowmap"]  = False
+                stats_dict["slow2"]    = False
 
         # compute the true time series
         # i.e., the times point to the middle of the window
@@ -155,6 +171,13 @@ class CC8(object):
                     ts = f.get(str(fq_idx))[attr][n0:nf,:]
                 else:
                     ts = None
+            
+            elif attr in ("slow2", "baz2"):
+                if self.stats.slow2:
+                    ts = f.get(str(fq_idx))[attr][n0:nf]
+                else:
+                    ts = None
+            
             else:
                 ts = f.get(str(fq_idx))[attr][n0:nf]
         
@@ -171,10 +194,9 @@ class CC8(object):
         excluded_locs = array.get_excluded_locs(self.stats.locs)
 
         # define timedelta parameters
-        delta = dt.timedelta(seconds=float(headers["interval"]*60))
-        toff  = dt.timedelta(seconds=headers["int_extra_sec"])
-        olap  = dt.timedelta(seconds=float(headers["overlap"]*headers["window"]))
-        toff_sec = dt.timedelta(seconds=headers["toff_sec"])
+        delta     = dt.timedelta(seconds=float(headers["interval"]*60))
+        delta_tof = dt.timedelta(seconds=headers["int_extra_sec"])
+        olap      = dt.timedelta(seconds=float(headers["overlap"]*headers["window"]))
         
         for nint in range(1, headers["nro_intervals"]+1):
             if nint >= 2:
@@ -182,7 +204,7 @@ class CC8(object):
             else:
                 start_int = self.stats.starttime
             
-            end_int   = start_int + delta + toff
+            end_int   = start_int + delta + delta_tof
             
             if nint == headers["nro_intervals"]:
                 last = True
@@ -244,10 +266,16 @@ class CC8(object):
         
         if not attr:
             attr = []
+
             for a in ATTR_LIST:
                 if a == "slowmap":
                     if slowmap and self.stats.slowmap:
                         attr.append(a)
+                    
+                elif a in ("slow2", "baz2"):
+                    if self.stats.slow2:
+                        attr.append(a)
+
                 else:
                     attr.append(a)
         else:
@@ -450,13 +478,14 @@ class CC8out(object):
         """
 
         # get kwargs
-        maac_th  = kwargs.get("maac_th", 0)
-        maac_rv  = kwargs.get("maac_rv", False)
-        max_err  = kwargs.get("max_err", 0.0)
-        rms_th   = kwargs.get("rms_th", 0)
-        rms_rv   = kwargs.get("rms_rv", False)
-        baz_int  = kwargs.get("baz_int", [])
-        rms_int  = kwargs.get("rms_int", [])
+        maac_th   = kwargs.get("maac_th", 0)
+        maac_rv   = kwargs.get("maac_rv", False)
+        max_err   = kwargs.get("max_err", 0.0)
+        rms_th    = kwargs.get("rms_th", 0)
+        rms_rv    = kwargs.get("rms_rv", False)
+        baz_int   = kwargs.get("baz_int", [])
+        rms_int   = kwargs.get("rms_int", [])
+        baz_delta = kwargs.get("baz_delta", None)
 
         if "maac" not in self.attr_list:
             return None
@@ -465,11 +494,12 @@ class CC8out(object):
             fq_idx   = self._fqidx[0]
 
         fq_idx = self.cc8stats.check_idx(fq_idx)[0]
-        error = self._dout["/".join([fq_idx, "error"])]
-        maac  = self._dout["/".join([fq_idx, "maac"])]
-        baz   = self._dout["/".join([fq_idx, "baz"])]
+        error  = self._dout["/".join([fq_idx, "error"])]
+        maac   = self._dout["/".join([fq_idx, "maac"])]
+        baz    = self._dout["/".join([fq_idx, "baz"])]
         slow   = self._dout["/".join([fq_idx, "slow"])]
-        rms   = self._dout["/".join([fq_idx, "rms"])]
+        bazbnd = self._dout["/".join([fq_idx, "bazbnd"])]
+        rms    = self._dout["/".join([fq_idx, "rms"])]
 
         # init nidx
         nidx = np.arange(len(maac), dtype=np.int32)
@@ -487,6 +517,14 @@ class CC8out(object):
         if baz_int:
             bazmin, bazmax = baz_int
             nidx = np.where(((baz<bazmax) & (baz>bazmin)), nidx, np.nan)
+        
+        # apply azimuth delta
+        if baz_delta:
+            az1 = np.where(bazbnd[:,0]>360, np.nan, bazbnd[:,0])
+            az2 = np.where(bazbnd[:,1]>360, np.nan, bazbnd[:,1])
+            azbnd = np.abs(az2-az1) 
+            azbnd = np.where(azbnd>180, 360-azbnd, azbnd)
+            nidx = np.where(azbnd<baz_delta, nidx, np.nan)
 
         # apply rms threshold
         nidx = np.where(rms>0, nidx, np.nan)
@@ -805,31 +843,6 @@ class CC8out(object):
         pxy, pij = slowness_vector(slow, baz, self.cc8stats.slow_max, self.cc8stats.slow_int, slow0=slow0)
 
         return (pxy, pij)
-
-
-    # def recompute_cc8(self, slomax, sloint, fq_idx=None, **nidx_kwargs):
-        
-    #     # este codigo tiene que seleccionar los periodos de tiempo en donde se cumplan las condiciones de nidx_kwargs, y en cada uno de los tiempos, recalcular el vector lentitud aparente utilizando un slomax y sloint adecuado.
-
-    #     if not fq_idx:
-    #         fq_idx = self._fqidx[0]
-    #     else:
-    #         assert fq_idx in self._fqidx
-
-    #     arr, exloc = self.cc8stats.get_array()
-
-    #     data = self.get_data(["slow", "baz"], fq_idx=fq_idx, **nidx_kwargs)
-        
-    #     slowarg0 = {
-    #         "slomax":slomax,
-    #         "sloint":sloint,
-    #         "fq_band":self.cc8stats.fq_bands[int(fq_idx)-1],
-    #         "exclude_locs":exloc,
-    #         "cc_thres":self.cc8stats.cc_thres
-    #     }
-#      for each nidx to recompute
-#      search slow0
-#      fill slowarg --> slowarg["slow0"] = [0,0]
 
 
 

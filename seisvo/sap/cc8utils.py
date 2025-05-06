@@ -5,10 +5,7 @@ import time
 import h5py
 import numpy as np
 import multiprocessing as mp 
-from ..signal import get_CC8, get_Stats, get_PDF
-
-# from .plotting import cc8_plot, slowness_map_motion, simple_slowness_plot, plot_slowbaz_tmap
-
+from ..signal import jl_zlcc
 
 def attr_filt(attr_list, which):
     """
@@ -41,24 +38,26 @@ class _CC8Process(object):
 
 
     def _wrapper(self, data, start, end, fqidx, last):
+        
         if last:
             nwin = self.headers["last_nwin"]
         else:
             nwin = self.headers["nwin"]
-
-        fqband = self.cc8stats.fq_bands[fqidx-1]
-        fs   = self.cc8stats.sample_rate
-        xutm = self.headers["utm"]["x"]
-        yutm = self.headers["utm"]["y"]
         
         t0 = time.time()
-        cc8_ans = get_CC8(data, fs, xutm, yutm, fqband, self.cc8stats.slow_max,\
-            self.cc8stats.slow_int, lwin=self.headers["lwin"], nwin=nwin,\
-            nadv=self.headers["nadv"], cc_thres=self.cc8stats.cc_thres,\
-            toff=self.headers["toff_sec"])
-        t1 = time.time()
+
+        cc8_ans = jl_zlcc(data, self.cc8stats.sample_rate, self.headers["utm"]["x"], 
+                          self.headers["utm"]["y"], self.cc8stats.fq_bands[fqidx-1], 
+                          self.cc8stats.slow_max, self.cc8stats.slow_int, 
+                          self.headers["lwin"], nwin, self.headers["nadv"], 
+                          self.cc8stats.ccerr_thr, self.headers["toff_sec"], 
+                          self.cc8stats.slow2, self.headers["maac_thr"],
+                          self.headers["slow_max2"], self.headers["slow_int2"]
+                          )
         
-        self.queue.put((self.n, cc8_ans, fqidx, start, end, t1-t0, nwin))
+        tp = time.time() - t0 # processing time
+        
+        self.queue.put((self.n, cc8_ans, fqidx, start, end, tp, nwin))
     
 
     def run(self, data, start, end, fqidx, last):
@@ -98,7 +97,10 @@ class _CC8Process(object):
     def get_empty_dict(self, nwin):
         cc8_ans = {}
         vector_nan = np.full([nwin,], np.nan)
-        nite = self.cc8stats.nro_slow_bins
+
+        # compute slowness space
+        nite = 1 + 2*int(self.cc8stats.slow_max/self.cc8stats.slow_int)
+
         matrix_nan = np.full([nwin, nite, nite], np.nan)
         matrixbnd_nan = np.full([nwin, 2], np.nan)
         cc8_ans = {}
@@ -108,6 +110,10 @@ class _CC8Process(object):
         
         if self.cc8stats.slowmap:
             cc8_ans["slowmap"] = matrix_nan
+        
+        if self.cc8stats.slow2:
+            cc8_ans["slow2"] = vector_nan
+            cc8_ans["baz2"] = vector_nan
         
         cc8_ans["slowbnd"] = matrixbnd_nan
         cc8_ans["bazbnd"] = matrixbnd_nan

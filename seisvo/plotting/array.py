@@ -211,7 +211,7 @@ def simple_cc8_plot(dtime, datattr, datapdf, show=True, **kwargs):
         return fig
 
 
-def simple_slowmap(slomap, sloint, slomax, slow0, cc_th=0.05, show=True, **kwargs):
+def simple_slowmap(slomap, sloint, slomax, slow0, ccerr=0.9, show=True, **kwargs):
     cmap  = kwargs.get("cmap", "Spectral_r")
     title = kwargs.get("title", None)
     fig   = kwargs.get("fig", None)
@@ -219,70 +219,58 @@ def simple_slowmap(slomap, sloint, slomax, slow0, cc_th=0.05, show=True, **kwarg
     vlim  = kwargs.get("vlim", [])
     bar_axis  = kwargs.get("bar_axis", None)
     bar_label = kwargs.get("bar_label", "C")
-    adjust_vlim   = kwargs.get("adjust_vlim", False)
+    figsize   = kwargs.get("figsize", (12,8))
     interpolation = kwargs.get("interpolation", "gaussian")
 
     if not axis or not fig:
-        fig, axes = plt.subplots(1,2, figsize=(12,8), gridspec_kw={"width_ratios":[1,0.02]})
+        fig, axes = plt.subplots(1,2, figsize=figsize, gridspec_kw={"width_ratios":[1,0.02]})
         axis = axes[0]
         bar_axis = axes[1]
     else:
         show = False
     
-    # halfbin = sloint / 2.0
-    # extent = (
-    #     -slomax + halfbin,
-    #      slomax - halfbin,
-    #     -slomax + halfbin,
-    #      slomax - halfbin
-    # )
-    extent = (-abs(slow0[0])-slomax, abs(slow0[0])+slomax, -abs(slow0[0])-slomax, abs(slow0[0])+slomax)
-
-    ticks = None
-
-    if adjust_vlim:
-        vmin = slomap.min()
-        vmax = slomap.max()
-
-    else:
-        if not vlim:
-            vmin, vmax = 0, 1
-            ticks = [0,0.25,0.5,0.75,1]
-        else:
-            vmin, vmax = vlim
+    extent = (-abs(slow0[0])-slomax, 
+               abs(slow0[0])+slomax, 
+              -abs(slow0[0])-slomax, 
+               abs(slow0[0])+slomax)
     
-    im = axis.imshow(np.flipud(slomap).T, cmap=cmap, interpolation=interpolation,\
-        extent=extent, aspect='auto', vmin=vmin, vmax=vmax, zorder=1)
+    slomap = np.flipud(slomap).T
+    alphas = mcolor.Normalize(0, ccerr, clip=True)(np.abs(slomap))
+    alphas = np.clip(alphas, ccerr, 1)
+
+    nite = 1 + 2*int(slomax/sloint)
+    slox = np.linspace(-slomax, slomax, nite)
+    
+    ticks = [0,0.25,0.5,0.75,1] # MAAC scale from 0 to 1
+    
+    maacth = slomap.max()*ccerr
+    im = axis.imshow(slomap, cmap=cmap, interpolation=interpolation, extent=extent, aspect='auto', vmin=0, vmax=1, zorder=1)
+    axis.contour(slox, -slox, slomap, levels=[maacth], colors="r")
     
     maxpos = np.where(slomap==slomap.max())
-    # slox = np.linspace(slomax - halfbin, -slomax + halfbin, slomap.shape[0])
-    slox = np.linspace(slomax, -slomax, slomap.shape[0])
-    # slox == sloy
-    slov0x = np.linspace(0,slox[maxpos[0]],100)
-    slov0y = np.linspace(0,slox[maxpos[1]],100)
+    slov0x = np.linspace(0, slox[maxpos[1]], 100)
+    slov0y = -np.linspace(0, slox[maxpos[0]], 100)
+
     axis.plot(slov0x, slov0y, ls="--", lw=0.8, color="k", alpha=0.7, zorder=2)
-    axis.scatter(slox[maxpos[0]],slox[maxpos[1]], marker="o", color="r", ec="k", zorder=3)
+    axis.scatter(slox[maxpos[1]],-slox[maxpos[0]], marker="o", color="r", ec="k", zorder=3)
     axis.scatter(0, 0, marker="o", color="k", ec="k", zorder=3)
 
     # plot error bars
-    if cc_th > 0:
-        maacth = slomap.max()*(1-cc_th)
-        y1, y2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
-        x1, x2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
-        # axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", lw=0.8, fmt="none", zorder=2)
-        # plot points of the bounds
-        axis.scatter(slox[maxpos[0]], slox[y1], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
-        axis.scatter(slox[maxpos[0]], slox[y2], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
-        axis.scatter(slox[x1], slox[maxpos[1]], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
-        axis.scatter(slox[x2], slox[maxpos[1]], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
-        # plot error cross
-        slov1x = np.linspace(slox[x1],slox[x2],100)
-        slov1y = 100*[slox[maxpos[1]]]
-        axis.plot(slov1x, slov1y, ls="--", lw=0.8, color="k", alpha=0.25, zorder=2)
-        slov2x = 100*[slox[maxpos[0]]]
-        slov2y = np.linspace(slox[y1],slox[y2],100)
-        axis.plot(slov2x, slov2y, ls="--", lw=0.8, color="k", alpha=0.25, zorder=2)
-
+    # y1, y2 = _slowbnds_error(slomap[maxpos[0],:].reshape(-1,), maacth)
+    # x1, x2 = _slowbnds_error(slomap[:,maxpos[1]].reshape(-1,), maacth)
+    # axis.errorbar(slox[maxpos[0]],slox[maxpos[1]], yerr=abs(slox[y2]-slox[y1]), xerr=abs(slox[x2]-slox[x1]), capsize=5, color="k", lw=0.8, fmt="none", zorder=2)
+    # plot points of the bounds
+    # axis.scatter(slox[maxpos[1]], -slox[y1], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+    # axis.scatter(slox[maxpos[1]], -slox[y2], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+    # axis.scatter(slox[x1], -slox[maxpos[0]], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+    # axis.scatter(slox[x2], -slox[maxpos[0]], marker="o", color="k", ec="k", alpha=0.25, zorder=3)
+    # plot error cross
+    # slov1x = np.linspace(slox[x1],slox[x2],100)
+    # slov1y = 100*[slox[maxpos[0]]]
+    # axis.plot(slov1x, slov1y, ls="--", lw=0.8, color="k", alpha=0.25, zorder=2)
+    # slov2x = 100*[slox[maxpos[1]]]
+    # slov2y = np.linspace(slox[y1],slox[y2],100)
+    # axis.plot(slov2x, slov2y, ls="--", lw=0.8, color="k", alpha=0.25, zorder=2)
 
     axis.set_title(title)
     axis.set_xlabel("x [s/km]")

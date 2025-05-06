@@ -4,7 +4,7 @@
 import numpy as np
 
 
-def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
+def jl_zlcc(data, fs, xutm, yutm, fq_band, slow_max, slow_int, **kwargs):
     """
     julia wrapper for the processing of the CC8 algorithm
     """
@@ -12,42 +12,50 @@ def get_CC8(data, fs, xutm, yutm, fq_band, slow_max, slow_inc, **kwargs):
     dictans = {}
     
     if isinstance(data, np.ndarray):
-        #assert len(xutm) == len(yutm) == data.shape[0]
-        #assert len(fq_band) == 2
-        #assert len(slow_max) == len(slow_inc)
+
         data = data.astype(dtype=np.float64)
 
         # convert to array
         from juliacall import Main as jl
+
         data = jl.Array(np.array(data))
         xutm = jl.Array(np.array(xutm))
         yutm = jl.Array(np.array(yutm))
-        fq_band = jl.Vector(np.array(fq_band, dtype=float))
-        # slow_max = jl.Array(np.array([slow_max]))
-        # slow_inc = jl.Array(np.array([slow_inc]))
+        fq_band = jl.Vector(np.array(fq_band, dtype=np.float64))
+
         slow_max = float(slow_max)
-        slow_inc = float(slow_inc)
+        slow_int = float(slow_int)
 
         # get kwargs
         lwin = int(kwargs["lwin"])
         nwin = int(kwargs["nwin"])
         nadv = float(kwargs["nadv"])
-        cc_thres = float(kwargs["cc_thres"])
         toff = int(kwargs["toff"])
+        ccerr_thr = float(kwargs["ccerr_thr"])
 
         slow0 = kwargs.get("slow0", [0, 0])
-        slow0 = jl.Array(np.array(slow0).astype(dtype=np.float64))
+        slow0 = jl.Vector(np.array(slow0).astype(dtype=np.float64))
+
+        slow2 = kwargs.get("slow2", True)
+        maac_thr = float(kwargs.get("maac_thr", 0.6))
+        slow_max2 = float(kwargs.get("slow_max2", 0.3))
+        slow_int2 = float(kwargs.get("slow_int2", 0.02))
 
         # load julia
         jl.seval("using SAP")
         
         try:
             # run and save
-            jlans = jl.CC8(data, xutm, yutm, slow_max, slow_inc, fq_band, int(fs), lwin, nwin, nadv, cc_thres, toff, slow0)
+            jlans = jl.zlcc(data, xutm, yutm, slow_max, slow_int, fq_band, int(fs), lwin, nwin, nadv, toff, slow0, ccerr_thr, slow2, maac_thr, slow_max2, slow_int2)
             pyans = dict(jlans)
             dictans = {}
+            
             for attr in ("slow", "baz", "maac", "rms", "error", "slowmap", "slowbnd", "bazbnd"):
                 dictans[attr] = np.array(pyans[attr])
+            
+            if slow2:
+                dictans["baz2"]  = np.array(pyans["baz2"])
+                dictans["slow2"] = np.array(pyans["slow2"])
 
         except Exception as exc:
             print("\n ------ ERROR INFO ------")
@@ -106,7 +114,7 @@ def array_response(xUTM, yUTM, slow_max, slow_inc, fq_band=(1.,10.), fq_int=0.1)
 
     x = jl.Array(np.array(xUTM))
     y = jl.Array(np.array(yUTM))
-    jlarf  = jl.array_response(x, y, slow_max_, slow_inc_, float(fq_band[0]), float(fq_band[1]), float(fq_int))
+    jlarf  = jl.array_transfunc(x, y, slow_max_, slow_inc_, float(fq_band[0]), float(fq_band[1]), float(fq_int))
     
     ans = {
 	    "freq":np.array(jlarf.freqs),

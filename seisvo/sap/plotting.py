@@ -227,7 +227,7 @@ def slowness_map_motion(cc8out, fq_slo_idx, fps, plot=True, starttime=None, endt
 
     def set_title(i):
 	    title = f"Fq band [{fq_idx}] : {cc8out.cc8.stats.fq_bands[int(fq_idx)-1]}  /  slow_idx : {slo_idx} \n  Time : {dtimes[i].strftime('%Y %b %d %H:%M:%S')}"
-	    ax.set_title(title)
+        ax.set_title(title)
     
     slow_inc = cc8out.cc8.stats.slow_inc[int(slo_idx)-1]
     slow_max = cc8out.cc8.stats.slow_max[int(slo_idx)-1]
