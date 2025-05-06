@@ -594,11 +594,11 @@ class Array(Network):
         # load parameters
         sample_rate = self.sample_rate
         njobs       = kwargs.get('njobs', 1)
-        ccerr_thr   = kwargs.get('ccerr_thr', 0.9)
+        ccerr_thr   = kwargs.get('ccerr_thr', 0.95)
         maac_thr    = kwargs.get('maac_thr', 0.6)
-        slow_max2   = kwargs.get('slow_max2', 0.5)
-        slow_int2   = kwargs.get('slow_int2', 0.02)
-        toff_sec    = kwargs.get('toff_sec', 5)
+        slow_max2   = kwargs.get('slow_max2', 0.2)
+        slow_int2   = kwargs.get('slow_int2', 0.01)
+        toff_sec    = kwargs.get('toff_sec', 10)
         fileout     = kwargs.get("fileout", None)
         
         # define locations and positions
